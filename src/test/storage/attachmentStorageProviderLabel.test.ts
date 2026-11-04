@@ -14,6 +14,7 @@ type MockRes = { headersSent: boolean; status(code: number): MockRes; json(body:
 
 const WS = '22222222-2222-2222-2222-222222222222';
 const USER = '33333333-3333-3333-3333-333333333333';
+const VISITOR = '44444444-4444-4444-8444-444444444444';
 
 const db: {
   defaultStorage: unknown;
@@ -77,6 +78,12 @@ vi.mock('../../../server/services/widget/security.js', () => ({
   widgetRateLimit: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   resolveWorkspaceId: () => WS,
   verifyConversationOwnership: async () => ({ valid: true }),
+}));
+
+// The widget's signed visitor (an upload is reserved for them).
+vi.mock('../../../server/services/widget/visitorIdentity.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/services/widget/visitorIdentity.js')>()),
+  readVisitorCookie: () => ({ v: '44444444-4444-4444-8444-444444444444', w: '22222222-2222-2222-2222-222222222222', iat: 1, exp: 9e9 }),
 }));
 
 vi.mock('../../../server/middleware/featureGating.js', () => ({
@@ -198,6 +205,10 @@ describe.each(['operator', 'widget'] as Route[])('%s attachment upload: storage_
   const upload = () => call(route, 'post', '/:id/upload', {
     ...(route === 'operator' ? { workspace_id: WS } : {}),
     data: Buffer.from('hello world!').toString('base64'),
+  });
+  // The widget's file is its uploader's (widgetAttachments.ts UPLOADER_COLUMN).
+  beforeEach(() => {
+    if (route === 'widget') db.attachment = { ...db.attachment, uploaded_by_type: 'visitor', uploaded_by_id: null, uploaded_by_visitor_id: VISITOR };
   });
 
   it('records the provider that stored the bytes', async () => {

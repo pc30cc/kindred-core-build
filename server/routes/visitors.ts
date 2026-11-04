@@ -28,7 +28,8 @@ import { getClientIp, hashIp, getClientCountry } from '../utils/clientIp.js';
 import { resolveVisitorGeo, getActiveGeoProvider } from '../services/geo/index.js';
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
-import { takeNewVisitorSession } from '../services/widget/security.js';
+import { takeNewVisitorSession, readWidgetToken, verifySessionToken } from '../services/widget/security.js';
+import { readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { canonicalWorkspaceId } from '../lib/workspaceId.js';
 import { recordVisitorPageView } from '../services/webAnalytics/pageViews.js';
 import { isConversationId } from '../services/conversationIds.js';
@@ -273,9 +274,67 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * The visitor session a /heartbeat or /disconnect names, when the request
+ * proves it is its own (audit widgetapi-9, 2026-11-04): a valid widget
+ * session token (X-Widget-Token) names the workspace, the request's Origin
+ * is one of that workspace's, and the session belongs to the signed visitor
+ * (the dvsid cookie or the X-Widget-Visitor credential) in that workspace.
+ * Before, a session id alone marked any visitor offline or rewrote their
+ * page and page-view history, pushed live to operators. No widget calls
+ * these two routes (the loader's heartbeat is PUT /api/widget/action).
+ * Otherwise answers and returns null.
+ */
+async function ownVisitorSession(
+  req: Request,
+  res: Response,
+  config: ServerConfig,
+  sessionId: string,
+  bodyWorkspaceId: string | undefined,
+): Promise<{ id: string; workspace_id: string; visitor_id: string | null; current_page: string | null } | null> {
+  const token = readWidgetToken(req);
+  const verified = token ? verifySessionToken(token) : null;
+  const workspaceId = verified?.valid ? canonicalWorkspaceId(verified.workspaceId) : null;
+  if (!workspaceId) {
+    res.status(401).json({ error: 'Widget authentication required' });
+    return null;
+  }
+  if (bodyWorkspaceId && canonicalWorkspaceId(bodyWorkspaceId) !== workspaceId) {
+    res.status(403).json({ error: 'Workspace does not match session' });
+    return null;
+  }
+  const origin = typeof req.headers.origin === 'string'
+    ? req.headers.origin
+    : typeof req.headers.referer === 'string'
+      ? req.headers.referer
+      : null;
+  if (!(await isWorkspaceOriginAllowed(config, workspaceId, origin))) {
+    res.status(403).json({ error: 'Origin not allowed' });
+    return null;
+  }
+  let visitorId: string | null = null;
+  try { visitorId = readVisitorCookie(req, workspaceId)?.v || null; } catch { visitorId = null; }
+  if (!visitorId) {
+    res.status(401).json({ error: 'Visitor identity required' });
+    return null;
+  }
+  const { data: session } = await getServiceClient(config)
+    .from('visitor_sessions')
+    .select('id, workspace_id, visitor_id, current_page')
+    .eq('id', sessionId)
+    .eq('workspace_id', workspaceId)
+    .eq('visitor_id', visitorId)
+    .maybeSingle();
+  if (!session) {
+    res.status(404).json({ error: 'Session not found' });
+    return null;
+  }
+  return session as { id: string; workspace_id: string; visitor_id: string | null; current_page: string | null };
+}
+
 // ============================================
 // POST /api/visitors/heartbeat
-// Presence heartbeat
+// Presence heartbeat (the visitor's own session: ownVisitorSession)
 // ============================================
 const heartbeatSchema = z.object({
   workspace_id: z.string().uuid().optional(),
@@ -299,30 +358,17 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
 
 
   try {
-    if (workspace_id) {
-      const origin = typeof req.headers.origin === 'string'
-        ? req.headers.origin
-        : typeof req.headers.referer === 'string'
-          ? req.headers.referer
-          : null;
-      if (!(await isWorkspaceOriginAllowed(config, workspace_id, origin))) {
-        return res.status(403).json({ error: 'Origin not allowed' });
-      }
-    }
-
-    // Read previous current_page so we only append a new page-view on change.
-    const { data: prevSession } = await supabase
-      .from('visitor_sessions')
-      .select('id, workspace_id, visitor_id, current_page')
-      .eq('id', session_id)
-      .maybeSingle();
+    // The visitor's own session, with the page it was on (a new page-view
+    // is appended only on a change).
+    const prevSession = await ownVisitorSession(req, res, config, session_id, workspace_id);
+    if (!prevSession) return;
 
     // WRITE DISCIPLINE: liveness is suppressed only when THIS session proves
     // (with a signed presence lease) that its realtime subscription is open.
     // Workspace mode alone is not enough — a visitor whose WebSocket is
     // blocked must keep its database liveness, or operators lose it entirely.
     // Navigation (a page change) is durable business data and always persists.
-    const wsIdForMode = workspace_id ?? prevSession?.workspace_id ?? null;
+    const wsIdForMode = prevSession.workspace_id;
     const presenceMode = wsIdForMode
       ? await resolveVisitorPresenceMode(config, wsIdForMode)
       : 'database';
@@ -413,12 +459,9 @@ visitorRouter.post('/disconnect', async (req: Request, res: Response) => {
   const supabase = getServiceClient(config);
 
   try {
-    // Look up workspace_id so we can publish a `visitor.remove` event.
-    const { data: session } = await supabase
-      .from('visitor_sessions')
-      .select('workspace_id')
-      .eq('id', parsed.data.session_id)
-      .maybeSingle();
+    // The visitor's own session (its workspace for the `visitor.remove` event).
+    const session = await ownVisitorSession(req, res, config, parsed.data.session_id, undefined);
+    if (!session) return;
 
     await supabase
       .from('visitor_presence')

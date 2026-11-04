@@ -331,12 +331,31 @@ describe('zarinpal verifyPayment', () => {
     expect(out.amount).toBe(0);
   });
 
-  it('keeps provider failures as failures', async () => {
-    for (const code of [-51, 0, '100', '101', { v: 100 }, true, null]) {
+  it('fails a payment only on a final verify answer (-50, -51, -53, -54)', async () => {
+    for (const code of [-50, -51, -53, -54]) {
+      // v4 puts an error in `errors.code` (with `data: []`); older answers in `data.code`.
+      for (const body of [{ data: [], errors: { code, message: 'x' } }, { data: { code } }]) {
+        mockJson(body);
+        const out = await zarinpalProvider.verifyPayment!(config, verifyParams);
+        expect(out.verified).toBe(false);
+        expect(out.status).toBe('failed');
+      }
+    }
+  });
+
+  it('keeps a payment pending on a transient or unreadable verify answer', async () => {
+    // -12 too many attempts, -52 unexpected error, terminal problems, validation, unknown codes.
+    for (const code of [-9, -10, -11, -12, -15, -52, -55, -99]) {
+      mockJson({ data: [], errors: { code, message: 'x' } });
+      const out = await zarinpalProvider.verifyPayment!(config, verifyParams);
+      expect(out.verified).toBe(false);
+      expect(out.status).toBe('pending');
+    }
+    for (const code of [0, '100', '101', { v: 100 }, true, null]) {
       mockJson({ data: { code, ref_id: 987654321 } });
       const out = await zarinpalProvider.verifyPayment!(config, verifyParams);
       expect(out.verified).toBe(false);
-      expect(out.status).toBe('failed');
+      expect(out.status).toBe('pending');
     }
   });
 
@@ -347,7 +366,7 @@ describe('zarinpal verifyPayment', () => {
         verified: false,
         providerRef: '',
         amount: 250000,
-        status: 'failed',
+        status: 'pending',
       });
     }
   });

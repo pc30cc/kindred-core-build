@@ -90,6 +90,22 @@ final class VoiceRecorder: CallAudioYielding {
         recorder?.stop()
     }
 
+    var holdsMicrophone: Bool { recorder?.isRecording ?? false }
+
+    /// The composer went off screen while recording. The recording stops where
+    /// it is and is kept, as when a call takes the microphone (Send and the bin
+    /// are there if the screen comes back), and the session is let go.
+    func leave() {
+        guard let recorder, recorder.isRecording else { return }
+        recorder.stop()
+        ticker?.cancel()
+        ticker = nil
+        CallAudioFocus.shared.release(self)
+        guard !CallAudioFocus.shared.isHeldByCall, !CallAudioFocus.shared.isHeldByNote else { return }
+        try? AVAudioSession.sharedInstance()
+            .setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
     /// Stops and hands back what was recorded, or nil if there is nothing
     /// worth sending.
     func finish() -> Data? {
@@ -117,7 +133,8 @@ final class VoiceRecorder: CallAudioYielding {
         seconds = 0
         CallAudioFocus.shared.release(self)
         // Never while a colleague call holds the session: it is CallKit's.
-        guard !CallAudioFocus.shared.isHeldByCall else { return }
+        // Nor while a voice note plays on it.
+        guard !CallAudioFocus.shared.isHeldByCall, !CallAudioFocus.shared.isHeldByNote else { return }
         try? AVAudioSession.sharedInstance()
             .setActive(false, options: .notifyOthersOnDeactivation)
     }

@@ -102,11 +102,16 @@ describe('body parsing', () => {
     expect(parsed.status).toBe(200);
     const big = await simplePost('/api/widget/track', trackBody({ widget_token: createSessionToken(WS, SHOP_ORIGIN), pad: 'x'.repeat(65 * 1024) }));
     expect(big.status).toBe(413);
-    // A large JSON body (old loader) keeps the normal parser's limit.
+    // application/json (old loader) keeps the public JSON parser: parsed, and
+    // held to the public 64 KB limit (audit widgetapi-1), no longer 50 MB.
     const json = await request(app).post('/api/widget/track').set('Origin', SHOP_ORIGIN).set('X-Forwarded-For', freshIp())
       .set('X-Widget-Token', createSessionToken(WS, SHOP_ORIGIN))
-      .send(trackBody({ pad: 'x'.repeat(65 * 1024) }));
+      .send(trackBody({ pad: 'x'.repeat(32 * 1024) }));
     expect(json.status).toBe(200);
+    const jsonBig = await request(app).post('/api/widget/track').set('Origin', SHOP_ORIGIN).set('X-Forwarded-For', freshIp())
+      .set('X-Widget-Token', createSessionToken(WS, SHOP_ORIGIN))
+      .send(trackBody({ pad: 'x'.repeat(65 * 1024) }));
+    expect(jsonBig.status).toBe(413);
   });
 });
 

@@ -12,6 +12,7 @@
  *   POST /api/team-calls               { workspace_id, callee_id, channel }  → 201 { call }
  *   GET  /api/team-calls/:id                                                → { call }
  *   POST /api/team-calls/:id/accept    { device_id? }   callee             → { call } | 409 not_ringing
+ *   POST /api/team-calls/:id/rang      { device_id?, platform }  callee   → { call } | 409 not_ringing
  *   POST /api/team-calls/:id/decline                    callee             → { call }
  *   POST /api/team-calls/:id/cancel                     caller             → { call }
  *   POST /api/team-calls/:id/hangup                     either             → { call }
@@ -62,6 +63,7 @@ import { areHiddenFromEachOther } from '../services/teamVisibility.js';
 import { issueParticipantToken } from '../services/calls/participantToken.js';
 import {
   TEAM_CALL_COLUMNS,
+  TEAM_CALL_RANG_PLATFORMS,
   isRingingNow,
   readTeamCallMeta,
   teamCallExpiresAt,
@@ -82,6 +84,7 @@ import {
   failTeamCall,
   hangUpTeamCall,
   loadTeamCall,
+  markTeamCallRang,
 } from '../services/calls/teamCallLifecycle.js';
 import {
   busyMembers,
@@ -139,6 +142,22 @@ const callerLimiter = rateLimit({
   },
 });
 
+// `rang` is cheap (one read, at most one write, sent once per call per
+// phone or tab, retried twice): a member may say it RANG_PER_MINUTE times a
+// minute, whichever of their devices sends it.
+const RANG_PER_MINUTE = 60;
+
+const rangLimiter = rateLimit({
+  windowMs: WINDOW_MS,
+  limit: RANG_PER_MINUTE,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `team-call-rang:${userOf(req)}`,
+  handler: (_req, res) => {
+    res.status(429).json({ error: 'too_many_requests' });
+  },
+});
+
 const calleeRings = new Map<string, number[]>();
 
 /** A ring taken from a callee's share, to keep or give back. */
@@ -178,7 +197,10 @@ function giveBackCalleeRing(ring: CalleeRing): void {
 /** Tests: forget every callee's rings, and these callers' attempts. */
 export function __resetTeamCallRateLimitsForTests(callerIds: readonly string[] = []): void {
   calleeRings.clear();
-  for (const id of callerIds) callerLimiter.resetKey(`team-call:${id}`);
+  for (const id of callerIds) {
+    callerLimiter.resetKey(`team-call:${id}`);
+    rangLimiter.resetKey(`team-call-rang:${id}`);
+  }
 }
 
 // ─── Answers ─────────────────────────────────────────────────────────
@@ -339,6 +361,9 @@ teamCallsRouter.post('/', callerLimiter, async (req, res) => {
       answered_at: null,
       rung_android_device_ids: targets.android.map((d) => d.deviceId),
       rung_ios_device_ids: targets.ios.map((d) => d.deviceId),
+      rang_at: null,
+      rang_device_id: null,
+      rang_platform: null,
     };
     // The busy check again and the row, in one transaction under both
     // members' locks: whoever got there first in the meantime keeps the line.
@@ -480,6 +505,43 @@ teamCallsRouter.post('/:id/accept', async (req, res) => {
     await answerWithCall(res, ctx.config, move.row, ctx.userId);
   } catch (err) {
     failure(res, 'accept', err);
+  }
+});
+
+// ═══ POST /api/team-calls/:id/rang ══════════════════════════════════
+// A phone or a tab of the callee says the call rang there (owner, 2026-11-04:
+// the caller hears no "ringing" until the other side's phone really rings).
+// The first one while the call rings stamps `rang_at` (server time) with its
+// device and platform, and both members hear it on their channels; any later
+// one changes nothing. Either way `{call}`. Past ringing: 409 not_ringing
+// with `{call}`, nothing written. Never moves the state, the ring's end, the
+// billing or the timers.
+const rangSchema = z.object({
+  device_id: z.string().min(1).max(128).optional(),
+  platform: z.enum(TEAM_CALL_RANG_PLATFORMS as unknown as ['ios', 'android', 'web']),
+});
+
+teamCallsRouter.post('/:id/rang', rangLimiter, async (req, res) => {
+  try {
+    const ctx = await participantCall(req, res);
+    if (!ctx) return;
+    if (ctx.role !== 'callee') return res.status(403).json({ error: 'forbidden' });
+    const parsed = rangSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+    const row = await current(ctx.config, ctx.row);
+    if (row.state !== 'ringing') {
+      return answerWithCall(res, ctx.config, row, ctx.userId, 409, { error: 'not_ringing' });
+    }
+    const rang = await markTeamCallRang(ctx.config, row, {
+      deviceId: parsed.data.device_id ?? null,
+      platform: parsed.data.platform,
+    });
+    if (rang.row.state !== 'ringing') {
+      return answerWithCall(res, ctx.config, rang.row, ctx.userId, 409, { error: 'not_ringing' });
+    }
+    await answerWithCall(res, ctx.config, rang.row, ctx.userId);
+  } catch (err) {
+    failure(res, 'rang', err);
   }
 });
 

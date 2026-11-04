@@ -309,14 +309,51 @@ final class MobileAppLockTests: XCTestCase {
         XCTAssertFalse(SignedInRoot.showsLock(appLocked: false, visitorCallOnScreen: true))
 
         let screens = VisitorCallScreens()
-        let call = UUID()
+        let call = Self.invitation("inv-1", expiresIn: 60)
         XCTAssertFalse(screens.isOn)
-        screens.opened(call)
-        screens.opened(call)
+        screens.opened(call, phase: .waiting)
+        screens.opened(call, phase: .waiting)
         XCTAssertTrue(screens.isOn)
-        screens.closed(call)
+        screens.closed(call.id)
         XCTAssertFalse(screens.isOn, "one screen, however often it appeared")
-        screens.closed(call)
+        screens.closed(call.id)
+        XCTAssertFalse(screens.isOn)
+    }
+
+    private static func invitation(_ id: String, expiresIn seconds: TimeInterval) -> CallInvitation {
+        CallInvitation(
+            id: id, status: "pending", channel: "audio", conversationId: "c1",
+            callSessionId: nil, expiresAt: Date().addingTimeInterval(seconds)
+        )
+    }
+
+    /// A colleague's ring meets a visitor call (docs/operations/TEAM_CALLS.md,
+    /// "iOS"): declined only in the visitor's room, ended here alone while
+    /// inviting, rung as usual past a stale screen.
+    func testAVisitorCallIsBusyOnlyWhileItIsOne() {
+        let screens = VisitorCallScreens()
+        let now = Date()
+        XCTAssertEqual(screens.busy(now: now), .none)
+
+        screens.requesting("request-1")
+        XCTAssertEqual(screens.busy(now: now), .inviting, "the invitation on its way")
+
+        let live = Self.invitation("inv-live", expiresIn: 60)
+        screens.handOver("request-1", to: live)
+        XCTAssertEqual(screens.busy(now: now), .inviting, "handed over, no gap")
+        screens.opened(live, phase: .waiting)
+        XCTAssertEqual(screens.busy(now: now), .inviting)
+        XCTAssertEqual(screens.busy(now: now.addingTimeInterval(120)), .none, "an invitation that ran out is not a call")
+
+        screens.changed(live.id, phase: .connecting)
+        XCTAssertEqual(screens.busy(now: now.addingTimeInterval(120)), .live)
+        screens.changed(live.id, phase: .connected)
+        XCTAssertEqual(screens.busy(now: now), .live)
+
+        screens.changed(live.id, phase: .ended(.hungUp))
+        XCTAssertEqual(screens.busy(now: now), .none, "an ended screen left behind is not a call")
+        XCTAssertTrue(screens.isOn, "the plan lock still waits for the screen to close")
+        screens.closed(live.id)
         XCTAssertFalse(screens.isOn)
     }
 

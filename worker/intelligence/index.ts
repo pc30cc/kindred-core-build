@@ -19,7 +19,8 @@ import { DbJobQueueProvider, type JobQueueProvider } from '../../server/services
 import { loadConfig } from '../../server/config.js';
 import { drainKnowledgeBaseChangeEvents } from '../../server/services/ai-agent/knowledgeIndex/kbEvents.js';
 import { drainEntitlementFanoutJobs } from '../../server/services/billing/entitlementFanout.js';
-import { IdleBackoff, IdleIntervalSkipper, intFromEnv } from '../../server/services/jobs/idleBackoff.js';
+import { IdleBackoff, IdleIntervalSkipper, IntervalGate, intFromEnv } from '../../server/services/jobs/idleBackoff.js';
+import { InFlightJobs, settleWithin } from '../../server/services/jobs/inFlight.js';
 
 const POLL_INTERVAL_MS = intFromEnv(process.env.AI_KB_WORKER_POLL_MS, 5000, 1000, 60_000);
 /** Ceiling for the idle poll: how long a new job may wait after a quiet spell. */
@@ -27,6 +28,18 @@ const MAX_IDLE_POLL_MS = intFromEnv(process.env.AI_KB_WORKER_MAX_IDLE_POLL_MS, 3
 const WORKER_ID = process.env.WORKER_ID || `ai-kb-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const IDLE_LOG_INTERVAL_MS = intFromEnv(process.env.AI_KB_WORKER_IDLE_LOG_MS, 60_000, 5000, 600_000);
 const WORKER_CODE_VERSION = 'ai-kb-admin-json-retry-v2';
+/** Jobs this process runs at once; the interval keeps claiming until the slots are full. */
+const MAX_CONCURRENT_JOBS = intFromEnv(process.env.AI_KB_WORKER_MAX_CONCURRENT, 2, 1, 10);
+/**
+ * An active job whose row nobody wrote for this long is failed as abandoned.
+ * ai_kb_jobs has no lease: a worker writes the row on every page crawled and
+ * every draft generated (each bounded by its fetch / AI timeout), so a job
+ * that has been quiet this long belongs to a worker that was killed or
+ * crashed — and before this nothing ever moved it out of `crawling` or
+ * `generating`.
+ */
+const STALE_JOB_MS = intFromEnv(process.env.AI_KB_WORKER_STALE_MS, 30 * 60_000, 10 * 60_000, 24 * 60 * 60_000);
+const STALE_SWEEP_EVERY_MS = 5 * 60_000;
 const REQUIRED_TABLES = [
   'ai_kb_jobs',
   'ai_kb_job_pages',
@@ -123,8 +136,26 @@ async function drainFanoutJobs(): Promise<boolean> {
   }
 }
 
+const inFlight = new InFlightJobs(MAX_CONCURRENT_JOBS);
+
+/** Fails the jobs a vanished worker left active (see STALE_JOB_MS). */
+export async function failAbandonedJobs(queue: JobQueueProvider, now: number = Date.now()): Promise<string[]> {
+  try {
+    const ids = await queue.failStaleJobs(new Date(now - STALE_JOB_MS), 'worker_lost: the job stopped making progress (its worker was restarted or crashed)');
+    for (const id of ids) log('abandoned job failed', { jobId: id, staleMs: STALE_JOB_MS });
+    return ids;
+  } catch (err) {
+    log('abandoned job sweep error', { error: err?.message });
+    return [];
+  }
+}
+
 /** One poll of ai_kb_jobs. Resolves true when the queue had a job. */
 async function tick(sb: SupabaseClient, queue: JobQueueProvider, env: WorkerEnv): Promise<boolean> {
+  // Every slot busy: leave the queue alone until one frees. Counts as work,
+  // so the poll does not back off while jobs are running.
+  if (inFlight.full) return true;
+  const release = inFlight.reserve();
   try {
     // Probe before claim so we can log race losses distinctly.
     const { data: candidate } = await sb
@@ -147,6 +178,8 @@ async function tick(sb: SupabaseClient, queue: JobQueueProvider, env: WorkerEnv)
     const candidateId = (candidate as { id: string }).id;
     log('queued job found', { jobId: candidateId });
     const job = await queue.claimNext(env.workerId);
+    if (job) inFlight.add(job.id);
+    release();
     if (!job) {
       // Another replica won it; the queue was still not empty.
       log('claim skipped/race lost', { jobId: candidateId });
@@ -162,11 +195,15 @@ async function tick(sb: SupabaseClient, queue: JobQueueProvider, env: WorkerEnv)
       log('job failed', { jobId: job.id, error: err?.message });
       await queue.failJob(job.id, err?.message || 'unknown');
       await queue.recordEvent(job.id, job.workspace_id, 'error', 'Job failed', { error: err?.message });
+    } finally {
+      inFlight.delete(job.id);
     }
     return true;
   } catch (err) {
     console.error('[ai-kb worker] tick error:', err?.message);
     return false;
+  } finally {
+    release();
   }
 }
 
@@ -213,6 +250,8 @@ export function startAiKbWorker(envOverride?: Partial<WorkerEnv>) {
     workerId: env.workerId,
     interval: POLL_INTERVAL_MS,
     maxIdleInterval: MAX_IDLE_POLL_MS,
+    maxConcurrentJobs: MAX_CONCURRENT_JOBS,
+    staleJobMs: STALE_JOB_MS,
     codeVersion: WORKER_CODE_VERSION,
     standalone,
     inproc,
@@ -229,7 +268,9 @@ export function startAiKbWorker(envOverride?: Partial<WorkerEnv>) {
     POLL_INTERVAL_MS,
     new IdleBackoff({ busyMs: POLL_INTERVAL_MS, idleMs: POLL_INTERVAL_MS, maxIdleMs: MAX_IDLE_POLL_MS }),
   );
+  const staleSweep = new IntervalGate(STALE_SWEEP_EVERY_MS);
   const cycle = async (): Promise<boolean> => {
+    if (staleSweep.due()) await failAbandonedJobs(queue);
     const foundJob = await tick(sb, queue, env).catch((e) => {
       console.error('[ai-kb worker]', e);
       return false;
@@ -263,14 +304,23 @@ export function startAiKbWorker(envOverride?: Partial<WorkerEnv>) {
     process.on('exit', () => clearInterval(keepAlive));
   }
 
-  // Keep the process alive cleanly and handle signals.
-  const shutdown = (sig: string) => {
-    log('shutdown', { signal: sig });
+  // Keep the process alive cleanly and handle signals. A job still running
+  // here dies with the process; it is failed now rather than left `crawling`
+  // until the stale sweep finds it (the operator can re-run it at once).
+  let shuttingDown = false;
+  const shutdown = async (sig: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    const abandoned = inFlight.ids();
+    log('shutdown', { signal: sig, inFlight: abandoned });
     if (timer) clearInterval(timer);
+    if (abandoned.length > 0) {
+      await settleWithin(queue.failActiveJobs(abandoned, `worker_shutdown: the worker was stopped (${sig}) while this job ran`), 5000);
+    }
     process.exit(0);
   };
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+  process.on('SIGINT', () => { void shutdown('SIGINT'); });
   process.on('uncaughtException', (e) => {
     console.error('[ai-kb worker] uncaughtException', e);
   });

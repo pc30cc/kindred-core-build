@@ -59,6 +59,13 @@ const MAX_IDLE_POLL_MS = intFromEnv(process.env.SEO_WORKER_MAX_IDLE_POLL_MS, 30_
 // NaN here made every claim's lock expiry an Invalid Date, which throws.
 const LOCK_TTL_SECONDS = intFromEnv(process.env.SEO_WORKER_LOCK_TTL_SECONDS, 120, 30, 3600);
 const WORKER_ID = process.env.WORKER_ID || `seo-crawler-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+/**
+ * Jobs this process runs at once. The interval claims a new job while earlier
+ * ones still run; without a ceiling a burst of queued crawls all ran in one
+ * process over a 3-connection pool, their heartbeats queued behind each
+ * other's queries and their 120 s leases lapsed (server/services/jobs/inFlight.ts).
+ */
+const MAX_CONCURRENT_JOBS = intFromEnv(process.env.SEO_WORKER_MAX_CONCURRENT, 2, 1, 10);
 const JOB_TYPES = [
   'seo_crawl', 'seo_backlink_scan', 'seo_keyword_research', 'seo_performance_audit',
   'seo_explorer_backlink_scan', 'seo_explorer_keyword_scan', 'seo_explorer_competitor_scan',
@@ -113,7 +120,7 @@ export async function processCrawl(config: ReturnType<typeof loadConfig>, jobId:
 
   if (result.cancelled) {
     await sb.from('seo_crawls').update({ status: 'cancelled', finished_at: new Date().toISOString(), progress_stage: 'cancelled' }).eq('id', crawl.id);
-    await acknowledgeJobCancel(config, jobId);
+    await acknowledgeJobCancel(config, jobId, WORKER_ID);
     log('crawl cancelled', { crawlId: crawl.id, jobId });
     return;
   }
@@ -174,8 +181,18 @@ export async function processCrawl(config: ReturnType<typeof loadConfig>, jobId:
     log('crawl summary failed', { crawlId: crawl.id, message: (err as Error)?.message });
   }
 
-  await completeJob(config, { jobId });
+  await completeJob(config, { jobId, workerId: WORKER_ID });
   log('crawl completed', { crawlId: crawl.id, jobId, score: scoreResult.score, pagesCrawled: result.pagesCrawled, issues: evalResult.issueCount });
+}
+
+/**
+ * False when this worker no longer held the job's lease (another worker
+ * reclaimed it after it lapsed): that worker owns the domain row now, so the
+ * failure is not written onto it. A job already terminal (cancelled, failed)
+ * still gets its domain row closed, as before.
+ */
+function ownedFailure(r: { updated: boolean; finalStatus?: string }): boolean {
+  return r.updated || r.finalStatus !== undefined;
 }
 
 let shuttingDown = false;
@@ -184,7 +201,7 @@ let inFlight = 0;
 async function tickCrawl(config: ReturnType<typeof loadConfig>, sb: ReturnType<typeof getServiceClient>, jobId: string): Promise<void> {
   const { data: crawl } = await sb.from('seo_crawls').select('*').eq('job_id', jobId).maybeSingle();
   if (!crawl) {
-    await failJob(config, { jobId, errorMessage: 'seo_crawls_row_missing', errorCategory: 'internal_error', retryable: false });
+    await failJob(config, { jobId, errorMessage: 'seo_crawls_row_missing', errorCategory: 'internal_error', retryable: false, workerId: WORKER_ID });
     return;
   }
   try {
@@ -192,7 +209,8 @@ async function tickCrawl(config: ReturnType<typeof loadConfig>, sb: ReturnType<t
   } catch (err) {
     const { category, message, retryable } = classifyError(err);
     log('crawl failed', { jobId, category, message });
-    await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable });
+    const failed = await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable, workerId: WORKER_ID });
+    if (!ownedFailure(failed)) return;
     await sb.from('seo_crawls').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', jobId).in('status', ['queued', 'running', 'processing']);
   }
 }
@@ -200,7 +218,7 @@ async function tickCrawl(config: ReturnType<typeof loadConfig>, sb: ReturnType<t
 async function tickBacklinkScan(config: ReturnType<typeof loadConfig>, sb: ReturnType<typeof getServiceClient>, jobId: string): Promise<void> {
   const { data: scan } = await sb.from('seo_backlink_scans').select('*').eq('job_id', jobId).maybeSingle();
   if (!scan) {
-    await failJob(config, { jobId, errorMessage: 'seo_backlink_scans_row_missing', errorCategory: 'internal_error', retryable: false });
+    await failJob(config, { jobId, errorMessage: 'seo_backlink_scans_row_missing', errorCategory: 'internal_error', retryable: false, workerId: WORKER_ID });
     return;
   }
   try {
@@ -208,7 +226,8 @@ async function tickBacklinkScan(config: ReturnType<typeof loadConfig>, sb: Retur
   } catch (err) {
     const { category, message, retryable } = classifyBacklinkScanError(err);
     log('backlink scan failed', { jobId, category, message });
-    await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable });
+    const failed = await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable, workerId: WORKER_ID });
+    if (!ownedFailure(failed)) return;
     await sb.from('seo_backlink_scans').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', jobId).in('status', ['queued', 'running', 'processing']);
   }
 }
@@ -216,7 +235,7 @@ async function tickBacklinkScan(config: ReturnType<typeof loadConfig>, sb: Retur
 async function tickKeywordResearch(config: ReturnType<typeof loadConfig>, sb: ReturnType<typeof getServiceClient>, jobId: string): Promise<void> {
   const { data: run } = await sb.from('seo_keyword_research_runs').select('*').eq('job_id', jobId).maybeSingle();
   if (!run) {
-    await failJob(config, { jobId, errorMessage: 'seo_keyword_research_runs_row_missing', errorCategory: 'internal_error', retryable: false });
+    await failJob(config, { jobId, errorMessage: 'seo_keyword_research_runs_row_missing', errorCategory: 'internal_error', retryable: false, workerId: WORKER_ID });
     return;
   }
   try {
@@ -224,7 +243,8 @@ async function tickKeywordResearch(config: ReturnType<typeof loadConfig>, sb: Re
   } catch (err) {
     const { category, message, retryable } = classifyKeywordRunError(err);
     log('keyword research failed', { jobId, category, message });
-    await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable });
+    const failed = await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable, workerId: WORKER_ID });
+    if (!ownedFailure(failed)) return;
     await sb.from('seo_keyword_research_runs').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', jobId).in('status', ['queued', 'running', 'processing']);
   }
 }
@@ -232,7 +252,7 @@ async function tickKeywordResearch(config: ReturnType<typeof loadConfig>, sb: Re
 async function tickPerformanceAudit(config: ReturnType<typeof loadConfig>, sb: ReturnType<typeof getServiceClient>, jobId: string): Promise<void> {
   const { data: audit } = await sb.from('seo_performance_audits').select('*').eq('job_id', jobId).maybeSingle();
   if (!audit) {
-    await failJob(config, { jobId, errorMessage: 'seo_performance_audits_row_missing', errorCategory: 'internal_error', retryable: false });
+    await failJob(config, { jobId, errorMessage: 'seo_performance_audits_row_missing', errorCategory: 'internal_error', retryable: false, workerId: WORKER_ID });
     return;
   }
   try {
@@ -240,7 +260,8 @@ async function tickPerformanceAudit(config: ReturnType<typeof loadConfig>, sb: R
   } catch (err) {
     const { category, message, retryable } = classifyPerformanceAuditError(err);
     log('performance audit failed', { jobId, category, message });
-    await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable });
+    const failed = await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable, workerId: WORKER_ID });
+    if (!ownedFailure(failed)) return;
     await sb.from('seo_performance_audits').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', jobId).in('status', ['queued', 'running', 'processing']);
     await sb.from('seo_performance_results').update({ status: 'unavailable' }).eq('audit_id', (audit as SeoPerformanceAuditRow).id).eq('status', 'pending');
   }
@@ -249,7 +270,7 @@ async function tickPerformanceAudit(config: ReturnType<typeof loadConfig>, sb: R
 async function tickExplorerBacklinkScan(config: ReturnType<typeof loadConfig>, sb: ReturnType<typeof getServiceClient>, jobId: string): Promise<void> {
   const { data: scan } = await sb.from('seo_explorer_backlink_scans').select('*').eq('job_id', jobId).maybeSingle();
   if (!scan) {
-    await failJob(config, { jobId, errorMessage: 'seo_explorer_backlink_scans_row_missing', errorCategory: 'internal_error', retryable: false });
+    await failJob(config, { jobId, errorMessage: 'seo_explorer_backlink_scans_row_missing', errorCategory: 'internal_error', retryable: false, workerId: WORKER_ID });
     return;
   }
   try {
@@ -257,7 +278,8 @@ async function tickExplorerBacklinkScan(config: ReturnType<typeof loadConfig>, s
   } catch (err) {
     const { category, message, retryable } = classifyExplorerBacklinkScanError(err);
     log('explorer backlink scan failed', { jobId, category, message });
-    await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable });
+    const failed = await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable, workerId: WORKER_ID });
+    if (!ownedFailure(failed)) return;
     await sb.from('seo_explorer_backlink_scans').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', jobId).in('status', ['queued', 'running', 'processing']);
   }
 }
@@ -265,7 +287,7 @@ async function tickExplorerBacklinkScan(config: ReturnType<typeof loadConfig>, s
 async function tickExplorerKeywordScan(config: ReturnType<typeof loadConfig>, sb: ReturnType<typeof getServiceClient>, jobId: string): Promise<void> {
   const { data: scan } = await sb.from('seo_explorer_keyword_scans').select('*').eq('job_id', jobId).maybeSingle();
   if (!scan) {
-    await failJob(config, { jobId, errorMessage: 'seo_explorer_keyword_scans_row_missing', errorCategory: 'internal_error', retryable: false });
+    await failJob(config, { jobId, errorMessage: 'seo_explorer_keyword_scans_row_missing', errorCategory: 'internal_error', retryable: false, workerId: WORKER_ID });
     return;
   }
   try {
@@ -273,7 +295,8 @@ async function tickExplorerKeywordScan(config: ReturnType<typeof loadConfig>, sb
   } catch (err) {
     const { category, message, retryable } = classifyExplorerKeywordScanError(err);
     log('explorer keyword scan failed', { jobId, category, message });
-    await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable });
+    const failed = await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable, workerId: WORKER_ID });
+    if (!ownedFailure(failed)) return;
     await sb.from('seo_explorer_keyword_scans').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', jobId).in('status', ['queued', 'running', 'processing']);
   }
 }
@@ -281,7 +304,7 @@ async function tickExplorerKeywordScan(config: ReturnType<typeof loadConfig>, sb
 async function tickExplorerCompetitorScan(config: ReturnType<typeof loadConfig>, sb: ReturnType<typeof getServiceClient>, jobId: string): Promise<void> {
   const { data: scan } = await sb.from('seo_explorer_competitor_scans').select('*').eq('job_id', jobId).maybeSingle();
   if (!scan) {
-    await failJob(config, { jobId, errorMessage: 'seo_explorer_competitor_scans_row_missing', errorCategory: 'internal_error', retryable: false });
+    await failJob(config, { jobId, errorMessage: 'seo_explorer_competitor_scans_row_missing', errorCategory: 'internal_error', retryable: false, workerId: WORKER_ID });
     return;
   }
   try {
@@ -289,7 +312,8 @@ async function tickExplorerCompetitorScan(config: ReturnType<typeof loadConfig>,
   } catch (err) {
     const { category, message, retryable } = classifyExplorerCompetitorScanError(err);
     log('explorer competitor scan failed', { jobId, category, message });
-    await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable });
+    const failed = await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable, workerId: WORKER_ID });
+    if (!ownedFailure(failed)) return;
     await sb.from('seo_explorer_competitor_scans').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', jobId).in('status', ['queued', 'running', 'processing']);
   }
 }
@@ -297,10 +321,23 @@ async function tickExplorerCompetitorScan(config: ReturnType<typeof loadConfig>,
 /** One poll of the SEO queue. Resolves true when a job was claimed. */
 async function tick(config: ReturnType<typeof loadConfig>): Promise<boolean> {
   if (shuttingDown) return false;
-  const job = await claimNextJob(config, { jobTypes: JOB_TYPES, workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS });
-  if (!job) return false;
-
+  // Every slot busy: counts as work, so the poll does not back off meanwhile.
+  if (inFlight >= MAX_CONCURRENT_JOBS) return true;
+  // The slot is taken before the claim, so two intervals cannot both pass the
+  // check while one claim is still in flight.
   inFlight++;
+  let job: Awaited<ReturnType<typeof claimNextJob>>;
+  try {
+    job = await claimNextJob(config, { jobTypes: JOB_TYPES, workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS });
+  } catch (err) {
+    inFlight--;
+    throw err;
+  }
+  if (!job) {
+    inFlight--;
+    return false;
+  }
+
   const sb = getServiceClient(config);
   try {
     if (job.job_type === 'seo_backlink_scan') await tickBacklinkScan(config, sb, job.id);
@@ -323,7 +360,7 @@ export function startSeoCrawlerWorker(): void {
   if (started) return;
   started = true;
   const config = loadConfig();
-  log('started', { workerId: WORKER_ID, pollIntervalMs: POLL_INTERVAL_MS, maxIdlePollMs: MAX_IDLE_POLL_MS });
+  log('started', { workerId: WORKER_ID, pollIntervalMs: POLL_INTERVAL_MS, maxIdlePollMs: MAX_IDLE_POLL_MS, maxConcurrentJobs: MAX_CONCURRENT_JOBS });
 
   // setInterval, not a self-rescheduling timeout: a crawl runs for minutes
   // inside tick() while the next interval still claims the next queued job.

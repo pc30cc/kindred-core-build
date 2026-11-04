@@ -96,6 +96,8 @@ class CallSessionTest {
         private val inviteFailure: Throwable? = null,
         /** How long the room's token takes to arrive. */
         private val tokenMillis: Long = 0,
+        /** How long the invitation takes to be made. */
+        private val inviteMillis: Long = 0,
         private val real: SampleApi = SampleApi(),
     ) : ServerApi by real {
         var polls = 0; private set
@@ -110,6 +112,7 @@ class CallSessionTest {
             channel: CallChannel,
         ): CallInvitation {
             invites++
+            if (inviteMillis > 0) delay(inviteMillis)
             inviteFailure?.let { throw it }
             return CallInvitation(
                 id = "inv-1",
@@ -610,5 +613,41 @@ class CallSessionTest {
     private companion object {
         val SAMPLE_TOKEN = CallToken(token = "t", wsUrl = "wss://example.invalid")
         val EXPIRED = CallInvitation(id = "inv-1", status = "expired", channel = "audio")
+    }
+
+    /**
+     * Hung up while the invitation was still being made: the server made it
+     * anyway, and it is withdrawn as soon as its id is known — not left
+     * ringing the visitor's widget for its five minutes.
+     */
+    @Test
+    fun `an invitation still being made when the call ends is withdrawn`() = runTest(dispatcher) {
+        val api = ScriptedApi(listOf(invitation("pending")), inviteMillis = 3_000)
+        val call = session(api, FakeRoom())
+        call.dial()
+        testScheduler.advanceTimeBy(1_000)
+
+        call.hangUp()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(CallPhase.Ended(CallOutcome.HungUp), call.phase.value)
+        assertEquals("inv-1", api.cancelled)
+        assertEquals(0, api.polls)
+    }
+
+    /**
+     * The visitor joined, and the room's token could not be had: the call
+     * ends, and the server is told, so the visitor is not left alone in a
+     * room nobody will come to.
+     */
+    @Test
+    fun `a join that fails for its token still hangs up on the server`() = runTest(dispatcher) {
+        val api = ScriptedApi(listOf(invitation("joined", sessionId = "cs-1")), token = null)
+        val call = session(api, FakeRoom())
+        call.dial()
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(call.phase.value is CallPhase.Ended)
+        assertEquals("cs-1", api.hungUp)
     }
 }

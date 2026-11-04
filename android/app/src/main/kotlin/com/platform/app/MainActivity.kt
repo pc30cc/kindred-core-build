@@ -195,6 +195,13 @@ class MainActivity : ComponentActivity() {
         // A ringing call — Answer, or the ring itself, possibly full screen
         // over the lock screen.
         runCatching { IncomingCallLink.from(intent) }.getOrNull()?.let { call ->
+            // Only this phone's own ring, ringing now. This activity is
+            // exported, so an intent shaped like the ring's can come from any
+            // app; acted on, it would answer a call — microphone live, over
+            // the lock screen — that nobody here chose to answer. A ring's
+            // own Answer and tap always find it still up: it stays until
+            // answered, declined, stopped by the server or run out.
+            if (!CallNotifications.isRinging(this, call.callId, colleague = call.isColleague)) return
             showOverLockScreen(true)
             if (call.answer) {
                 // Answered: the ring has done its job on this phone.

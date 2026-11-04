@@ -21,8 +21,9 @@
  *  - the sounds (the ringtone and the caller's ringback, Web Audio, no
  *    files) and the system notification while the tab is hidden; the
  *    caller's ringback plays only once a phone or tab of the callee said it
- *    rang (`rang_at`), and this tab says so for its own ring (`rang`) when
- *    its ringing card shows;
+ *    rang (`rang_at`), and this tab says so for its own ring (`rang`) once
+ *    the ring can be perceived here: the card visible, the ringtone
+ *    sounding or the system notification shown;
  *  - this tab's device id (deviceId.ts), sent on accept. The first answer
  *    wins on every surface; a tab whose own answer did not win stops.
  *
@@ -516,6 +517,10 @@ export function TeamCallProvider({
     const check = () => tryRang(rangPending);
     document.addEventListener('visibilitychange', check);
     const off = onRingtonePlaying(check);
+    // Whatever changed between the decision to wait and these listeners
+    // (a ringtone that started at once, from the ring effect below, fires
+    // no listener that was not there yet) counts now.
+    check();
     return () => {
       document.removeEventListener('visibilitychange', check);
       off();
@@ -530,6 +535,9 @@ export function TeamCallProvider({
   useEffect(() => {
     if (!ringingHere || !callId) return;
     startRingtone();
+    // A ringtone that sounds before the card is on screen (its module still
+    // loading) is a ring perceived here.
+    tryRang(callId);
     const stopNotice = watchRingNotification({
       title: ringPeerName?.trim() || tRef.current('teamCall.colleague'),
       body: tRef.current(ringChannel === 'video' ? 'teamCall.incomingVideo' : 'teamCall.incomingVoice'),

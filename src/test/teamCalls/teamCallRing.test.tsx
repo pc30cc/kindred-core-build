@@ -444,6 +444,28 @@ describe('rang waits until the ring can be perceived here', () => {
     }
   });
 
+  it('a hidden tab whose ringtone starts as the ring is set up says it (no listener yet when it started)', async () => {
+    // A running AudioContext starts the tone synchronously, from the
+    // provider's ring effect: after the card's effect decided to wait, before
+    // the wait subscribed to anything (review of #409).
+    sound.startRingtone.mockImplementationOnce(() => {
+      ringtone.playing = true;
+      for (const listener of [...ringtone.listeners]) listener();
+    });
+    const vis = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    try {
+      h.route = route;
+      mount();
+      await emit('ringing');
+      await screen.findByRole('alertdialog');
+      await waitFor(() => expect(rangs()).toHaveLength(1));
+      await pause();
+      expect(rangs()).toHaveLength(1);
+    } finally {
+      vis.mockRestore();
+    }
+  });
+
   it('a hidden tab that showed its system notification says it at once', async () => {
     class FakeNotification {
       static permission = 'granted';

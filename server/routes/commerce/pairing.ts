@@ -10,6 +10,7 @@
 import { Router, type Request } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
+import { boundedRecord } from '../../lib/boundedZod.js';
 import type { ServerConfig } from '../../config.js';
 import { authorizeWorkspaceAccess } from '../../lib/workspaceAuth.js';
 import {
@@ -89,7 +90,7 @@ commercePairingRouter.get('/:state', pairingLimiter, async (req, res) => {
 
 const approveSchema = z.object({
   workspaceId: z.string().uuid(),
-  permissions: z.record(z.boolean()).default({}),
+  permissions: boundedRecord(z.boolean(), 64).default({}),
 }).strict();
 
 /** Called by the authenticated Web Yar "authorize this store" page. */

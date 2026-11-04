@@ -12,6 +12,7 @@
 
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { boundedArray } from '../lib/boundedZod.js';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import {
@@ -172,7 +173,7 @@ async function enforceWorkspaceOrigin(
 // ─────────────────────────────────────────────────────────────────────
 const connectSchema = z.object({
   workspace_id: z.string().uuid(),
-  conversation_ids: z.array(z.string().uuid()).optional(),
+  conversation_ids: boundedArray(z.string().uuid(), 50).optional(),
   // Explicit client-declared lifecycle stage, mirroring operatorConnectSchema.
   // The widget runtime only ever sends 'initial' (first negotiation) or
   // 'reconnect' (its Centrifugo driver's scheduleReconnect, which only fires

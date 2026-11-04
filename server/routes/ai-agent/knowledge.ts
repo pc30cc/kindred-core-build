@@ -7,6 +7,7 @@
  */
 import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
+import { boundedArray } from '../../lib/boundedZod.js';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { recordSourceSyncLog } from '../../services/ai-agent/sourceSyncLog.js';
@@ -185,12 +186,12 @@ knowledgeRouter.delete('/qna/:id', async (req: Request, res: Response) => {
 // ─── Q&A bulk import (owner/admin) ───
 const qnaBulkSchema = z.object({
   workspaceId: z.string().uuid(),
-  items: z.array(z.object({
+  items: boundedArray(z.object({
     question: z.string().min(1).max(500),
     answer: z.string().min(1).max(4000),
     locale: z.string().max(10).optional(),
     enabled: z.boolean().optional(),
-  })).min(1).max(200),
+  }), 200, 1),
 });
 knowledgeRouter.post('/qna/bulk', async (req: Request, res: Response) => {
   const config = serverConfigOf(req);

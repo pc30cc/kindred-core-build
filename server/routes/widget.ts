@@ -26,6 +26,7 @@ import { clearContinuityCookie } from '../services/widget/continuity.js';
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { boundedArray } from '../lib/boundedZod.js';
 import crypto from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
@@ -735,7 +736,7 @@ const nudgeEvaluateSchema = z.object({
   locale: z.string().max(10).default('en'),
   device: z.enum(['desktop', 'mobile', 'tablet']).default('desktop'),
   current: nudgePageSchema,
-  recent_pages: z.array(nudgePageSchema.extend({ ts: z.number() })).max(AI_JOURNEY_MAX_PAGES).default([]),
+  recent_pages: boundedArray(nudgePageSchema.extend({ ts: z.number() }), AI_JOURNEY_MAX_PAGES).default([]),
   session_page_count: z.number().int().min(0).max(100000).default(1),
   returning: z.boolean().default(false),
   previous_nudge: z.object({ topic: z.string().max(60), dismissed: z.boolean(), engaged: z.boolean() }).optional().nullable(),

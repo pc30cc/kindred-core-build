@@ -7,6 +7,7 @@
  */
 import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
+import { boundedArray } from '../../lib/boundedZod.js';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { detectTopics } from '../../services/ai-agent/topics/detector.js';
@@ -756,7 +757,7 @@ const serverSchema = z.object({
   status: z.enum(['disabled', 'enabled', 'error']).optional().default('disabled'),
   auth_type: z.enum(['none', 'bearer', 'basic', 'api_key', 'oauth']).optional().default('none'),
   encrypted_config: z.record(z.any()).optional().nullable(),
-  allowed_tools: z.array(z.string()).optional().default([]),
+  allowed_tools: boundedArray(z.string(), 500).optional().default([]),
   permissions_json: z.record(z.any()).optional().default({}),
 });
 automationRouter.post('/tool-servers', async (req: Request, res: Response) => {

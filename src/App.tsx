@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { shouldRetryQuery } from "@/lib/queryRetry";
+import { inAppRedirect } from "@/lib/inAppRedirect";
 import { BrowserRouter, Route, Routes, Navigate, useParams, useLocation } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { UiPreferencesProvider } from "@/features/ui-preferences/UiPreferencesContext";
@@ -418,7 +419,11 @@ const LegacyWorkspaceUrlRedirect = () => {
   const params = useParams();
   const location = useLocation();
   const rest = params['*'] ? `/${params['*']}` : '';
-  return <Navigate to={`/${params.slug}${rest}${location.search}${location.hash}`} replace />;
+  // Params come decoded from the URL (`%5C` → `\`, `%2F` → `/`), so
+  // `/app/w/%5Cevil.example` would build `/\evil.example`: react-router 6
+  // treats that as another origin (GHSA-wrjc-x8rr-h8h6). Keep it in the app.
+  const target = inAppRedirect(`/${params.slug}${rest}${location.search}${location.hash}`, '/app');
+  return <Navigate to={target} replace />;
 };
 
 interface AppProps {

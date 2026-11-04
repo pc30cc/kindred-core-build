@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { boundedArray } from '../lib/boundedZod.js';
 import { getServiceClient } from '../supabase.js';
 import {
   resolveVisitorPresenceForSessions,
@@ -737,9 +738,9 @@ visitorsAdminRouter.post('/network/batch', async (req: Request, res: Response) =
   const parsed = z
     .object({
       workspace_id: z.string().uuid(),
-      conversation_ids: z.array(z.string().uuid()).max(500).optional(),
-      session_ids: z.array(z.string().uuid()).max(500).optional(),
-      contact_ids: z.array(z.string().uuid()).max(500).optional(),
+      conversation_ids: boundedArray(z.string().uuid(), 500).optional(),
+      session_ids: boundedArray(z.string().uuid(), 500).optional(),
+      contact_ids: boundedArray(z.string().uuid(), 500).optional(),
     })
     .safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });

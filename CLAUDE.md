@@ -250,9 +250,13 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
   needs it.
 - 16 LiveKit: auto-deploy on every push to `main` since 2026-11-03 (owner),
   so a merge restarts it and drops the calls in progress at that moment.
+- 21 AI Runtime (`ai.webyar.ai`): auto-deploy on every push to `main`
+  (switched on 2026-10-30, seen deploying with the merge of #387). RESPOK's
+  AI Runtime (30) is off: queue it by hand when `ai-runtime/`, `runtime/` or
+  what it imports from `shared/` changes.
 - 15 Centrifugo, 17 Intelligence Worker, 18 Source Sync
   Worker, 19 Plugins Channels (`channels.webyar.ai`), 20 Channels-Worker,
-  21 AI Runtime (`ai.webyar.ai`), 22 Regression AI Worker, 23 Seo-Crawler:
+  22 Regression AI Worker, 23 Seo-Crawler:
   auto-deploy off, so a push does not update them; queue them by hand when a
   change needs them.
 - 42 Widget Bridge Worker (RESPOK's 43, `Dockerfile.widget-bridge`):

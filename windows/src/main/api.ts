@@ -223,14 +223,19 @@ export async function refreshOrigin(): Promise<void> {
 
 /** A self-hosted deployment typed in on the sign-in screen. `null` goes back to the default. */
 export function setServer(origin: string | null): string {
-  if (origin === null || origin.trim() === '') {
+  const before = currentOrigin()
+  if (origin === null || (typeof origin === 'string' && origin.trim() === '')) {
     writeSettings({ apiOrigin: undefined, manualOrigin: false })
-    return currentOrigin()
+  } else {
+    if (typeof origin !== 'string') throw new Error('invalid server')
+    let value = origin.trim()
+    if (!/^https?:\/\//i.test(value)) value = 'https://' + value
+    const url = new URL(value)
+    if (url.protocol !== 'https:') throw new Error('https only')
+    writeSettings({ apiOrigin: url.origin, manualOrigin: true })
   }
-  let value = origin.trim()
-  if (!/^https?:\/\//i.test(value)) value = 'https://' + value
-  const url = new URL(value)
-  if (url.protocol !== 'https:') throw new Error('https only')
-  writeSettings({ apiOrigin: url.origin, manualOrigin: true })
+  // A session belongs to the server that issued it: it never follows the
+  // operator (or a renderer) to another one.
+  if (currentOrigin() !== before) discardSession()
   return currentOrigin()
 }

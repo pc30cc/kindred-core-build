@@ -752,8 +752,15 @@ final class VisitorCallScreens {
     static let shared = VisitorCallScreens()
 
     private(set) var open: Set<UUID> = []
+    /// Invitations on their way (`ConversationActionsModel.invite`): a
+    /// visitor call that is about to have a screen already holds the audio,
+    /// so a colleague's ring meanwhile is busy (`CallManager.reportIncoming`).
+    private(set) var starting = 0
 
-    var isOn: Bool { !open.isEmpty }
+    var isOn: Bool { !open.isEmpty || starting > 0 }
+
+    func beganStarting() { starting += 1 }
+    func endedStarting() { starting = max(0, starting - 1) }
 
     func opened(_ screen: UUID) { _ = open.insert(screen) }
     func closed(_ screen: UUID) { _ = open.remove(screen) }

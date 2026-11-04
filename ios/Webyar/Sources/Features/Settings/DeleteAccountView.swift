@@ -190,6 +190,9 @@ struct DeleteAccountView: View {
         withAnimation(Theme.Motion.standard) { errorMessage = nil }
 
         Task {
+            // A colleague call still on (minimised) ends first, with the
+            // server told while this session can still tell it.
+            await CallManager.shared.endForSignOut()
             do {
                 switch try await Backend.current.deleteAccount(password: password) {
                 case .deleted:

@@ -230,6 +230,16 @@ final class ConversationActionsModel {
         if channel == .video {
             _ = await AVCaptureDevice.requestAccess(for: .video)
         }
+        // Asked again after the permission prompts, which can take as long
+        // as the member likes: a colleague call may have rung meanwhile.
+        guard !CallManager.shared.isOnCall else {
+            callBlockedByColleagueCall = true
+            return
+        }
+        // From here the visitor call holds the audio, before its screen is
+        // up: a colleague's ring is busy (`VisitorCallScreens`).
+        VisitorCallScreens.shared.beganStarting()
+        defer { VisitorCallScreens.shared.endedStarting() }
         do {
             pendingInvitation = try await api.inviteToCall(
                 conversationID: conversationID,

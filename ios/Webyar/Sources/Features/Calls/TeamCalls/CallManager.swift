@@ -169,6 +169,10 @@ final class CallManager {
     /// known. Kept so that a call ended here meanwhile can still be hung up
     /// once the answer says it was this phone's (`TeamCallNotice`).
     @ObservationIgnored private var answering: Task<TeamCallAcceptance?, Never>?
+    /// `POST /api/team-calls` on its way, for an outgoing call that has no
+    /// call id yet: what a sign-out waits on to hang the ring up
+    /// (`endForSignOut`).
+    @ObservationIgnored private var placing: Task<Result<TeamCall, Error>, Never>?
     @ObservationIgnored private var watcher: Task<Void, Never>?
     @ObservationIgnored private var ringTimer: Task<Void, Never>?
     @ObservationIgnored private var joinTimer: Task<Void, Never>?
@@ -302,10 +306,14 @@ final class CallManager {
         // last read it for the ring's workspace (`MobileAppLock`) — a locked
         // workspace's ring is reported and ended at once
         // (docs/operations/MOBILE_APP_PLAN.md).
+        // A visitor call on this phone — its screen up, or its invitation
+        // on the way — holds the audio as much as a colleague call: LiveKit's
+        // engine is that call's, and handing it to CallKit would mute it.
+        let visitorCallOn = VisitorCallScreens.shared.isOn
         let accepted: TeamCallRing? = ring.flatMap { ring in
             guard ring.mayRing(
                 now: now,
-                holdsAudio: holdsAudio,
+                holdsAudio: holdsAudio || visitorCallOn,
                 signedIn: TokenStore.read() != nil,
                 workspaceLocked: MobileAppLock.isLocked(workspaceID: ring.workspaceID)
             ) else { return nil }
@@ -314,6 +322,12 @@ final class CallManager {
         report(uuid, update)
         guard let ring = accepted else {
             callKit.provider.reportCall(with: uuid, endedAt: nil, reason: .failed)
+            // Busy on a visitor call: declined, so the caller hears busy at
+            // once rather than ringing out. Nothing here touches the audio,
+            // and no `rang` is sent: the call was never this phone's.
+            if let ring, visitorCallOn, !holdsAudio, !ring.isExpired(now: now), TokenStore.read() != nil {
+                tell(.decline, callID: ring.callID, answering: nil)
+            }
             // Ended for what this phone last read of that workspace's plan,
             // which goes stale when the plan is switched back on while
             // another workspace is open here: ask it again, so the next ring
@@ -432,13 +446,24 @@ final class CallManager {
             isCameraOn: channel == .video
         )
         takeAudio()
-        Task { await startOnServer(uuid: uuid, calleeID: colleague.userId, channel: channel, workspaceID: workspaceID) }
+        let calleeID = colleague.userId
+        let placing = Task { [api] () async -> Result<TeamCall, Error> in
+            do {
+                return .success(try await api.startTeamCall(workspaceID: workspaceID, calleeID: calleeID, channel: channel))
+            } catch {
+                return .failure(error)
+            }
+        }
+        self.placing = placing
+        Task { await startOnServer(uuid: uuid, channel: channel, placing: placing) }
     }
 
-    private func startOnServer(uuid: UUID, calleeID: String, channel: CallChannel, workspaceID: String) async {
+    private func startOnServer(uuid: UUID, channel: CallChannel, placing: Task<Result<TeamCall, Error>, Never>) async {
+        let result = await placing.value
+        if self.placing == placing { self.placing = nil }
         let placed: TeamCall
         do {
-            placed = try await api.startTeamCall(workspaceID: workspaceID, calleeID: calleeID, channel: channel)
+            placed = try result.get()
         } catch APIError.server(let status, let code) {
             finish(uuid, .refusal(status: status, code: code), tellServer: false, reportToCallKit: false)
             return
@@ -941,19 +966,45 @@ final class CallManager {
     /// while the session that may tell it still exists — so the colleague's
     /// phones stop ringing, or the colleague is not left in an empty room.
     /// Bounded: sign-out never waits on it for more than a few seconds.
+    ///
+    /// Covers the moments a plain end cannot: a call still being placed (no
+    /// call id yet — the placement is awaited, and the ring it made hung up)
+    /// and this phone's answer still on its way (not awaited past a moment;
+    /// the server is asked whose the call is instead). The requests run in
+    /// tasks of their own, never cancelled, so none is cut short by the cap.
     func endForSignOut() async {
         guard let call, !call.phase.isOver else { return }
         let notice = TeamCallNotice.leaving(call)
-        let callID = call.callID
+        let knownID = call.callID
         let answering = self.answering
+        let placing = knownID == nil ? self.placing : nil
         finish(call.uuid, Self.endedHere(call), tellServer: false, reportToCallKit: true)
-        guard let callID else { return }
         let api = self.api, deviceID = self.deviceID
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await Self.notify(notice, callID: callID, answering: answering, api: api, deviceID: deviceID) }
-            group.addTask { try? await Task.sleep(for: .seconds(5)) }
-            _ = await group.next()
-            group.cancelAll()
+        let deadline = Date().addingTimeInterval(5)
+        await SignOutRace.first(by: deadline) {
+            var callID = knownID
+            if callID == nil, let placing {
+                callID = try? await placing.value.get().id
+            }
+            guard let callID else { return }
+            switch notice {
+            case .afterTheAnswer:
+                // The answer for at most half the time left; else the
+                // server's word on whose the call is.
+                let answer = await SignOutRace.value(by: Date().addingTimeInterval(max(0, deadline.timeIntervalSinceNow) / 2)) {
+                    await answering?.value
+                }
+                let won: Bool
+                if let answer = answer ?? nil {
+                    won = answer.isWon(by: deviceID)
+                } else {
+                    won = (try? await api.teamCall(id: callID))?.isAnswered(on: deviceID) == true
+                }
+                guard won else { return }
+                await Self.notify(.hangUp, callID: callID, answering: nil, api: api, deviceID: deviceID)
+            case .hangUp, .decline:
+                await Self.notify(notice, callID: callID, answering: nil, api: api, deviceID: deviceID)
+            }
         }
     }
 
@@ -1204,5 +1255,53 @@ final class CallKitBridge: NSObject, @preconcurrency CXProviderDelegate {
 
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
         manager?.audioDeactivated()
+    }
+}
+
+/// Waiting on sign-out's requests no longer than it may, without cancelling
+/// them: each runs in a task of its own, and only the waiting stops.
+enum SignOutRace {
+    /// Runs `work` and returns when it finishes or at `deadline`, whichever
+    /// is first.
+    static func first(by deadline: Date, _ work: @escaping @Sendable () async -> Void) async {
+        _ = await value(by: deadline) { await work(); return true }
+    }
+
+    /// `work`'s value, or nil at `deadline`.
+    static func value<T: Sendable>(by deadline: Date, _ work: @escaping @Sendable () async -> T) async -> T? {
+        let once = Once<T?>()
+        return await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
+            once.set(continuation)
+            Task { once.resume(await work()) }
+            Task {
+                try? await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
+                once.resume(nil)
+            }
+        }
+    }
+
+    /// A continuation resumed once, by whichever side comes first.
+    private final class Once<T: Sendable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<T, Never>?
+        private var done = false
+
+        func set(_ continuation: CheckedContinuation<T, Never>) {
+            lock.lock()
+            defer { lock.unlock() }
+            self.continuation = continuation
+        }
+
+        func resume(_ value: T) {
+            lock.lock()
+            guard !done, let continuation else {
+                lock.unlock()
+                return
+            }
+            done = true
+            self.continuation = nil
+            lock.unlock()
+            continuation.resume(returning: value)
+        }
     }
 }

@@ -61,8 +61,11 @@ ENV WORKER_KIND=intelligence
 # Verified at build time so the image fails fast if tsx is missing.
 RUN test -f node_modules/tsx/dist/cli.mjs || (echo "❌ tsx not installed" && ls node_modules/.bin | head && exit 1)
 # Coolify (and other orchestrators) inspect .State.Health — a worker has no
-# HTTP port, so health = "the worker process is still running".
+# HTTP port, so health = "the worker's event loop ran in the last minute":
+# worker/index.ts writes the time to /tmp/worker-health every 15 s. (The old
+# `pgrep -f "worker/index.ts"` matched the healthcheck's own shell command
+# line and so always passed.) Same shape as Dockerfile.widget-bridge's check.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD pgrep -f "worker/index.ts" > /dev/null || exit 1
+  CMD node -e "Date.now()-Number(require('fs').readFileSync('/tmp/worker-health','utf8'))<60000 || process.exit(1)"
 
 CMD ["node", "node_modules/tsx/dist/cli.mjs", "worker/index.ts"]

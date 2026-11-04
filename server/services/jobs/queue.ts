@@ -112,7 +112,7 @@ export async function claimNextJob(
 export async function heartbeatJob(
   config: ServerConfig,
   args: { jobId: string; workerId: string; lockTtlSeconds: number; progress?: number; progressStage?: string; status?: 'running' | 'processing' },
-): Promise<{ ok: boolean; cancelRequested: boolean }> {
+): Promise<{ ok: boolean; cancelRequested: boolean; leaseLost?: boolean }> {
   const sb = getServiceClient(config);
   const update: Record<string, unknown> = {
     lock_expires_at: new Date(Date.now() + args.lockTtlSeconds * 1000).toISOString(),
@@ -121,29 +121,39 @@ export async function heartbeatJob(
   if (args.progressStage) update.progress_stage = args.progressStage;
   if (args.status) update.status = args.status;
 
-  const { data } = await sb
+  const { data, error } = await sb
     .from('background_jobs')
     .update(update)
     .eq('id', args.jobId)
     .eq('locked_by', args.workerId)
     .select('cancel_requested')
     .maybeSingle();
-  if (!data) return { ok: false, cancelRequested: false };
+  // No row and no error: the job is no longer locked by this worker (its
+  // lease lapsed and another worker claimed it, or it was failed/re-queued).
+  // A database error is not that — the next heartbeat tries again.
+  if (!data) return { ok: false, cancelRequested: false, leaseLost: !error };
   return { ok: true, cancelRequested: !!(data as { cancel_requested: boolean }).cancel_requested };
 }
 
+/**
+ * `workerId`, when given, scopes a worker's terminal write to the lease it
+ * holds (`locked_by`). A worker whose lease lapsed while it ran (a slow vendor
+ * call, a stalled event loop) has had its job reclaimed by another worker; its
+ * late completion or failure must not finish, re-queue or fail the run that
+ * worker now owns. Callers that are not the lease holder (admin tools) omit it.
+ */
 export async function completeJob(
   config: ServerConfig,
-  args: { jobId: string },
+  args: { jobId: string; workerId?: string },
 ): Promise<{ updated: boolean }> {
   const sb = getServiceClient(config);
-  const { data } = await sb
+  let q = sb
     .from('background_jobs')
     .update({ status: 'completed', progress: 100, finished_at: new Date().toISOString(), error_message: null, error_category: null })
     .eq('id', args.jobId)
-    .in('status', ['running', 'processing'])
-    .select('id')
-    .maybeSingle();
+    .in('status', ['running', 'processing']);
+  if (args.workerId) q = q.eq('locked_by', args.workerId);
+  const { data } = await q.select('id').maybeSingle();
   return { updated: !!data };
 }
 
@@ -152,7 +162,7 @@ const NON_RETRYABLE_CATEGORIES = new Set(['invalid_target', 'blocked_target', 'c
 
 export async function failJob(
   config: ServerConfig,
-  args: { jobId: string; errorMessage: string; errorCategory: string; retryable?: boolean },
+  args: { jobId: string; errorMessage: string; errorCategory: string; retryable?: boolean; workerId?: string },
 ): Promise<{ updated: boolean; finalStatus?: JobStatus }> {
   const sb = getServiceClient(config);
   const { data: row } = await sb
@@ -166,7 +176,7 @@ export async function failJob(
     return { updated: false, finalStatus: cur.status };
   }
   const retryable = !!args.retryable && !NON_RETRYABLE_CATEGORIES.has(args.errorCategory) && cur.attempts < cur.max_attempts;
-  const { data: updated } = await sb
+  let q = sb
     .from('background_jobs')
     .update({
       status: retryable ? 'queued' : 'failed',
@@ -178,9 +188,9 @@ export async function failJob(
       lock_expires_at: null,
     })
     .eq('id', args.jobId)
-    .in('status', ['running', 'processing', 'queued'])
-    .select('status')
-    .maybeSingle();
+    .in('status', ['running', 'processing', 'queued']);
+  if (args.workerId) q = q.eq('locked_by', args.workerId);
+  const { data: updated } = await q.select('status').maybeSingle();
   return { updated: !!updated, finalStatus: (updated as { status: JobStatus } | null)?.status };
 }
 
@@ -191,13 +201,15 @@ export async function requestJobCancel(config: ServerConfig, jobId: string): Pro
 }
 
 /** Worker-side acknowledgement: the worker itself observed cancel_requested and stopped mid-run. */
-export async function acknowledgeJobCancel(config: ServerConfig, jobId: string): Promise<void> {
+export async function acknowledgeJobCancel(config: ServerConfig, jobId: string, workerId?: string): Promise<void> {
   const sb = getServiceClient(config);
-  await sb
+  let q = sb
     .from('background_jobs')
     .update({ status: 'cancelled', finished_at: new Date().toISOString() })
     .eq('id', jobId)
     .in('status', ['running', 'processing']);
+  if (workerId) q = q.eq('locked_by', workerId);
+  await q;
 }
 
 export async function cancelQueuedJob(config: ServerConfig, jobId: string): Promise<void> {

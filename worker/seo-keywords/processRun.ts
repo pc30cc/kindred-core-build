@@ -43,7 +43,7 @@ export async function processKeywordResearchRun(
   const hb = await heartbeatJob(config, { jobId, workerId, lockTtlSeconds, progress: 20, progressStage: 'fetching', status: 'processing' });
   if (hb.cancelRequested) {
     await sb.from('seo_keyword_research_runs').update({ status: 'cancelled', finished_at: new Date().toISOString(), progress_stage: 'cancelled' }).eq('id', run.id);
-    await acknowledgeJobCancel(config, jobId);
+    await acknowledgeJobCancel(config, jobId, workerId);
     log('run cancelled', { runId: run.id, jobId });
     return;
   }
@@ -76,6 +76,6 @@ export async function processKeywordResearchRun(
     finished_at: new Date().toISOString(),
   }).eq('id', run.id);
 
-  await completeJob(config, { jobId });
+  await completeJob(config, { jobId, workerId });
   log('run completed', { runId: run.id, jobId, totalKeywords: result.items.length });
 }

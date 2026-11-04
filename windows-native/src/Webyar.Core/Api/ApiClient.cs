@@ -23,7 +23,8 @@ public sealed class ApiClient : IDisposable
     public ApiClient(ISessionStore session, Uri? origin = null, HttpMessageHandler? handler = null, string? appVersion = null)
     {
         _session = session;
-        _origin = origin ?? DefaultOrigin;
+        // A stored origin this build may not use (RESPOK's outside respok.app) is not used.
+        _origin = origin is not null && Accepts(origin) ? new Uri(origin.GetLeftPart(UriPartial.Authority)) : DefaultOrigin;
         _http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
         _http.Timeout = Timeout.InfiniteTimeSpan; // per request, below
         _http.DefaultRequestHeaders.UserAgent.ParseAdd($"Mozilla/5.0 (Windows NT 10.0; Win64; x64) {Brand.AgentToken}/{appVersion ?? "0"}");
@@ -144,19 +145,72 @@ public sealed class ApiClient : IDisposable
     /// <summary>
     /// Asks the platform where it lives and moves there if the answer differs,
     /// as the iOS app does at launch. Returns the answer, or null if none came.
+    ///
+    /// When the origin in hand does not answer and is not the build's own,
+    /// the build's own is asked, as Android's refreshOrigin does: a typo in
+    /// Super Admin's API address must not leave every install talking to
+    /// nowhere for good. The app then stays on the build's origin, unless
+    /// the platform names another one than the one that just failed.
+    /// Only an origin this build may use is ever taken (<see cref="Accepts(Uri)"/>).
     /// </summary>
     public async Task<PlatformOrigins?> RefreshOriginAsync(CancellationToken ct = default)
     {
+        var current = _origin;
+        if (await AskOriginsAsync(current, ct).ConfigureAwait(false) is { } found)
+        {
+            if (Adoptable(found) is { } api) _origin = api;
+            return found;
+        }
+        if (current == DefaultOrigin) return null;
+        if (await AskOriginsAsync(DefaultOrigin, ct).ConfigureAwait(false) is not { } fallback) return null;
+        _origin = Adoptable(fallback) is { } named && named != current ? named : DefaultOrigin;
+        return fallback;
+    }
+
+    /// <summary>Whether this build may talk to <paramref name="origin"/>: https, and for RESPOK a host of respok.app.</summary>
+    public static bool Accepts(Uri origin) => Accepts(Brand.Id, origin);
+
+    /// <summary>
+    /// The same for a given brand. The Iranian edition takes any https host
+    /// (as its other apps do); RESPOK only its own domain and its subdomains,
+    /// an allow-list as on Android and iOS: a RESPOK database cloned from the
+    /// other edition's that still names one of its hosts would otherwise move
+    /// every RESPOK install onto the other edition's servers, for good.
+    /// </summary>
+    internal static bool Accepts(string brand, Uri origin)
+    {
+        if (!origin.IsAbsoluteUri || origin.Scheme != Uri.UriSchemeHttps || origin.Host.Length == 0) return false;
+        if (brand != "respok") return true;
+        var host = origin.Host.ToLowerInvariant().TrimEnd('.');
+        return host == "respok.app" || host.EndsWith(".respok.app", StringComparison.Ordinal);
+    }
+
+    private static Uri? Adoptable(PlatformOrigins found) =>
+        found.ApiBaseUrl is { } api && Uri.TryCreate(api.Trim(), UriKind.Absolute, out var uri) && Accepts(uri)
+            ? new Uri(uri.GetLeftPart(UriPartial.Authority))
+            : null;
+
+    /// <summary>
+    /// Its own request rather than <see cref="Build"/>: it is asked of a host
+    /// that may be about to stop being trusted, so it carries no session, and
+    /// a few hundred bytes get a short timeout. Null is "no answer".
+    /// </summary>
+    private async Task<PlatformOrigins?> AskOriginsAsync(Uri at, CancellationToken ct)
+    {
         try
         {
-            var origins = await GetAsync<PlatformOrigins>("/api/platform/origins", ct: ct).ConfigureAwait(false);
-            if (origins?.ApiBaseUrl is { } api && Uri.TryCreate(api, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps)
-            {
-                Origin = uri;
-            }
-            return origins;
+            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(at, "/api/platform/origins"));
+            using var response = await Execute(request, TimeSpan.FromSeconds(8), ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return null;
+            var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            Traffic.Received(response.Content.Headers.ContentLength ?? Encoding.UTF8.GetByteCount(text));
+            return JsonSerializer.Deserialize<PlatformOrigins>(text.Length == 0 ? "null" : text, Json.Options);
         }
         catch (ApiException)
+        {
+            return null;
+        }
+        catch (JsonException)
         {
             return null;
         }

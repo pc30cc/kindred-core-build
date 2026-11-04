@@ -51,6 +51,24 @@ export function writeSettings(patch: Partial<StoredSettings>): StoredSettings {
   return next
 }
 
+const PUBLIC_KEYS = ['openAtLogin', 'closeToTray', 'desktopNotifications', 'notificationSound'] as const
+
+/**
+ * What the renderer may change: the four public switches, as booleans, and
+ * nothing else. The stored file also holds the API origin (where main sends
+ * the Bearer token), the support link and the window's bounds; those are
+ * main's own and never come from a renderer patch.
+ */
+export function publicPatch(patch: unknown): Partial<DesktopSettings> {
+  const out: Partial<DesktopSettings> = {}
+  if (!patch || typeof patch !== 'object') return out
+  for (const key of PUBLIC_KEYS) {
+    const value = (patch as Record<string, unknown>)[key]
+    if (typeof value === 'boolean') out[key] = value
+  }
+  return out
+}
+
 export function publicSettings(): DesktopSettings {
   const s = readSettings()
   return {

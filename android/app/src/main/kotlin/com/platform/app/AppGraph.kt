@@ -232,6 +232,23 @@ class AppGraph(private val app: Application) {
     fun hangUpTeamCallFromNotification(callId: String): Boolean =
         _teamCallNudges.subscriptionCount.value > 0 && _teamCallNudges.tryEmit(TeamCallNudge.HangUp(callId))
 
+    private val _callHangUps = MutableSharedFlow<String>(extraBufferCapacity = 8)
+
+    /**
+     * End pressed on a visitor's or a call-centre call's ongoing
+     * notification: the call's key ([OngoingCall.callId]), for the call on screen to hang
+     * up as if its own red button were pressed.
+     */
+    val callHangUps: SharedFlow<String> = _callHangUps.asSharedFlow()
+
+    /**
+     * End was pressed on a visitor's or a call-centre call's ongoing
+     * notification: the call on screen hangs up. False when there is no
+     * call screen to do it.
+     */
+    fun hangUpCallFromNotification(callKey: String): Boolean =
+        _callHangUps.subscriptionCount.value > 0 && _callHangUps.tryEmit(callKey)
+
     /**
      * Call-centre rings, and colleagues', which arrive whatever state the
      * app is in: the signed-in check and the language come from storage,

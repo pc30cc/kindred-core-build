@@ -252,9 +252,9 @@ object StrAndroid {
     }
 
     fun channelOngoingCallsDescription(l: Language): String = when (l) {
-        Language.EN -> "A call with a colleague while it is on"
-        Language.FA -> "تماس با همکار تا زمانی که برقرار است"
-        Language.TR -> "Sürdüğü sürece bir iş arkadaşıyla yapılan arama"
+        Language.EN -> "A call, while it is on"
+        Language.FA -> "تماس، تا زمانی که برقرار است"
+        Language.TR -> "Sürdüğü sürece bir arama"
     }
 
     /** Under the caller's name while a call rings. */

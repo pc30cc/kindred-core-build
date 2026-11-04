@@ -140,6 +140,8 @@ final class CallQueueWatcher {
             if !queue.isEmpty { queue = [] }
             known = []
             primed = false
+            // A call ringing when the desk went away rings no more.
+            app.syncRinging()
             return
         }
         let list: [QueueEntry]
@@ -150,6 +152,7 @@ final class CallQueueWatcher {
             Log.write("[calls] queue unavailable (\(e.status ?? 0)), watcher off")
             disabled = true
             queue = []
+            app.syncRinging()
             return
         }
         polls += 1
@@ -187,7 +190,7 @@ final class CallQueueWatcher {
         guard app.showsNotifications, !app.isForeground else { return }
         let s = app.strings
         app.notifier.show(title: s["incomingCallTitle"], body: s.get("incomingCallBody", "name", CallNames.caller(entry, s)),
-                          silent: true, arguments: ["page": "calls", "call": entry.callSessionId])
+                          silent: true, arguments: ["page": "calls", "call": entry.callSessionId, "workspace": workspaceId])
     }
 }
 
@@ -340,7 +343,8 @@ final class TeamWatcher {
         let fresh = rules.fresh(list)
         guard !fresh.isEmpty, app.showsNotifications else { return }
         let prefs = await currentPrefs()
-        guard NotificationRules.allowed(prefs) else { return }
+        // Signed out or switched while the preferences were read: these messages belong to nobody on screen.
+        guard !Task.isCancelled, app.workspace?.id == workspaceId, NotificationRules.allowed(prefs) else { return }
         let s = app.strings
         for c in fresh.prefix(3) {
             // Their thread is open in front of the operator: nothing to announce.

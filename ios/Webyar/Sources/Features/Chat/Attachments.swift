@@ -584,7 +584,7 @@ final class AudioNotePlayer: CallAudioYielding {
     /// while a colleague call holds the session, which is CallKit's.
     private func releaseSession() {
         CallAudioFocus.shared.release(self)
-        guard !CallAudioFocus.shared.isHeldByCall else { return }
+        guard !CallAudioFocus.shared.isHeldByCall, !CallAudioFocus.shared.isHeldByNote else { return }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 

@@ -670,7 +670,14 @@ struct CallHost: View {
     var body: some View {
         CallScreen(session: session, language: language, onClose: onClose)
             .onAppear { VisitorCallScreens.shared.opened(presence) }
-            .onDisappear { VisitorCallScreens.shared.closed(presence) }
+            .onDisappear {
+                VisitorCallScreens.shared.closed(presence)
+                // Taken off screen from outside (a workspace switch or a sign-out pops the
+                // conversation it was presented from): nothing would be left to hang up with,
+                // the room and microphone would stay open and the server would keep the call.
+                // Nothing is ever presented over this screen, so this is only ever the end.
+                if session.phase.isLive { Task { await session.hangUp() } }
+            }
     }
 }
 

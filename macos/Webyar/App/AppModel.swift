@@ -467,6 +467,8 @@ final class AppModel {
         // Nothing of this account stays in memory for whoever signs in next.
         AttachmentStore.shared.clearMemory()
         ImageStore.shared.clearMemory()
+        // The copies of attachments and mail files opened in other apps (Attachments.open, EmailModel).
+        try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent(AppBrand.folder, isDirectory: true))
         user = nil
         account = nil
         workspace = nil
@@ -967,7 +969,24 @@ final class AppModel {
         if showsNotifications, !isForeground {
             let from = fresh.transferFromAgentId.map { memberName($0) } ?? ""
             notifier.show(title: strings["callHandedTitle"], body: from.isEmpty ? CallNames.caller(fresh, fallbackId: fresh.id, strings) : strings.get("callHandedFrom", "name", from),
-                          silent: true, arguments: ["page": "calls"])
+                          silent: true, arguments: ["page": "calls", "workspace": workspace?.id ?? ""])
+        }
+    }
+
+    /// Still signed in and on this workspace: what an answer that was awaited must check before
+    /// it joins anything (the room would open behind another workspace, or the sign-in page).
+    func isCurrent(_ workspaceId: String) -> Bool {
+        phase == .signedIn && workspace?.id == workspaceId
+    }
+
+    /// A call accepted for a workspace this Mac has since left: nobody will join it from here, so
+    /// it is ended rather than left assigned to this operator, as hanging up on the switch would
+    /// have done had the room been open. Signed out, there is no session to tell the server with.
+    func abandonAcceptedCall(workspaceId: String, callId: String) {
+        Log.write("[calls] accepted \(callId) after leaving its workspace: ending it")
+        guard phase == .signedIn else { return }
+        Task {
+            do { try await api.endCall(workspaceId: workspaceId, callId: callId) } catch { Log.error("end abandoned call", error) }
         }
     }
 
@@ -986,6 +1005,11 @@ final class AppModel {
         }
         do {
             let accept = try await api.acceptCall(workspaceId: ws.id, callId: c.id)
+            // Signed out or moved to another workspace while the answer was on its way.
+            guard isCurrent(ws.id) else {
+                abandonAcceptedCall(workspaceId: ws.id, callId: c.id)
+                return
+            }
             guard accept.connect?.supported == true else {
                 handedCallError = strings["ccAcceptedNoMediaHint"]
                 return

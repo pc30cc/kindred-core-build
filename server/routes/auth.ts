@@ -41,7 +41,7 @@ import {
 } from '../services/auth/sessions.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
-import { allowsMobileTokenIssuance } from '../services/platformOrigins.js';
+import { allowsMobileTokenIssuance, mutationOrigins } from '../services/platformOrigins.js';
 import { checkNewWebsite } from '../services/ownerWebsite.js';
 import { getSignupVerificationPolicy } from '../services/auth/signupPolicy.js';
 import { getClientIp } from '../utils/clientIp.js';
@@ -518,7 +518,7 @@ authSecurityRouter.post('/logout', sessionActionRateLimiter, async (req, res) =>
     const { token, transport } = readSessionToken(req);
     // CSRF only applies to the browser-cookie transport (see
     // workspaceAuth.requireUser): a Bearer token is never auto-attached.
-    if (transport === 'cookie' && !verifyOriginForMutation(req, config.corsOrigins)) {
+    if (transport === 'cookie' && !verifyOriginForMutation(req, mutationOrigins(config))) {
       return res.status(403).json({ error: 'Origin not allowed' });
     }
     const session = await validateSessionToken(config, token);
@@ -562,7 +562,7 @@ authSecurityRouter.post('/logout-all', sessionActionRateLimiter, async (req, res
   try {
     const config: ServerConfig = serverConfigOf(req);
     const { token, transport } = readSessionToken(req);
-    if (transport === 'cookie' && !verifyOriginForMutation(req, config.corsOrigins)) {
+    if (transport === 'cookie' && !verifyOriginForMutation(req, mutationOrigins(config))) {
       return res.status(403).json({ error: 'Origin not allowed' });
     }
     const session = await validateSessionToken(config, token);
@@ -627,7 +627,7 @@ authSecurityRouter.post('/impersonate', sessionActionRateLimiter, async (req, re
     if (transport !== 'cookie') {
       return res.status(400).json({ error: 'Login as user is only available in the web panel.' });
     }
-    if (!verifyOriginForMutation(req, config.corsOrigins)) {
+    if (!verifyOriginForMutation(req, mutationOrigins(config))) {
       return res.status(403).json({ error: 'Origin not allowed' });
     }
     const parsed = impersonateRedeemSchema.safeParse(req.body);
@@ -719,7 +719,7 @@ authSecurityRouter.post('/impersonate/stop', sessionActionRateLimiter, async (re
     if (transport !== 'cookie') {
       return res.status(400).json({ error: 'Not impersonating.' });
     }
-    if (!verifyOriginForMutation(req, config.corsOrigins)) {
+    if (!verifyOriginForMutation(req, mutationOrigins(config))) {
       return res.status(403).json({ error: 'Origin not allowed' });
     }
     const raw = (req as Request & { cookies?: Record<string, unknown> }).cookies?.[IMPERSONATOR_COOKIE_NAME];

@@ -780,9 +780,9 @@ internalQaRouter.get('/test-summary', async (req: Request, res: Response) => {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const [casesRes, recentRes] = await Promise.all([
     // Paged: the data layer caps a single read at DATABASE_MAX_ROWS.
-    readRows<any>((from, to) => sb.from('ai_agent_test_cases').select('id,enabled,expected_source_type')
+    readRows<{ id: string; enabled: boolean; expected_source_type: string | null }>((from, to) => sb.from('ai_agent_test_cases').select('id,enabled,expected_source_type')
       .eq('workspace_id', workspaceId).order('id', { ascending: true }).range(from, to)),
-    readRows<any>((from, to) => sb.from('ai_agent_test_runs').select('id,status,failure_reasons,selected_sources')
+    readRows<{ id: string; status: string; failure_reasons: string[] | null; selected_sources: unknown }>((from, to) => sb.from('ai_agent_test_runs').select('id,status,failure_reasons,selected_sources')
       .eq('workspace_id', workspaceId).gte('created_at', since).order('id', { ascending: true }).range(from, to), 2000),
   ]);
   const cases = casesRes.data || [];

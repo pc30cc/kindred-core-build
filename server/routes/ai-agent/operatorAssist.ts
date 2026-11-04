@@ -708,6 +708,25 @@ function e8RangeToDays(range: string | undefined): number {
   return 7;
 }
 
+interface AssistRunRow {
+  id: string;
+  created_at: string;
+  status: string | null;
+  confidence: number | null;
+  suggestion: string | null;
+  selected_sources: Array<{ source_type?: unknown } | null> | null;
+  safety_notes: string[] | null;
+}
+
+interface AssistFeedbackRow {
+  id: string;
+  assist_run_id: string;
+  rating: string | null;
+  reason: string | null;
+  operator_action: string | null;
+  created_at: string;
+}
+
 operatorAssistRouter.get('/operator-assist/analytics', async (req: Request, res: Response) => {
   const config = (req as Request & { serverConfig: ServerConfig }).serverConfig;
   const workspaceId = String(req.query.workspaceId || '');
@@ -727,14 +746,14 @@ operatorAssistRouter.get('/operator-assist/analytics', async (req: Request, res:
   const [runsRes, fbRes] = await Promise.all([
     // Up to 2000 runs and 5000 feedback rows, page by page: the data layer
     // caps a single read at DATABASE_MAX_ROWS (1000).
-    readRows<any>((from, to) => sb.from('ai_operator_assist_runs')
+    readRows<AssistRunRow>((from, to) => sb.from('ai_operator_assist_runs')
       .select('id, created_at, status, confidence, suggestion, selected_sources, safety_notes')
       .eq('workspace_id', workspaceId)
       .gte('created_at', since)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })
       .range(from, to), 2000),
-    readRows<any>((from, to) => sb.from('ai_operator_assist_feedback')
+    readRows<AssistFeedbackRow>((from, to) => sb.from('ai_operator_assist_feedback')
       .select('id, assist_run_id, rating, reason, operator_action, created_at')
       .eq('workspace_id', workspaceId)
       .gte('created_at', since)

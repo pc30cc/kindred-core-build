@@ -529,15 +529,13 @@ export async function getKnowledgeIndexStatus(
   // counts and the breakdowns are read page by page (two narrow columns, not
   // the vectors).
   const chunks = () => sb.from('ai_knowledge_chunks');
-  const countOf = async (build: (q: any) => any): Promise<number> => {
-    const { count } = await build(chunks().select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId));
-    return count || 0;
-  };
+  const counted = () => chunks().select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId);
+  const countOf = async (query: PromiseLike<{ count: number | null }>): Promise<number> => (await query).count || 0;
   const [active, stale, deleted, embedded, live, provider, newest] = await Promise.all([
-    countOf((q) => q.eq('status', 'active')),
-    countOf((q) => q.eq('status', 'stale')),
-    countOf((q) => q.eq('status', 'deleted')),
-    countOf((q) => q.not('embedding', 'is', null)),
+    countOf(counted().eq('status', 'active')),
+    countOf(counted().eq('status', 'stale')),
+    countOf(counted().eq('status', 'deleted')),
+    countOf(counted().not('embedding', 'is', null)),
     readRows<{ id: string; source_type: string; locale: string | null }>((from, to) => chunks()
       .select('id, source_type, locale')
       .eq('workspace_id', workspaceId)

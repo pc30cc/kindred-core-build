@@ -80,8 +80,8 @@ export async function checkPlanConcurrencyCeiling(
       workspaceId,
       'max_concurrent_calls',
     );
-  } catch (err: any) {
-    return { allowed: false, reason: 'usage_unavailable', detail: `entitlement_lookup_failed:${err?.message || 'unknown'}` };
+  } catch (err) {
+    return { allowed: false, reason: 'usage_unavailable', detail: `entitlement_lookup_failed:${(err as Error | null)?.message || 'unknown'}` };
   }
 
   if (!ent.allowed) {
@@ -119,8 +119,15 @@ export function planConcurrencyDenialBody(decision: PlanConcurrencyDecision) {
     upgrade_required: decision.reason === 'plan_limit_reached' || decision.reason === 'plan_forbidden',
   };
 }
+/** The call_sessions row call_session_create wrote (every column). */
+export interface CreatedCallSession {
+  id: string;
+  state: string;
+  [column: string]: unknown;
+}
+
 export type GuardedCallInsert =
-  | { verdict: 'created'; call: Record<string, any> }
+  | { verdict: 'created'; call: CreatedCallSession }
   | { verdict: 'limit_reached'; used: number; max: number }
   | { verdict: 'error'; message: string };
 
@@ -142,7 +149,7 @@ export async function insertCallSessionWithinCeiling(
     p_max_concurrent: typeof limit === 'number' && limit >= 0 ? limit : null,
   });
   if (error) return { verdict: 'error', message: error.message || 'call_session_create_failed' };
-  const out = (data ?? {}) as { verdict?: string; call?: Record<string, any>; used?: number; max?: number };
+  const out = (data ?? {}) as { verdict?: string; call?: CreatedCallSession; used?: number; max?: number };
   if (out.verdict === 'limit_reached') return { verdict: 'limit_reached', used: Number(out.used ?? 0), max: Number(out.max ?? 0) };
   if (out.verdict === 'created' && out.call) return { verdict: 'created', call: out.call };
   return { verdict: 'error', message: 'insert_returned_no_row' };

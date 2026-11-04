@@ -18,6 +18,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { readRows } from '../../lib/pagedRows.js';
+import type { SourceType } from './knowledgeIndex/indexer.js';
 import { getKnowledgeIndexStatus, type KnowledgeIndexStatus } from './knowledgeIndex/sync.js';
 
 export interface TrainWarning {
@@ -103,10 +104,8 @@ export async function buildTrainOverview(
   // The data layer caps a read at DATABASE_MAX_ROWS (1000 by default), so
   // every number here is an exact count, and the sources are read page by
   // page, never a capped list counted in memory.
-  const countRows = async (table: string, build: (q: any) => any = (q) => q): Promise<number> => {
-    const { count } = await build(sb.from(table).select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId));
-    return count || 0;
-  };
+  const counted = (table: string) => sb.from(table).select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId);
+  const countOf = async (query: PromiseLike<{ count: number | null }>): Promise<number> => (await query).count || 0;
   const LEARNING_STATUSES = ['pending', 'approved', 'rejected', 'converted_to_qna', 'converted_to_kb'] as const;
   const [
     sourceRows,
@@ -118,24 +117,24 @@ export async function buildTrainOverview(
     recentJobs,
     knowledgeIndex,
   ] = await Promise.all([
-    readRows<any>((from, to) => sb.from('ai_data_sources')
+    readRows<DataSourceRow>((from, to) => sb.from('ai_data_sources')
       .select('id, source_type, status, last_synced_at, last_error, name')
       .eq('workspace_id', workspaceId)
       .neq('status', 'deleted')
       .order('id', { ascending: true })
       .range(from, to)),
-    Promise.all([countRows('ai_agent_qna'), countRows('ai_agent_qna', (q) => q.eq('enabled', true))]),
+    Promise.all([countOf(counted('ai_agent_qna')), countOf(counted('ai_agent_qna').eq('enabled', true))]),
     Promise.all([
-      countRows('knowledge_base_articles'),
-      countRows('knowledge_base_articles', (q) => q.eq('status', 'published')),
-      countRows('knowledge_base_articles', (q) => q.eq('status', 'draft')),
+      countOf(counted('knowledge_base_articles')),
+      countOf(counted('knowledge_base_articles').eq('status', 'published')),
+      countOf(counted('knowledge_base_articles').eq('status', 'draft')),
     ]),
-    Promise.all(LEARNING_STATUSES.map((st) => countRows('ai_agent_learning_candidates', (q) => q.eq('status', st)))),
+    Promise.all(LEARNING_STATUSES.map((st) => countOf(counted('ai_agent_learning_candidates').eq('status', st)))),
     Promise.all([
-      countRows('ai_knowledge_chunks', (q) => q.eq('status', 'active')),
-      countRows('ai_knowledge_chunks', (q) => q.eq('status', 'deleted')),
-      countRows('ai_knowledge_chunks', (q) => q.not('embedding', 'is', null)),
-      countRows('ai_knowledge_chunks', (q) => q.eq('status', 'active').is('embedding', null)),
+      countOf(counted('ai_knowledge_chunks').eq('status', 'active')),
+      countOf(counted('ai_knowledge_chunks').eq('status', 'deleted')),
+      countOf(counted('ai_knowledge_chunks').not('embedding', 'is', null)),
+      countOf(counted('ai_knowledge_chunks').eq('status', 'active').is('embedding', null)),
     ]),
     sb.from('ai_source_sync_logs')
       .select('id, source_id, status, message, pages_found, chunks_created, embedded_chunks, errors, created_at')
@@ -280,10 +279,10 @@ export async function buildTrainOverview(
   return {
     counts: {
       totalSources: sources.length,
-      activeSources: sources.filter((s: any) => s.status === 'active').length,
-      pausedSources: sources.filter((s: any) => s.status === 'paused').length,
-      failedSources: sources.filter((s: any) => s.status === 'failed').length,
-      syncingSources: sources.filter((s: any) => s.status === 'syncing').length,
+      activeSources: sources.filter((s) => s.status === 'active').length,
+      pausedSources: sources.filter((s) => s.status === 'paused').length,
+      failedSources: sources.filter((s) => s.status === 'failed').length,
+      syncingSources: sources.filter((s) => s.status === 'syncing').length,
       qnaEnabled,
       qnaDisabled,
       kbPublished,
@@ -300,8 +299,8 @@ export async function buildTrainOverview(
     },
     sourcesByType: Array.from(byType.values()).sort((a, b) => a.source_type.localeCompare(b.source_type)),
     knowledgeIndex,
-    recentSyncLogs: (syncLogs.data as any[]) || [],
-    recentJobs: (recentJobs.data as any[]) || [],
+    recentSyncLogs: (syncLogs.data as Array<Record<string, unknown>> | null) || [],
+    recentJobs: (recentJobs.data as Array<Record<string, unknown>> | null) || [],
     warnings,
     lastSyncAt: lastSync,
     lastRebuildAt,
@@ -316,6 +315,16 @@ export async function buildTrainOverview(
  * Debug — paginated chunk inspector for the Knowledge Index UI.
  * Read-only.  Bounded by `limit` (max 200).
  */
+/** A data source as the Train page reads it. */
+interface DataSourceRow {
+  id: string;
+  source_type: string | null;
+  status: string | null;
+  last_synced_at: string | null;
+  last_error: string | null;
+  name: string | null;
+}
+
 export interface ChunkDebugRow {
   id: string;
   source_type: string;
@@ -348,7 +357,8 @@ export async function listChunks(
   if (opts.query) q = q.ilike('content', `%${opts.query.replace(/%/g, '')}%`);
 
   const { data, count } = await q;
-  const items: ChunkDebugRow[] = (data || []).map((r: any) => ({
+  const rows = (data || []) as Array<Omit<ChunkDebugRow, 'has_embedding' | 'content_preview'> & { embedding: unknown; content: string | null }>;
+  const items: ChunkDebugRow[] = rows.map((r) => ({
     id: r.id,
     source_type: r.source_type,
     source_id: r.source_id,
@@ -357,7 +367,7 @@ export async function listChunks(
     locale: r.locale,
     status: r.status,
     has_embedding: !!r.embedding,
-    content_preview: ((r.content as string) || '').slice(0, 240),
+    content_preview: (r.content || '').slice(0, 240),
     updated_at: r.updated_at,
   }));
   return { items, total: count || items.length };
@@ -378,6 +388,6 @@ export async function rebuildSingleSource(
   if (!['kb_article', 'qna', 'business_profile'].includes(sourceType)) {
     return { ok: false, reason: 'source_type_not_yet_supported_for_per_source_rebuild' };
   }
-  await syncKnowledgeSource(config, { workspaceId, sourceType: sourceType as any, sourceId });
+  await syncKnowledgeSource(config, { workspaceId, sourceType: sourceType as SourceType, sourceId });
   return { ok: true };
 }

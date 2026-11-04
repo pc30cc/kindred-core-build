@@ -105,6 +105,7 @@ import com.platform.app.feature.promo.PromotionCenter
 import com.platform.app.feature.call.CallScreen
 import com.platform.app.feature.call.CallSession
 import com.platform.app.feature.call.LiveKitRoom
+import com.platform.app.feature.call.ServiceCallForeground
 import com.platform.app.ui.design.Space
 import android.content.pm.PackageManager
 import androidx.compose.runtime.DisposableEffect
@@ -168,6 +169,7 @@ import kotlinx.coroutines.Dispatchers
 import androidx.compose.foundation.layout.size
 import com.platform.app.core.sync.TeamSignal
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import android.content.ActivityNotFoundException
 import androidx.activity.result.ActivityResultLauncher
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -1711,12 +1713,20 @@ fun CallRoute(
     onDone: () -> Unit,
 ) {
     val context = LocalContext.current
+    val graph = LocalAppGraph.current
     val session: CallSession = viewModel(
         // The room is built INSIDE the factory, so it is created exactly once
         // with the session and turning the phone does not build a second one
-        // beside the one that is actually connected.
+        // beside the one that is actually connected. The foreground service
+        // too: the call keeps its microphone with the app behind another.
         factory = viewModelFactory {
-            CallSession(api, LiveKitRoom(context.applicationContext))
+            val app = context.applicationContext
+            CallSession(
+                api = api,
+                room = LiveKitRoom(app),
+                foreground = ServiceCallForeground(app),
+                hangUps = graph?.callHangUps ?: emptyFlow(),
+            )
         },
     )
     val room = session.room as LiveKitRoom
@@ -1737,7 +1747,6 @@ fun CallRoute(
     // inbox's. A call that could not find its name is still a call.
     val inbox by conversations.state.collectAsStateWithLifecycle()
     val intel by conversations.intel.collectAsStateWithLifecycle()
-    val graph = LocalAppGraph.current
     val signedIn by appState.session.collectAsStateWithLifecycle()
     val cachedFlow = remember(graph, workspace?.id, signedIn, conversationId) {
         val user = (signedIn as? Session.SignedIn)?.user
@@ -1802,13 +1811,16 @@ fun CallRoute(
         visitorCode = conversation?.contact?.visitorCode,
         language = language,
     ).ifEmpty { Str.unknownVisitor(language) }
+    // Its ongoing notification names the visitor as this screen does.
+    val contactAvatarUrl = conversation?.contact?.avatarUrl
+    LaunchedEffect(contactName, contactAvatarUrl) { session.describe(contactName, contactAvatarUrl) }
 
     CallScreen(
         phase = phase,
         channel = channel,
         contactName = contactName,
         language = language,
-        contactAvatarUrl = conversation?.contact?.avatarUrl,
+        contactAvatarUrl = contactAvatarUrl,
         visitor = intel[conversationId],
         connectedAt = connectedAt,
         muted = muted,
@@ -1848,7 +1860,15 @@ fun IncomingCallRoute(
     val context = LocalContext.current
     val graph = LocalAppGraph.current
     val session: CallSession = viewModel(
-        factory = viewModelFactory { CallSession(api, LiveKitRoom(context.applicationContext)) },
+        factory = viewModelFactory {
+            val app = context.applicationContext
+            CallSession(
+                api = api,
+                room = LiveKitRoom(app),
+                foreground = ServiceCallForeground(app),
+                hangUps = graph?.callHangUps ?: emptyFlow(),
+            )
+        },
     )
     val room = session.room as LiveKitRoom
     val channel = remember(key.channel) { CallChannel.from(key.channel) }
@@ -1881,6 +1901,11 @@ fun IncomingCallRoute(
             )
         }
     }
+
+    // Its ongoing notification names the caller as this screen does, with
+    // the silhouette: a ring carries no photo.
+    val callerName = key.caller.ifBlank { Str.unknownVisitor(language) }
+    LaunchedEffect(callerName) { session.describe(callerName, avatarUrl = null) }
 
     val wanted = remember(channel) {
         if (channel == CallChannel.VIDEO) {
@@ -1926,7 +1951,7 @@ fun IncomingCallRoute(
     CallScreen(
         phase = phase,
         channel = channel,
-        contactName = key.caller.ifBlank { Str.unknownVisitor(language) },
+        contactName = callerName,
         language = language,
         connectedAt = connectedAt,
         muted = muted,

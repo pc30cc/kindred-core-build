@@ -10,7 +10,10 @@ import type { TeamCall, TeamCallChannel, TeamCallPeer } from '@/lib/team-calls-a
 export type TeamCallPhase =
   /** The caller's POST is in flight. */
   | 'placing'
-  /** Ringing the colleague (ringback). */
+  /**
+   * Placed and ringing on the server: "Calling…" until a phone or tab of the
+   * colleague rang (`call.rang_at`), then "Ringing…" with the ringback.
+   */
   | 'outgoing'
   /** Ringing in this tab. */
   | 'incoming'
@@ -52,6 +55,8 @@ export interface TeamCallContextValue {
   failJoin(err: unknown): Promise<void>;
   /** Closes an ended window now. */
   dismiss(): void;
+  /** The ringing card: it is on screen for [callId] (sends `rang` once per call). */
+  ringShown(callId: string): void;
 }
 
 export const TeamCallContext = createContext<TeamCallContextValue | null>(null);

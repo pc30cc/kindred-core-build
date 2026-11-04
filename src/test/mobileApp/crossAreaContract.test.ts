@@ -467,11 +467,12 @@ describe('the web panel\'s team-call client and the server', () => {
   });
 
   it('hears the realtime `team_call` event on the member\'s own channel, as the server publishes it', () => {
-    // Server: { type: 'event', payload: { kind: 'team_call', workspace_id, call_id, state, outcome } } on ws:<ws>:user:<uid>.
+    // Server: { type: 'event', payload: { kind: 'team_call', workspace_id, call_id, state, outcome, rang_at } } on ws:<ws>:user:<uid>.
     expect(REALTIME_TYPES).toContain('return `ws:${workspaceId}:user:${userId}`;');
     expect(between(REALTIME_PUBLISH, 'export async function publishTeamEvent(', '\n}\n')).toContain("type: 'event',");
-    const announce = between(TEAM_CALL_LIFECYCLE, 'export function announceTeamCall(', 'recordTeamCallEvent(');
-    for (const field of ["kind: 'team_call'", 'workspace_id: row.workspace_id', 'call_id: row.id', 'state: row.state']) {
+    const announce = between(TEAM_CALL_LIFECYCLE, 'function publishTeamCallEvent(', '\n}\n');
+    expect(between(TEAM_CALL_LIFECYCLE, 'export function announceTeamCall(', 'recordTeamCallEvent(')).toContain('publishTeamCallEvent(config, row)');
+    for (const field of ["kind: 'team_call'", 'workspace_id: row.workspace_id', 'call_id: row.id', 'state: row.state', 'rang_at: meta.rang_at']) {
       expect(announce, field).toContain(field);
     }
     // Web: the same channel, and the event's payload read by those names.

@@ -16,6 +16,7 @@ export function teamCallErrorKey(err: unknown): TranslationKey {
       case 'caller_busy':
         return 'teamCall.errors.callerBusy';
       case 'too_many_calls':
+      case 'too_many_requests':
         return 'teamCall.errors.tooManyCalls';
       case 'limit_reached':
         if (body.reason === 'usage_unavailable') return 'teamCall.errors.usageUnavailable';

@@ -352,6 +352,8 @@ beforeEach(() => {
     { id: MEHDI, full_name: 'مهدی', avatar_storage_key: null, email: 'mehdi@example.com' },
   ];
   state.db.tables.workspace_members = [{ workspace_id: WS, user_id: SARA, role: 'owner' }];
+  // The widget and its chat on (POST /offline-messages checks them, as /message).
+  state.db.tables.widget_settings = [{ workspace_id: WS, enabled: true, chat_enabled: true }];
   state.template = 't2';
   state.options = {};
   state.visitor = 'visitor-1';

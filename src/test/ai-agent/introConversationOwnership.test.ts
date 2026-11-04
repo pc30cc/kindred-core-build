@@ -23,6 +23,7 @@ interface Conversation { id: string; workspace_id: string; status: string; visit
 const WS_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_WS = '22222222-2222-4222-8222-222222222222';
 const MY_SESSION = '33333333-3333-4333-8333-333333333333';
+const MY_VISITOR = '44444444-4444-4444-8444-444444444444';
 const store = vi.hoisted(() => ({ conversations: [] as Conversation[], greeted: [] as string[] }));
 
 type Result = { data: unknown; error: null };
@@ -30,7 +31,10 @@ type Result = { data: unknown; error: null };
 /** conversations, filtered as PostgREST would; every other table is empty. */
 function table(name: string) {
   const filters: Array<(c: Conversation) => boolean> = [];
-  const found = () => (name === 'conversations' ? store.conversations.filter((c) => filters.every((f) => f(c))) : []);
+  // The visitor's own session (the signed visitor's: services/widget/security.ts).
+  const sessions = [{ id: MY_SESSION, workspace_id: WS_ID, visitor_id: MY_VISITOR }] as unknown as Conversation[];
+  const rows = () => (name === 'conversations' ? store.conversations : name === 'visitor_sessions' ? sessions : []);
+  const found = () => rows().filter((c) => filters.every((f) => f(c)));
   const b = {
     select: () => b, order: () => b, limit: () => b, is: () => b, not: () => b, or: () => b, update: () => b,
     eq: (col: string, val: unknown) => { filters.push((c) => (c as unknown as Row)[col] === val); return b; },
@@ -65,14 +69,19 @@ vi.mock('../../../server/services/widget/security.js', () => ({
   enforceOrigin: (_req: unknown, _res: unknown, next: () => void) => next(),
   widgetRateLimit: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   resolveWorkspaceId: (_req: unknown, _res: unknown, bodyWsId: string) => bodyWsId || WS_ID,
-  // The real rule, reduced to the session match: this workspace's, and this visitor's.
-  verifyConversationOwnership: async (_config: unknown, conversationId: string, workspaceId: string, _visitorId: unknown, sessionId: string | null) => {
+  // The real rule, reduced to the session match: this workspace's, and the
+  // signed visitor's own session (a body session_id proves nothing).
+  verifyConversationOwnership: async (_config: unknown, conversationId: string, workspaceId: string) => {
     const conv = store.conversations.find((c) => c.id === conversationId);
-    return conv && conv.workspace_id === workspaceId && sessionId && conv.visitor_session_id === sessionId
+    return conv && conv.workspace_id === workspaceId && conv.visitor_session_id === '33333333-3333-4333-8333-333333333333'
       ? { valid: true, conversation: conv } : { valid: false, conversation: null };
   },
   getClientIp: () => '127.0.0.1',
   getRequestOrigin: () => 'https://example.com',
+}));
+vi.mock('../../../server/services/widget/visitorIdentity.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/services/widget/visitorIdentity.js')>()),
+  readVisitorCookie: () => ({ v: '44444444-4444-4444-8444-444444444444', w: '11111111-1111-4111-8111-111111111111', iat: 1, exp: 9e9 }),
 }));
 vi.mock('../../../server/services/billing/conversationLimit.js', () => ({
   enforceMaxConversationsLimit: async () => true,

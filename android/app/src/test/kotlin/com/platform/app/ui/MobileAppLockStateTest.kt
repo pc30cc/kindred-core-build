@@ -341,4 +341,24 @@ class MobileAppLockStateTest {
         prefs.setMobileAppLocked(null, emptySet())
         assertEquals(emptySet<String>(), prefs.mobileAppLocked("user-a"))
     }
+
+    /**
+     * A ring tapped on a cold start whose ring ran out while the session was
+     * restored and the workspaces read: no call screen opens for a call no
+     * longer on offer — it would stand over the lock screen offering it.
+     */
+    @Test
+    fun `a ring that ran out before the app could open it opens no call screen`() = runTest(dispatcher) {
+        val app = state(PlanApi())
+        signIn(app)
+        settle()
+        val now = System.currentTimeMillis() / 1000
+
+        assertTrue(app.openIncomingCall(IncomingCallLink("call-1", "ws-1", CallChannel.AUDIO, "Sara", answer = false, expiresAt = now - 1)))
+        assertNull(app.resolvePendingCall())
+        assertNull(app.pendingCall.value)
+
+        assertTrue(app.openIncomingCall(IncomingCallLink("call-2", "ws-1", CallChannel.AUDIO, "Sara", answer = false, expiresAt = now + 60)))
+        assertEquals("call-2", app.resolvePendingCall()?.callId)
+    }
 }

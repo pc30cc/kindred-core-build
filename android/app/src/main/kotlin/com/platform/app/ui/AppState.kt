@@ -313,6 +313,10 @@ class AppState(
         val target = list.firstOrNull { it.id == link.workspaceId }
         _pendingCall.value = null
         if (target == null) return null
+        // Its ring ran out while the app was starting — the session restored,
+        // the workspaces read: no call is on offer any more, so no call screen
+        // opens over the lock screen to offer one.
+        if (link.expired(System.currentTimeMillis() / 1000)) return null
         // Locked (docs/operations/MOBILE_APP_PLAN.md): the ring's own
         // workspace decides — a ring this phone let through for another one
         // is answered there, whichever the app stands locked over. A tap that

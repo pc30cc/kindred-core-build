@@ -10,6 +10,7 @@ import com.platform.app.core.model.CallChannel
 import com.platform.app.i18n.Language
 import com.platform.app.i18n.StrAndroid
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -123,5 +124,21 @@ class CallNotificationsTest {
             IncomingCallLink.from(intent),
         )
         assertNull(IncomingCallLink.from(android.content.Intent("other")))
+    }
+
+    /**
+     * What MainActivity asks before acting on a ring's Answer or tap: only a
+     * call ringing here now. Another call's id, or a colleague's ring asked
+     * for as a call-centre one, is not.
+     */
+    @Test
+    fun `only the call ringing here now is ringing`() {
+        assertFalse(CallNotifications.isRinging(context, "call-1"))
+        CallNotifications.showIncoming(context, call(), Language.FA, nowMillis = now)
+        assertTrue(CallNotifications.isRinging(context, "call-1"))
+        assertFalse(CallNotifications.isRinging(context, "call-2"))
+        assertFalse(CallNotifications.isRinging(context, "call-1", colleague = true))
+        CallNotifications.stop(context, "call-1", missed = false, language = Language.FA)
+        assertFalse(CallNotifications.isRinging(context, "call-1"))
     }
 }

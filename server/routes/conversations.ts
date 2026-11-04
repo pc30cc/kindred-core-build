@@ -72,6 +72,7 @@ import { readVisitorLastRead } from '../services/visitorReadReceipts.js';
 import { channelOutboundStopped, channelStoppedBody, dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
 import { enqueueOutboundMediaIfChannelConversation } from '../services/channels/mediaOutbound.js';
 import { sanitizeClientMessageMetadata } from '../services/channels/clientMessageMetadata.js';
+import { cancelWorkspaceChatReplies } from '../services/channels/jobs.js';
 
 import { applyPostSendAction } from '../services/conversationPostSend.js';
 import { recordConversationClosed } from '../services/conversationClosedNotice.js';
@@ -2664,6 +2665,10 @@ conversationsRouter.delete('/', async (req, res) => {
     if (fetchErr) return res.status(500).json({ error: fetchErr.message });
     const ids = (convs ?? []).map((c) => c.id);
     if (ids.length === 0) return res.json({ deleted: 0 });
+
+    // Replies still queued for these conversations would reach the customer
+    // after their messages are gone: stop them first.
+    await cancelWorkspaceChatReplies(sb, parsed.data.workspace_id);
 
     const { error: msgErr } = await sb.from('conversation_messages').delete().in('conversation_id', ids);
     if (msgErr) return res.status(500).json({ error: msgErr.message });

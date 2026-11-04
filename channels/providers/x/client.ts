@@ -356,6 +356,9 @@ export async function downloadFile(_credential: BotCredential, filePath: string,
   }
 }
 
+/** 5 MB over the public internet; generous, but bounded. */
+const X_MEDIA_UPLOAD_TIMEOUT_MS = 60_000;
+
 /** X's simple (non-chunked) media upload accepts images up to 5 MB. */
 const X_SIMPLE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -376,12 +379,27 @@ async function uploadMedia(cred: XCredential, bytes: Uint8Array, mimeType: strin
   const epilogue = Buffer.from(`\r\n--${boundary}--\r\n`);
   const body = Buffer.concat([preamble, Buffer.from(bytes), epilogue]);
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: authorization, 'Content-Type': `multipart/form-data; boundary=${boundary}` },
-    body,
-  });
-  const raw = await response.text();
+  let response: Response;
+  let raw: string;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: authorization, 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      body,
+      // Without one, a stalled upload held the Channels Worker, which runs
+      // one job at a time, for every workspace's queue.
+      signal: AbortSignal.timeout(X_MEDIA_UPLOAD_TIMEOUT_MS),
+    });
+    raw = await response.text();
+  } catch (err) {
+    throw new TelegramApiError(
+      `X media upload transport failure: ${redactXToken(String((err as Error).message))}`,
+      0,
+      null,
+      null,
+      true,
+    );
+  }
   if (!response.ok) {
     throw new TelegramApiError(`X media upload failed [${response.status}]: ${redactXToken(raw).slice(0, 300)}`, response.status, null, null, response.status >= 500 || response.status === 429);
   }

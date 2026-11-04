@@ -103,5 +103,13 @@ curl -s https://channels.example.com/ready    # {"ready":true,"core":"reachable"
   → copy Core's exact value to the Worker and redeploy it. Jobs already marked
   `failed` need to be requeued after authentication is repaired; merely
   restarting the Worker only resumes pending/retrying jobs.
+- A chat reply (Telegram, Bale, WhatsApp, Instagram, X) is sent once: the job
+  records the send on its own row before reporting to Core, so a report Core
+  does not take is retried without sending again, and a media reply resumes
+  at the file that failed. A 404 naming a row (`unknown_message`,
+  `unknown_operation`) ends the job; only a missing route (`Not found`), 401
+  and 503 requeue it without spending a retry. Calls to Core time out after
+  30 s (`CHANNELS_CORE_CALL_TIMEOUT_MS`; uploads 90 s,
+  `CHANNELS_CORE_UPLOAD_TIMEOUT_MS`).
 - Opening the webhook path in a browser returns `404`/`401` — that is correct;
   it only accepts `POST` with Telegram's secret header.

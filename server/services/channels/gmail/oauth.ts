@@ -17,6 +17,7 @@
  */
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
+import { consumeMailOAuthState } from '../mailOAuthState.js';
 import { randomToken } from '../../invitations/tokens.js';
 import { isPluginCryptoConfigured } from '../../../lib/pluginCrypto.js';
 import { storePluginSecret, readPluginSecret, deletePluginSecret, pluginCryptoReady } from '../../plugins/secrets.js';
@@ -99,26 +100,11 @@ export async function handleGmailOAuthCallback(
   config: ServerConfig,
   code: string,
   state: string,
+  /** The signed-in member finishing the connect; must be the one who started it. */
+  userId: string,
 ): Promise<GmailOAuthCallbackResult> {
-  const sb = getServiceClient(config);
-  const { data: stateRow, error: stateError } = await sb
-    .from('channel_oauth_states')
-    .select('token, workspace_id, installation_id, initiated_by, consumed_at, expires_at')
-    .eq('token', state)
-    .eq('provider', 'gmail')
-    .maybeSingle();
-  if (stateError || !stateRow) throw new GmailError('gmail_invalid_state');
-  if (stateRow.consumed_at) throw new GmailError('gmail_invalid_state');
-  if (new Date(stateRow.expires_at as string).getTime() < Date.now()) throw new GmailError('gmail_invalid_state');
-
-  // Consume atomically-enough: mark used before doing anything else, so a
-  // retried/duplicated callback can never replay the same code twice.
-  const { error: consumeError, count } = await sb
-    .from('channel_oauth_states')
-    .update({ consumed_at: new Date().toISOString() }, { count: 'exact' })
-    .eq('token', state)
-    .is('consumed_at', null);
-  if (consumeError || !count) throw new GmailError('gmail_invalid_state');
+  const stateRow = await consumeMailOAuthState(config, 'gmail', state, userId);
+  if (!stateRow) throw new GmailError('gmail_invalid_state');
 
   const workspaceId = stateRow.workspace_id as string;
   const installationId = stateRow.installation_id as string;

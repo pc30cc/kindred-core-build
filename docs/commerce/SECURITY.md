@@ -48,6 +48,25 @@ Implemented in `server/services/commerce/pairing.ts` /
 column enforced by a partial unique index — replay is a DB-level
 impossibility, not just an application check.
 
+**Who holds a store (2026-11-04).** One store (provider, `store_id`) has
+one active connection across all workspaces
+(`commerce_connections_store_unique`), and pairing alone proves nothing
+about who controls the store: the register call is public and the consent
+happens in the approver's own workspace. A claim counts once a signed
+handshake with the store succeeded (`last_success_at`: the plugin checks the
+signature on `/health`, so only a store holding that installation's secret
+answers). At the exchange (`clearUnprovenStoreClaims`), another workspace's
+proven claim refuses the pairing with `store_already_connected` (before the
+code is spent), and another workspace's unproven claim is revoked with its
+secret, so a shop's real owner always gets through. The released plugins see
+no change.
+
+**Rate limits on the store-signed routes** (`/api/commerce/events`,
+`/api/commerce/connection/*`): by client address before the signature is
+checked (600 and 60 a minute), by installation only after it checks out (120
+and 10). An installation id is readable in a store's pages, so a limit keyed
+on the unverified header let anyone spend a store's budget.
+
 ## Request signing (plugin ↔ Web Yar)
 
 Every machine request in both directions is HMAC-SHA256 signed

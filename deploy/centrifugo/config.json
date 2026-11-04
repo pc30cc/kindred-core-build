@@ -14,7 +14,7 @@
   "_comment_origins": "Multi-tenant SaaS: backend (/api/realtime/connect + /subscribe) enforces per-workspace origin allow-list against workspace_domains. Centrifugo is the transport layer only — keep allowed_origins permissive ['*'] so any customer domain can connect without a redeploy. The backend is the SOLE authorization gatekeeper.",
   "allowed_origins": ["*"],
 
-  "_comment_channels": "Channel namespace 'ws' matches the channel pattern issued by buildChannelName(workspaceId, conversationId) → 'ws:{workspace_id}:conv:{conversation_id}'. Subscribe tokens are required (private channels), presence/history enabled to support typing/presence capabilities.",
+  "_comment_channels": "Channel namespace 'ws' matches the channel pattern issued by buildChannelName(workspaceId, conversationId) → 'ws:{workspace_id}:conv:{conversation_id}' (and :inbox, :visitors, :operators, :user:{id}). Subscribe tokens issued by the backend are the only way in. Presence and history are kept server-side (presence for the backend's API reads, history for force_recovery on resubscribe), but clients may NOT call history or presence: in Centrifugo v5 allow_*_for_client lets any connection with a user id read any channel of the namespace without subscribing (cross-tenant leak, audit 2026-11-04), and allow_*_for_subscriber would show every subscriber of ws:{ws}:operators the whole team, hidden peers included. Recovery does not need either. Guard: src/test/realtime/centrifugoNamespaces.test.ts. Must match CENTRIFUGO_NAMESPACES in the compose files.",
   "namespaces": [
     {
       "name": "ws",
@@ -26,8 +26,8 @@
       "force_recovery": true,
       "allow_subscribe_for_client": false,
       "allow_publish_for_client": false,
-      "allow_presence_for_client": true,
-      "allow_history_for_client": true,
+      "allow_presence_for_client": false,
+      "allow_history_for_client": false,
       "subscribe_for_anonymous": false
     },
     {

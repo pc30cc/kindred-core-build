@@ -141,3 +141,33 @@ export function isEligible(row: AvailabilityRow, channel: 'audio' | 'video'): bo
   if (channel === 'audio') return row.status === 'available_audio' || row.status === 'available_both';
   return row.status === 'available_video' || row.status === 'available_both';
 }
+
+/**
+ * Clear the in-call marker of every operator whose marker still points at
+ * this call (a compare-and-set on `active_call_session_id`): a marker that
+ * has moved on to a newer call is left alone. For the system's late ends
+ * (staleConnectingSweep.ts), which come long after the operator may have
+ * taken another call. Never throws.
+ */
+export async function clearInCallOf(
+  config: ServerConfig,
+  workspaceId: string,
+  callSessionId: string,
+): Promise<void> {
+  try {
+    const { error } = await getServiceClient(config)
+      .from('operator_call_availability')
+      .update({
+        in_call: false,
+        in_call_since: null,
+        active_call_session_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('workspace_id', workspaceId)
+      .eq('active_call_session_id', callSessionId);
+    if (error) console.warn('[availability] clearInCallOf failed:', error.message);
+  } catch (err) {
+    console.warn('[availability] clearInCallOf failed:', err instanceof Error ? err.message : err);
+  }
+  invalidateAvailabilityCache(workspaceId);
+}

@@ -30,7 +30,7 @@ import {
   type InvitationChannel,
   type InvitationStatus,
 } from '@/lib/call-invitations-api';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InviteWaitDialog } from './InviteWaitDialog';
 import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
 import { useOperatorCall } from '@/features/calls/OperatorCallContext';
@@ -103,6 +103,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
   // resolvers the server's call gates count with, so "at the cap" here is
   // exactly what the server will answer. Only block when a finite cap is set
   // AND usage has been read AND it is at or over the cap.
+  const queryClient = useQueryClient();
   const { data: limitUsage } = useQuery({
     queryKey: ['limit-usage', workspaceId, 'calls'],
     enabled: !!workspaceId && planReady,
@@ -181,8 +182,22 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
       contactName: contactName ?? null,
       channel: dialogChannel,
       ttlSeconds: seconds,
-    }).then(() => {
+    }).then((result) => {
       setDialogChannel(null);
+      if (!result.ok) {
+        // POST /api/call-invitations refuses at the plan's concurrent call
+        // limit (429), as /api/calls/create does: say so, with the panel's
+        // own words for that limit, and re-read the usage so the buttons
+        // show it too.
+        if (result.code === 'plan_limit_reached') {
+          toast({
+            title: safeT('inbox.sidebarCall.limitConcurrent', 'Concurrent call limit reached on your plan'),
+            variant: 'destructive',
+          });
+          void queryClient.invalidateQueries({ queryKey: ['limit-usage', workspaceId, 'calls'] });
+        }
+        return;
+      }
       toast({
         title: dialogChannel === 'video'
           ? (t('inbox.callInvite.videoSent') || 'Video invite sent')
@@ -190,7 +205,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
         description: t('inbox.callInvite.sentDesc') || 'Visitor can join from the conversation card.',
       });
     });
-  }, [dialogChannel, workspaceId, conversationId, contactName, sendInvite, t]);
+  }, [dialogChannel, workspaceId, conversationId, contactName, sendInvite, t, safeT, queryClient]);
 
   const closeDialog = useCallback(() => {
     if (creating) return;

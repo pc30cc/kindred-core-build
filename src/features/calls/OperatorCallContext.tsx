@@ -64,6 +64,9 @@ export type TerminalStatus =
   | 'connect_failed_remote'
   | null;
 
+/** What sendInvite did: sent, or refused with the server's error code. */
+export type SendInviteResult = { ok: true } | { ok: false; code: string | null };
+
 export interface LastEndedSummary {
   ended_by: 'operator' | 'visitor' | 'system';
   reason:
@@ -136,14 +139,18 @@ export interface OperatorCallContextValue {
   setFloatingMode(next: FloatingMode): void;
   /** Most recent invitation for the *given* conversation (drives sidebar pill). */
   latestForConversation(conversationId: string): CallInvitation | null;
-  /** Initiate an invitation. */
+  /**
+   * Initiate an invitation. Resolves with whether it was sent; a refusal
+   * for the plan's concurrent call limit (429 plan_limit_reached) is left to
+   * the caller to show, every other failure is toasted here.
+   */
   sendInvite(args: {
     workspaceId: string;
     conversationId: string;
     contactName: string | null;
     channel: InvitationChannel;
     ttlSeconds: number;
-  }): Promise<void>;
+  }): Promise<SendInviteResult>;
   cancelInvite(): Promise<void>;
   /** Operator hangup (or close terminal early). */
   hangup(): Promise<void>;
@@ -551,7 +558,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     channel: InvitationChannel;
     ttlSeconds: number;
   }) => {
-    if (creating || surface.phase !== 'idle') return;
+    if (creating || surface.phase !== 'idle') return { ok: false, code: 'busy' };
     resetPerCallLifecycleRefs();
     lastActiveCallSessionIdRef.current = null;
     lastActiveCallConversationIdRef.current = null;
@@ -576,16 +583,18 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         contactName: args.contactName,
         workspaceId: args.workspaceId,
       });
-      toast({
-        title: args.channel === 'video' ? 'Video invite sent' : 'Audio invite sent',
-        description: 'Visitor can join from the conversation card.',
-      });
-    } catch (e: any) {
-      toast({
-        title: 'Could not send invite',
-        description: e?.message || String(e),
-        variant: 'destructive',
-      });
+      return { ok: true };
+    } catch (e) {
+      const err = e as { code?: string; message?: string } | null;
+      const code = err?.code ?? null;
+      if (code !== 'plan_limit_reached') {
+        toast({
+          title: 'Could not send invite',
+          description: err?.message || String(e),
+          variant: 'destructive',
+        });
+      }
+      return { ok: false, code };
     } finally {
       setCreating(null);
       setLoading(false);

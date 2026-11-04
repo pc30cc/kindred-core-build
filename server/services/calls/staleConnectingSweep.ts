@@ -11,7 +11,8 @@
  * count (usageResolvers.ts, team_call_place, call_session_create), and held
  * its operator's in-call markers.
  *
- * So, once a minute (queueTicker.ts), a call of any entry source but a
+ * So, once a minute (its own timer, one replica at a time by its lease,
+ * never inside the call queue's pass), a call of any entry source but a
  * colleague call (whose room check is teamCallTicker.ts) that is still
  * `connecting`, with no `connected_at`, created more than
  * STALE_CONNECTING_CALL_MS ago:
@@ -20,25 +21,35 @@
  *     webhooks were lost), so it is left alone; the room empty or gone, and
  *     nobody is in the call;
  *   - a call without a room (its room was never made) has nobody in it;
- *   - a provider that cannot be asked, or that has no listing, decides
- *     nothing: the call waits (it may be a call in progress whose webhooks
- *     this provider never sends);
+ *   - a provider that cannot be asked decides nothing: the call waits for a
+ *     later pass; a provider with no listing is never read here at all (it
+ *     may be a call in progress whose webhooks this provider never sends),
+ *     so such rows take no place in a pass;
  * and a call with nobody in it becomes `failed` (ended by the system,
  * `end_reason` 'failed'), from `connecting` with no `connected_at` only (a
  * compare-and-set: a join or a hang-up in between wins). That is what the
  * code does for a join that never happened (widgetCallInvitations.ts), and
  * it bills nothing: tg_call_sessions_bill_minutes adds minutes on a move into
  * `ended` only, and never for a call that was not connected. Then the room is
- * closed, the operators' in-call markers and the call-centre operator's count
- * are cleared, and `call:ended` is published as an ended call publishes it,
- * so every panel and the widget drop the call.
+ * closed, the in-call markers still pointing at this call are cleared (a
+ * compare-and-set: an operator now in a newer call keeps theirs), the
+ * call-centre operator's count is set right, and `call:ended` goes to the
+ * operators' channels only: the visitor's widget would draw a "call ended"
+ * line for a call hours old, and silence a new invitation ringing then.
+ *
+ * Each pass reads up to STALE_CONNECTING_BATCH calls after a cursor (by id)
+ * that it keeps between passes and wraps at the end, so calls it keeps (a
+ * room with someone in it, an unreachable provider) never hold the newer
+ * ones back.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { resolveCallProvider } from './providerResolver.js';
 import type { CallProviderId } from './providers/types.js';
 import { syncAgentActiveCallCount } from './callStateGuards.js';
-import { clearInCall } from './availability.js';
+import { clearInCallOf } from './availability.js';
+import { acquireTickerLease, releaseTickerLease } from '../observability/tickerLease.js';
+import { CALL_PROVIDER_CLASSIFICATION } from './providers/types.js';
 import { publishOperatorEvent } from '../realtime/publish.js';
 import { publishCallEvent as publishCallCenterCallEvent } from '../callCenter/realtime.js';
 
@@ -53,6 +64,30 @@ export const STALE_CONNECTING_CALL_MS = 2 * 60 * 60_000;
 
 /** Calls looked at per pass. */
 const STALE_CONNECTING_BATCH = 200;
+
+/** The pass's timer and its lease (one replica at a time). */
+const SWEEP_MS = 60_000;
+const SWEEP_FIRST_RUN_MS = 45_000;
+const SWEEP_LEASE = 'call_stale_connecting';
+
+/** Where the next pass starts (an id), kept between passes; null: the start. */
+let cursor: string | null = null;
+
+/** For tests: start the next pass from the beginning. */
+export function resetStaleConnectingCursor(): void {
+  cursor = null;
+}
+
+/** Providers whose rooms can be listed: only their calls (or calls without a room) are read. */
+function listableProviders(): string[] {
+  return (Object.keys(CALL_PROVIDER_CLASSIFICATION) as CallProviderId[]).filter((id) => {
+    try {
+      return typeof resolveCallProvider(id).listRoomIdentities === 'function';
+    } catch {
+      return false;
+    }
+  });
+}
 
 interface StaleConnectingRow {
   id: string;
@@ -103,17 +138,7 @@ async function afterFailed(config: ServerConfig, row: StaleConnectingRow, endedA
       payload: { reason: 'stale_connecting' },
     });
   } catch { /* best effort */ }
-  try {
-    const { data: parts } = await sb
-      .from('call_participants')
-      .select('participant_id, participant_type')
-      .eq('call_session_id', row.id);
-    for (const p of (parts ?? []) as Array<{ participant_type?: string; participant_id?: string | null }>) {
-      if (p.participant_type === 'operator' && p.participant_id) {
-        await clearInCall(config, row.workspace_id, p.participant_id).catch(() => {});
-      }
-    }
-  } catch { /* best effort */ }
+  await clearInCallOf(config, row.workspace_id, row.id);
   if (row.assigned_agent_id) await syncAgentActiveCallCount(config, row.workspace_id, row.assigned_agent_id);
   if (row.context_type === 'conversation' && row.context_id) {
     await publishOperatorEvent(config, {
@@ -126,7 +151,7 @@ async function afterFailed(config: ServerConfig, row: StaleConnectingRow, endedA
       reason: 'stale_connecting',
       duration_seconds: 0,
       ended_at: endedAt,
-    }).catch(() => {});
+    }, { skipConversationChannel: true }).catch(() => {});
   }
   await publishCallCenterCallEvent(config, row.workspace_id, row.id, 'call_ended', {
     call_id: row.id,
@@ -135,25 +160,30 @@ async function afterFailed(config: ServerConfig, row: StaleConnectingRow, endedA
   });
 }
 
-/** One pass. Exported for its tests; the call queue's ticker runs it. Never throws. */
+/** One pass. Exported for its tests; startStaleConnectingSweep's timer runs it. Never throws. */
 export async function sweepStaleConnectingCalls(config: ServerConfig, now: number = Date.now()): Promise<StaleConnectingPass> {
   const pass: StaleConnectingPass = { checked: 0, failed: 0, kept: 0 };
   const sb = getServiceClient(config);
   const createdBefore = new Date(now - STALE_CONNECTING_CALL_MS).toISOString();
-  const { data, error } = await sb
+  const providers = listableProviders();
+  let q = sb
     .from('call_sessions')
     .select('id, workspace_id, provider, provider_room_id, context_type, context_id, assigned_agent_id')
     .eq('state', 'connecting')
     .is('connected_at', null)
     .neq('entry_source', 'team_call')
     .lt('created_at', createdBefore)
-    .order('created_at', { ascending: true })
-    .limit(STALE_CONNECTING_BATCH);
+    .or(`provider_room_id.is.null${providers.length ? `,provider.in.(${providers.join(',')})` : ''}`);
+  if (cursor) q = q.gt('id', cursor);
+  const { data, error } = await q.order('id', { ascending: true }).limit(STALE_CONNECTING_BATCH);
   if (error || !data) return pass;
+  // A short page is the end: the next pass starts again from the beginning.
+  const rowsRead = data as StaleConnectingRow[];
+  cursor = rowsRead.length < STALE_CONNECTING_BATCH ? null : rowsRead[rowsRead.length - 1].id;
 
   // A provider that does not answer is not asked again in the same pass.
   const unreachable = new Set<string>();
-  for (const row of data as StaleConnectingRow[]) {
+  for (const row of rowsRead) {
     pass.checked++;
     try {
       let occupied: boolean | null = null;
@@ -184,4 +214,33 @@ export async function sweepStaleConnectingCalls(config: ServerConfig, now: numbe
     }
   }
   return pass;
+}
+
+/** One leased pass: on one replica at a time. Never throws. */
+export async function runStaleConnectingSweepOnce(config: ServerConfig): Promise<StaleConnectingPass | null> {
+  let leased = false;
+  try {
+    leased = await acquireTickerLease(config, SWEEP_LEASE);
+  } catch {
+    return null;
+  }
+  if (!leased) return null;
+  try {
+    return await sweepStaleConnectingCalls(config);
+  } catch (err) {
+    console.warn('[calls] stale connecting sweep failed:', err instanceof Error ? err.message : err);
+    return null;
+  } finally {
+    await releaseTickerLease(config, SWEEP_LEASE).catch(() => {});
+  }
+}
+
+let sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+/** The sweep's own timer, apart from the call queue's pass (server/index.ts). */
+export function startStaleConnectingSweep(config: ServerConfig): void {
+  if (sweepTimer) return;
+  setTimeout(() => void runStaleConnectingSweepOnce(config), SWEEP_FIRST_RUN_MS).unref?.();
+  sweepTimer = setInterval(() => void runStaleConnectingSweepOnce(config), SWEEP_MS);
+  sweepTimer.unref?.();
 }

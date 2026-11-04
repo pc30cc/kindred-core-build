@@ -23,9 +23,8 @@ const fake = vi.hoisted(() => ({
   /** Rooms whose listing throws (the provider cannot be asked). */
   unreachable: new Set<string>(),
   closed: [] as string[],
-  operatorEvents: [] as Array<Record<string, unknown>>,
+  operatorEvents: [] as Array<{ payload: Record<string, unknown>; opts?: { skipConversationChannel?: boolean } }>,
   callCenterEvents: [] as Array<{ callId: string; type: string }>,
-  clearedInCall: [] as string[],
 }));
 
 vi.mock('../../../server/services/calls/providerResolver.js', async (orig) => ({
@@ -35,6 +34,7 @@ vi.mock('../../../server/services/calls/providerResolver.js', async (orig) => ({
     listRoomIdentities: id === 'livekit'
       ? async (_config: unknown, room: string) => {
         if (fake.unreachable.has(room)) throw new Error('livekit unreachable');
+        if (room.startsWith('busy-')) return ['visitor:someone'];
         return fake.rooms.get(room) ?? [];
       }
       : undefined,
@@ -43,15 +43,13 @@ vi.mock('../../../server/services/calls/providerResolver.js', async (orig) => ({
 }));
 vi.mock('../../../server/services/realtime/publish.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/realtime/publish.js')>()),
-  publishOperatorEvent: async (_config: unknown, payload: Record<string, unknown>) => { fake.operatorEvents.push(payload); },
+  publishOperatorEvent: async (_config: unknown, payload: Record<string, unknown>, opts?: { skipConversationChannel?: boolean }) => {
+    fake.operatorEvents.push({ payload, opts });
+  },
 }));
 vi.mock('../../../server/services/callCenter/realtime.js', async (orig) => ({
   ...(await orig<typeof import('../../../server/services/callCenter/realtime.js')>()),
   publishCallEvent: async (_config: unknown, _ws: string, callId: string, type: string) => { fake.callCenterEvents.push({ callId, type }); },
-}));
-vi.mock('../../../server/services/calls/availability.js', async (orig) => ({
-  ...(await orig<typeof import('../../../server/services/calls/availability.js')>()),
-  clearInCall: async (_config: unknown, _ws: string, userId: string) => { fake.clearedInCall.push(userId); },
 }));
 
 suite('stale connecting calls (staleConnectingSweep.ts)', () => {
@@ -120,17 +118,24 @@ suite('stale connecting calls (staleConnectingSweep.ts)', () => {
     fake.closed.length = 0;
     fake.operatorEvents.length = 0;
     fake.callCenterEvents.length = 0;
-    fake.clearedInCall.length = 0;
+    (await import('../../../server/services/calls/staleConnectingSweep.js')).resetStaleConnectingCursor();
   });
 
   const sweep = async () => (await import('../../../server/services/calls/staleConnectingSweep.js')).sweepStaleConnectingCalls(config);
   const minutesUsed = async () => Number((await one(
     `SELECT coalesce(sum(call_minutes_used), 0)::int AS n FROM public.workspace_usage_counters WHERE workspace_id = $1`, [ws])).n);
 
-  it('a call nobody joined, its room empty or gone: failed, unbilled, its room closed, the panels and its operator told', async () => {
-    const operator = randomUUID();
+  it('a call nobody joined, its room empty or gone: failed, unbilled, its room closed, the operators (only) told', async () => {
     const empty = await call({ ageHours: 1000, conversationId: conversation });
-    await q(`INSERT INTO public.call_participants (call_session_id, participant_type, participant_id) VALUES ($1, 'operator', $2)`, [empty, operator]);
+    const newer = await call({ ageHours: 0, state: 'active' });
+    // One operator's marker still points at the stale call; another's has
+    // moved on to a newer call it is in now.
+    const [stuck, busyNow] = [randomUUID(), randomUUID()];
+    for (const [user, callId] of [[stuck, empty], [busyNow, newer]]) {
+      await q(`INSERT INTO public.profiles (id, email) VALUES ($1, $2)`, [user, `u-${user.slice(0, 8)}@test.local`]);
+      await q(`INSERT INTO public.operator_call_availability (workspace_id, user_id, status, in_call, active_call_session_id)
+               VALUES ($1, $2, 'busy', true, $3)`, [ws, user, callId]);
+    }
     const noRoom = await call({ ageHours: 3, room: null, entrySource: 'call_widget' });
     const before = await minutesUsed();
 
@@ -144,17 +149,22 @@ suite('stale connecting calls (staleConnectingSweep.ts)', () => {
     }
     expect(await minutesUsed()).toBe(before);
     expect(fake.closed).toEqual([(await stateOf(empty)).provider_room_id]);
-    expect(fake.clearedInCall).toEqual([operator]);
-    expect(fake.operatorEvents).toEqual([expect.objectContaining({
-      kind: 'call:ended', conversation_id: conversation, workspace_id: ws, call_session_id: empty, ended_by: 'system',
-    })]);
+    const markers = await q(`SELECT user_id, in_call, active_call_session_id FROM public.operator_call_availability WHERE workspace_id = $1`, [ws]);
+    expect(markers.find((m) => m.user_id === stuck)).toMatchObject({ in_call: false, active_call_session_id: null });
+    expect(markers.find((m) => m.user_id === busyNow)).toMatchObject({ in_call: true, active_call_session_id: newer });
+    expect(fake.operatorEvents).toEqual([{
+      payload: expect.objectContaining({
+        kind: 'call:ended', conversation_id: conversation, workspace_id: ws, call_session_id: empty, ended_by: 'system',
+      }),
+      opts: { skipConversationChannel: true },
+    }]);
     expect(fake.callCenterEvents.map((e) => e.callId).sort()).toEqual([empty, noRoom].sort());
 
     // A second pass finds nothing.
     expect(await sweep()).toEqual({ checked: 0, failed: 0, kept: 0 });
   });
 
-  it('someone in the room, or a provider that cannot be asked or has no listing: kept', async () => {
+  it('someone in the room, or a provider that cannot be asked: kept; a provider with no listing is not read', async () => {
     const occupied = await call({ ageHours: 5 });
     fake.rooms.set(String((await stateOf(occupied)).provider_room_id), ['visitor:abc']);
     const unknown = await call({ ageHours: 5 });
@@ -162,10 +172,33 @@ suite('stale connecting calls (staleConnectingSweep.ts)', () => {
     const agora = await call({ ageHours: 5, provider: 'agora' });
 
     const pass = await sweep();
-    expect(pass.failed).toBe(0);
-    expect(pass.kept).toBe(3);
+    expect(pass).toEqual({ checked: 2, failed: 0, kept: 2 });
     for (const id of [occupied, unknown, agora]) expect((await stateOf(id)).state).toBe('connecting');
     expect(fake.closed).toEqual([]);
+  });
+
+  it('a full page of kept calls does not hold a newer stale call back: the next pass goes on after them', async () => {
+    await q(`INSERT INTO public.call_sessions (id, workspace_id, provider, call_type, context_type, state, entry_source, provider_room_id,
+                                               initiated_by_type, created_at, updated_at)
+             SELECT ('00000000-0000-4000-8000-' || lpad(g::text, 12, '0'))::uuid, $1, 'livekit', 'video', 'internal', 'connecting', 'chat',
+                    'busy-' || g, 'operator', now() - interval '5 hours', now() - interval '5 hours'
+               FROM generate_series(1, 200) AS g`, [ws]);
+    const late = String((await one(
+      `INSERT INTO public.call_sessions (id, workspace_id, provider, call_type, context_type, state, entry_source, provider_room_id,
+                                         initiated_by_type, created_at, updated_at)
+       VALUES ('ffffffff-ffff-4fff-8fff-ffffffffffff', $1, 'livekit', 'video', 'internal', 'connecting', 'chat', 'gone-room',
+               'operator', now() - interval '3 hours', now() - interval '3 hours') RETURNING id`, [ws])).id);
+    expect(await sweep()).toEqual({ checked: 200, failed: 0, kept: 200 });
+    expect(await sweep()).toEqual({ checked: 1, failed: 1, kept: 0 });
+    expect((await stateOf(late)).state).toBe('failed');
+    // And round again from the start.
+    expect((await sweep()).checked).toBe(200);
+  });
+
+  it('the leased pass runs the sweep', async () => {
+    await call({ ageHours: 4, room: null });
+    const { runStaleConnectingSweepOnce } = await import('../../../server/services/calls/staleConnectingSweep.js');
+    expect(await runStaleConnectingSweepOnce(config)).toEqual({ checked: 1, failed: 1, kept: 0 });
   });
 
   it('recent, connected, active, over and colleague calls are not the sweep\'s', async () => {

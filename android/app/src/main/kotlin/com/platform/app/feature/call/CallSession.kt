@@ -17,8 +17,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.util.UUID
 
 /**
  * One call, from the invitation going out to the room closing.
@@ -47,6 +50,15 @@ class CallSession(
      * looks exactly like the visitor turning their camera off.
      */
     val room: CallRoom,
+    /**
+     * The foreground service the call runs under once it is joining
+     * ([OngoingCallService]): without one, the operator pressing Home or
+     * locking the phone cuts the microphone and the camera (Android 11 and
+     * later) while the call goes on looking live on both sides.
+     */
+    private val foreground: CallForeground = NoCallForeground,
+    /** End pressed on an ongoing call's notification: that call's key ([OngoingCall.callId]). */
+    private val hangUps: Flow<String> = emptyFlow(),
 ) : ViewModel() {
 
     private val _phase = MutableStateFlow<CallPhase>(CallPhase.Waiting)
@@ -101,6 +113,19 @@ class CallSession(
     /** Set for a call-centre call this phone was rung for: whose queue it is in. */
     private var centerWorkspaceId: String? = null
 
+    /** Who the call is with, as the ongoing notification names them ([describe]). */
+    private var peerName: String = ""
+    private var peerAvatarUrl: String? = null
+
+    /** The call's foreground service is up, from the dial or the answer to the end. */
+    private var inForeground = false
+
+    /**
+     * This call's key on this phone: what its ongoing notification is for,
+     * from the dial — before the server has made a session for it.
+     */
+    internal val key: String = "call-" + UUID.randomUUID()
+
     /**
      * The work that gets the call INTO the room: the invitation and its wait,
      * or the answer — and, after either, the join.
@@ -154,6 +179,11 @@ class CallSession(
         this.channel = channel
         this.language = language
         _cameraOn.value = channel == CallChannel.VIDEO
+        // Now, with the operator on this screen and the permissions just
+        // asked: Android 14 lets a microphone service start only from the
+        // foreground, and the visitor may take a while to answer — time
+        // enough for the operator to go to another app.
+        showForeground()
 
         callJob = viewModelScope.launch {
             // On the teardown's scope, not this job's: a hang-up while the
@@ -186,9 +216,7 @@ class CallSession(
             invitationId = invitation.id
             waitForVisitor()
         }
-        viewModelScope.launch {
-            room.events.collect { event -> onRoomEvent(event) }
-        }
+        follow()
     }
 
     /**
@@ -209,9 +237,34 @@ class CallSession(
         this.callSessionId = callSessionId
         _cameraOn.value = channel == CallChannel.VIDEO
         _phase.value = CallPhase.Ringing
+        follow()
+    }
+
+    /** The room's news, and End on the call's ongoing notification. */
+    private fun follow() {
         viewModelScope.launch {
             room.events.collect { event -> onRoomEvent(event) }
         }
+        viewModelScope.launch {
+            hangUps.collect { id -> if (id == key && _phase.value.isLive) hangUp() }
+        }
+        // However the call ended — the visitor said no, the offer ran out,
+        // the call centre would not give it — its notification goes with it.
+        viewModelScope.launch {
+            _phase.collect { phase -> if (!phase.isLive) stopForeground() }
+        }
+    }
+
+    /**
+     * Who the call is with, for its ongoing notification: the name the
+     * screen shows (it can resolve after the call started) and their photo,
+     * if any — the silhouette otherwise, never a letter.
+     */
+    fun describe(name: String, avatarUrl: String?) {
+        if (name == peerName && avatarUrl == peerAvatarUrl) return
+        peerName = name
+        peerAvatarUrl = avatarUrl
+        if (inForeground) showForeground()
     }
 
     /**
@@ -225,6 +278,8 @@ class CallSession(
         val workspaceId = centerWorkspaceId ?: return
         val sessionId = callSessionId ?: return
         _phase.value = CallPhase.Connecting
+        // As for a dial: while Answer has the app in front.
+        showForeground()
         callJob = viewModelScope.launch {
             runCatchingUnlessCancelled {
                 api.acceptCenterCall(workspaceId = workspaceId, callSessionId = sessionId)
@@ -333,7 +388,10 @@ class CallSession(
     }
 
     private suspend fun join(callSessionId: String) {
+        this.callSessionId = callSessionId
         _phase.value = CallPhase.Connecting
+        // Now with the session, for End to reach the server without this screen.
+        showForeground()
 
         val credentials = runCatchingUnlessCancelled {
             api.callToken(callSessionId, displayName = null)
@@ -381,6 +439,8 @@ class CallSession(
                 room.setSpeaker(_speakerOn.value)
                 _phase.value = CallPhase.Connected
                 _connectedAt.value = Instant.now()
+                // Its timer, and the camera as it came up.
+                showForeground()
             }
         }
     }
@@ -418,6 +478,8 @@ class CallSession(
         if (channel != CallChannel.VIDEO) return
         val next = !_cameraOn.value
         _cameraOn.value = next
+        // The service holds the camera only while it is on.
+        if (inForeground) showForeground()
         viewModelScope.launch { room.setCamera(enabled = next) }
     }
 
@@ -432,6 +494,7 @@ class CallSession(
 
     private fun finish(outcome: CallOutcome) {
         if (!_phase.value.isLive) return
+        stopForeground()
         // Never answered: there is nothing of ours to end.
         if (_phase.value == CallPhase.Ringing) {
             _phase.value = CallPhase.Ended(outcome)
@@ -476,10 +539,42 @@ class CallSession(
         // visitor's widget for its five minutes, and a call-centre call open
         // with this operator's line still busy.
         finish(CallOutcome.HungUp)
+        stopForeground()
         // Whatever happened, the microphone and camera go back. A room left
         // open is a device the next app to ask for it is told no about.
         room.release()
         super.onCleared()
+    }
+
+    // MARK: - The foreground service
+
+    /** What the ongoing notification shows of this call. */
+    internal fun ongoing(): OngoingCall {
+        val center = centerWorkspaceId
+        return OngoingCall(
+            callId = key,
+            peerName = peerName,
+            peerAvatarUrl = peerAvatarUrl,
+            video = channel == CallChannel.VIDEO && _cameraOn.value,
+            language = language,
+            since = _connectedAt.value,
+            kind = if (center != null) OngoingCallKind.CENTER else OngoingCallKind.VISITOR,
+            workspaceId = center,
+            sessionId = callSessionId,
+        )
+    }
+
+    private fun showForeground() {
+        if (!_phase.value.isLive) return
+        inForeground = true
+        foreground.show(ongoing())
+    }
+
+    /** Once per call, on every way it ends; the notification never outlives it. */
+    private fun stopForeground() {
+        if (!inForeground) return
+        inForeground = false
+        foreground.stop()
     }
 
     private companion object {

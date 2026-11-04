@@ -268,6 +268,9 @@ export function WidgetLivePreview({
   useEffect(() => {
     if (!onViewChange) return;
     const onMessage = (e: MessageEvent) => {
+      // Only our own frame: its origin is opaque (sandboxed srcdoc), so the
+      // sending window is the test, not the origin or the payload's tag.
+      if (!frameRef.current || e.source !== frameRef.current.contentWindow) return;
       const data = e.data as { source?: string; nav?: string } | null;
       if (!data || data.source !== 'gs-widget-preview' || !data.nav) return;
       onViewChange(data.nav === 'home' ? 'home' : data.nav === 'help' ? 'kb' : data.nav === 'list' ? 'list' : 'chat');
@@ -280,6 +283,7 @@ export function WidgetLivePreview({
   useEffect(() => {
     if (!onSmartEvent) return;
     const onMessage = (e: MessageEvent) => {
+      if (!frameRef.current || e.source !== frameRef.current.contentWindow) return;
       const data = e.data as { source?: string; type?: string } | null;
       if (!data || data.source !== 'gs-smart-preview' || !data.type) return;
       const kind = data.type.replace('smart-preview:', '');
@@ -1190,6 +1194,7 @@ export function WidgetLivePreview({
     }
 
     window.addEventListener('message', function (e) {
+      if (e.source !== window.parent) return;
       var data = e.data;
       if (!data || data.source !== 'gs-smart-preview') return;
       if (data.type === 'smart-preview:set-phase') applyPhase(data.phase);

@@ -93,7 +93,27 @@ async function tick(sb: SupabaseClient): Promise<boolean> {
     // The slot is held from the claim on, so an overlapping interval cannot take it too.
     const release = inFlight.reserve();
     try {
-      found = (await runDueSchedule(sb, config, id, release)) || found;
+      const claimed = await claimDueSchedule(sb, id);
+      if (!claimed) continue;
+      found = true;
+      // The Advanced tools are a plan feature (ai_advanced_tools, owner
+      // 2026-11-03): a plan without it runs no customer schedule.
+      if (!(await regressionScheduleMayRunServer(config, claimed))) {
+        log('schedule skipped: ai_advanced_tools not in plan', { scheduleId: id, ws: claimed.workspace_id });
+        continue;
+      }
+      log('schedule due → enqueue batch', { scheduleId: id, ws: claimed.workspace_id });
+      try {
+        const batch = await enqueueRegressionBatch(config, {
+          workspaceId: claimed.workspace_id,
+          scheduleId: claimed.id,
+          triggerType: 'scheduled',
+        });
+        const claimedBatch = await claimQueuedBatch(sb, batch.id);
+        if (claimedBatch) await runClaimedBatch(sb, config, batch.id, 'scheduled', release);
+      } catch (e) {
+        log('schedule run error', { id, error: e?.message });
+      }
     } finally {
       release();
     }
@@ -115,36 +135,6 @@ async function tick(sb: SupabaseClient): Promise<boolean> {
     }
   }
   return found;
-}
-
-/** Claims one due schedule and runs its batch. Resolves true when the claim was won. */
-async function runDueSchedule(
-  sb: SupabaseClient,
-  config: ReturnType<typeof loadConfig>,
-  id: string,
-  release: () => void,
-): Promise<boolean> {
-  const claimed = await claimDueSchedule(sb, id);
-  if (!claimed) return false;
-  // The Advanced tools are a plan feature (ai_advanced_tools, owner
-  // 2026-11-03): a plan without it runs no customer schedule.
-  if (!(await regressionScheduleMayRunServer(config, claimed))) {
-    log('schedule skipped: ai_advanced_tools not in plan', { scheduleId: id, ws: claimed.workspace_id });
-    return true;
-  }
-  log('schedule due → enqueue batch', { scheduleId: id, ws: claimed.workspace_id });
-  try {
-    const batch = await enqueueRegressionBatch(config, {
-      workspaceId: claimed.workspace_id,
-      scheduleId: claimed.id,
-      triggerType: 'scheduled',
-    });
-    const claimedBatch = await claimQueuedBatch(sb, batch.id);
-    if (claimedBatch) await runClaimedBatch(sb, config, batch.id, 'scheduled', release);
-  } catch (e) {
-    log('schedule run error', { id, error: e?.message });
-  }
-  return true;
 }
 
 let started = false;

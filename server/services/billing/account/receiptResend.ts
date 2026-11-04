@@ -27,7 +27,7 @@
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { billingRecipient, sendBillingEmail } from './notify.js';
-import { readRows } from '../../../lib/pagedRows.js';
+import { readRows, readRowsByKey, keyPage } from '../../../lib/pagedRows.js';
 
 const RECEIPT_SLUG = 'billing_payment_receipt';
 /** A window holds at most this many failed billing mails; anything past it is reported, not read. */
@@ -100,14 +100,12 @@ async function sentReceiptNumbers(config: ServerConfig, workspaceId: string): Pr
   // Every sent receipt, page by page (the data layer caps a read at
   // DATABASE_MAX_ROWS): one missing here would be mailed a second time.
   const sb = getServiceClient(config);
-  const { data, error } = await readRows<{ id: string; metadata: unknown }>((from, to) => sb
+  const { data, error } = await readRowsByKey<{ id: string; metadata: unknown }>('id', (after, size) => keyPage(sb
     .from('email_logs')
     .select('id, metadata')
     .eq('workspace_id', workspaceId)
     .eq('template_slug', RECEIPT_SLUG)
-    .eq('status', 'sent')
-    .order('id', { ascending: true })
-    .range(from, to));
+    .eq('status', 'sent'), 'id', after, size));
   if (error) throw new Error(`email_logs: ${error.message}`);
   const out = new Set<string>();
   for (const row of (data ?? []) as Array<{ metadata: unknown }>) {

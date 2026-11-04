@@ -16,7 +16,7 @@ import { indexSource, getEmbedderForWorkspace, type SourceType } from './indexer
 import { isUsableEmbeddingProvider, type EmbeddingProvider } from '../embeddings/index.js';
 import { getOrCreateSettings } from '../settings.js';
 import { isKbArticleLocked, resolveKbLock } from '../../knowledge-base/locks.js';
-import { readRows } from '../../../lib/pagedRows.js';
+import { readRows, readRowsByKey, keyPage } from '../../../lib/pagedRows.js';
 
 const PLAN_BUDGETS: Record<string, number> = {
   free: 50,
@@ -279,14 +279,12 @@ export async function rebuildWorkspaceIndex(
   // DATABASE_MAX_ROWS, and an article missing from this set would have its
   // chunks retired by the sweep below.
   const [{ data: publishedArticles, error: articlesError }, kbLock] = await Promise.all([
-    readRows<Record<string, unknown>>((from, to) => sb
+    readRowsByKey<Record<string, unknown>>('id', (after, size) => keyPage(sb
       .from('knowledge_base_articles')
       .select('id, slug, locale, title, content, status, created_at')
       .eq('workspace_id', workspaceId)
       .eq('status', 'published')
-      .eq('used_by_ai', true)
-      .order('id', { ascending: true })
-      .range(from, to)),
+      .eq('used_by_ai', true), 'id', after, size)),
     resolveKbLock(config, workspaceId),
   ]);
   const articleSetTrustworthy = !articlesError;
@@ -413,14 +411,12 @@ export async function rebuildWorkspaceIndex(
   if (reconciliationAllowed) {
     // Every live kb_article chunk, page by page (DATABASE_MAX_ROWS caps a
     // single read): a chunk past the cap would never be retired.
-    const { data: kbChunks, error: chunksError } = await readRows<{ id: string; source_id: string }>((from, to) => sb
+    const { data: kbChunks, error: chunksError } = await readRowsByKey<{ id: string; source_id: string }>('id', (after, size) => keyPage(sb
       .from('ai_knowledge_chunks')
       .select('id, source_id')
       .eq('workspace_id', workspaceId)
       .eq('source_type', 'kb_article')
-      .neq('status', 'deleted')
-      .order('id', { ascending: true })
-      .range(from, to));
+      .neq('status', 'deleted'), 'id', after, size));
     if (chunksError) {
       reconciliationFailed = true;
       distrust();

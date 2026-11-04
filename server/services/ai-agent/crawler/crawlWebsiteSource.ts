@@ -18,7 +18,7 @@ import { safeCrawlFetch } from './safeCrawlFetch.js';
 import { extractFromHtml, sha256Hex } from './extractText.js';
 import { getRobotsRules, isPathAllowedByRobots } from './robots.js';
 import { chunkText } from '../knowledgeIndex/chunker.js';
-import { readRows } from '../../../lib/pagedRows.js';
+import { readRowsByKey, keyPage } from '../../../lib/pagedRows.js';
 import { indexSource, getEmbedderForWorkspace } from '../knowledgeIndex/indexer.js';
 
 export interface CrawlOptions {
@@ -339,15 +339,13 @@ async function pruneUnseenPages(
   // "select then delete" pattern. The select is paged: the data layer caps a
   // read at DATABASE_MAX_ROWS, and a chunk past it would stay answerable.
   // A failed read prunes nothing.
-  const { data: rows, error } = await readRows<{ id: string; source_id: string }>((from, to) => sb
+  const { data: rows, error } = await readRowsByKey<{ id: string; source_id: string }>('id', (after, size) => keyPage(sb
     .from('ai_knowledge_chunks')
     .select('id, source_id')
     .eq('workspace_id', opts.workspaceId)
     .eq('source_type', 'web_page')
     .like('source_id', `${opts.sourceId}:%`)
-    .neq('status', 'deleted')
-    .order('id', { ascending: true })
-    .range(from, to));
+    .neq('status', 'deleted'), 'id', after, size));
   if (error) return;
   const seenSet = new Set(seenSourceIds);
   const stale = rows

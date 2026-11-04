@@ -14,7 +14,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { readRows } from '../lib/pagedRows.js';
+import { readRowsByKey, keyPage } from '../lib/pagedRows.js';
 import { authorizeWorkspaceAccess, requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
 import * as ledger from '../services/ai-billing/ledger.js';
 import { billingCycleId } from '../services/ai-billing/runContext.js';
@@ -110,12 +110,12 @@ aiBillingRouter.get('/admin/overview', async (req, res) => {
   const cycle = billingCycleId();
   // Every settlement of the cycle, page by page: the data layer caps a read
   // at DATABASE_MAX_ROWS, which would understate the totals.
-  const { data: settlements } = await readRows<SettlementCostRow & { id: string }>((from, to) => sb
+  const { data: settlements, error: settlementsError } = await readRowsByKey<SettlementCostRow & { id: string }>('id', (after, size) => keyPage(sb
     .from('ai_run_settlements')
     .select('id, provider_cost_usd, internal_cost_irr, customer_charge_irr, platform_absorbed_amount')
-    .eq('billing_cycle_id', cycle)
-    .order('id', { ascending: true })
-    .range(from, to));
+    .eq('billing_cycle_id', cycle), 'id', after, size));
+  // A partial read would show partial totals as if they were whole.
+  if (settlementsError) return res.status(500).json({ error: 'settlements_read_failed' });
 
   const totals = (settlements || []).reduce(
     (acc: SettlementTotals, r: SettlementCostRow): SettlementTotals => ({
@@ -565,22 +565,21 @@ aiBillingRouter.get('/admin/health', async (req, res) => {
     sb.from('ai_usage_event_conflicts').select('id', { count: 'exact', head: true }).eq('resolved', false),
     // Totals and the wallet-vs-lot drift need every row: paged, since the data
     // layer caps a read at DATABASE_MAX_ROWS.
-    readRows<SettlementCostRow & { id: string }>((from, to) => sb.from('ai_run_settlements')
+    readRowsByKey<SettlementCostRow & { id: string }>('id', (after, size) => keyPage(sb.from('ai_run_settlements')
       .select('id, provider_cost_usd, internal_cost_irr, customer_charge_irr, platform_absorbed_amount')
-      .eq('billing_cycle_id', cycle)
-      .order('id', { ascending: true })
-      .range(from, to)),
-    readRows<WalletRow>((from, to) => sb.from('workspace_ai_wallets')
-      .select('workspace_id, available_amount, reserved_amount')
-      .order('workspace_id', { ascending: true })
-      .range(from, to)),
+      .eq('billing_cycle_id', cycle), 'id', after, size)),
+    readRowsByKey<WalletRow>('workspace_id', (after, size) => keyPage(sb.from('workspace_ai_wallets')
+      .select('workspace_id, available_amount, reserved_amount'), 'workspace_id', after, size)),
   ]);
-  const { data: lots } = await readRows<WalletLotRow & { id: string }>((from, to) => sb
+  const { data: lots, error: lotsError } = await readRowsByKey<WalletLotRow & { id: string }>('id', (after, size) => keyPage(sb
     .from('workspace_ai_balance_lots')
     .select('id, workspace_id, remaining_amount, reserved_amount')
-    .eq('state', 'ACTIVE')
-    .order('id', { ascending: true })
-    .range(from, to));
+    .eq('state', 'ACTIVE'), 'id', after, size));
+  // Totals and the drift check on a partial set would be wrong numbers (a
+  // missing lot reads as a wallet mismatch): refuse rather than guess.
+  if (settlements.error || wallets.error || lotsError) {
+    return res.status(500).json({ error: 'billing_rows_read_failed' });
+  }
   const sum = (rows: SettlementCostRow[], key: keyof SettlementCostRow) => rows.reduce((a, r) => a + Number(r?.[key] ?? 0), 0);
   const settlementRows = settlements.data || [];
   // Wallet projection vs. lot truth — any nonzero drift needs ai_reconcile_wallet.

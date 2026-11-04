@@ -16,7 +16,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { readRows } from '../../lib/pagedRows.js';
+import { readRowsByKey, keyPage } from '../../lib/pagedRows.js';
 import { isGlobalAdmin } from '../../middleware/adminBypass.js';
 import { checkModuleAccess, checkEntitlementFromDB } from '../../middleware/featureGating.js';
 
@@ -299,25 +299,32 @@ export async function repairPlatformOffConversations(
   config: ServerConfig,
   reason: 'platform_ai_disabled' | 'customer_ai_hidden' | 'auto_answer_disabled',
   opts?: { workspaceId?: string },
-): Promise<{ scanned: number; repaired: number; skipped_closed: number }> {
+): Promise<{ scanned: number; repaired: number; skipped_closed: number; incomplete: boolean }> {
   const sb = getServiceClient(config);
   const { clearAiManagementForPlatformOff } = await import('./handoffState.js');
-  // Every AI-held conversation, read page by page before any is changed
-  // (the data layer caps a read at DATABASE_MAX_ROWS; one past it would stay
-  // with the AI after the AI is turned off).
-  const { data: rows } = await readRows<{ id: string; workspace_id: string; status: string | null }>((from, to) => {
-    const managed = sb
-      .from('conversations')
-      .select('id, workspace_id, status')
-      .eq('ai_state', 'ai_managed');
-    return (opts?.workspaceId ? managed.eq('workspace_id', opts.workspaceId) : managed)
-      .order('id', { ascending: true })
-      .range(from, to);
-  });
+  // Every workspace, or the one asked for.
+  const workspaceFilter = opts?.workspaceId ?? null;
+  // Every open AI-held conversation, read page by page by id before any is
+  // changed (the data layer caps a read at DATABASE_MAX_ROWS). Keyset pages:
+  // a conversation handed back meanwhile (a live hand-off) leaves the filter
+  // without shifting the pages after it, so none is skipped. Closed ones are
+  // left out in SQL (a NULL status is not closed) and only counted. A failed page is reported as
+  // `incomplete`; what was read is still handed back (that only ever helps).
+  const [{ data: rows, error }, closed] = await Promise.all([
+    readRowsByKey<{ id: string; workspace_id: string }>('id', (after, size) => keyPage(
+      workspaceFilter
+        ? sb.from('conversations').select('id, workspace_id').eq('ai_state', 'ai_managed').or('status.is.null,status.neq.closed').eq('workspace_id', workspaceFilter)
+        : sb.from('conversations').select('id, workspace_id').eq('ai_state', 'ai_managed').or('status.is.null,status.neq.closed'),
+      'id', after, size,
+    )),
+    workspaceFilter
+      ? sb.from('conversations').select('id', { count: 'exact', head: true }).eq('ai_state', 'ai_managed').eq('status', 'closed').eq('workspace_id', workspaceFilter)
+      : sb.from('conversations').select('id', { count: 'exact', head: true }).eq('ai_state', 'ai_managed').eq('status', 'closed'),
+  ]);
+  if (error) console.warn('[platformSettings] AI-held conversations not all read:', error.message);
   let repaired = 0;
-  let skipped_closed = 0;
+  const skipped_closed = closed.count ?? 0;
   for (const r of rows) {
-    if (r.status === 'closed') { skipped_closed++; continue; }
     try {
       const out = await clearAiManagementForPlatformOff(config, {
         workspaceId: r.workspace_id,
@@ -327,7 +334,7 @@ export async function repairPlatformOffConversations(
       if (out.changed) repaired++;
     } catch { /* best-effort */ }
   }
-  return { scanned: rows.length, repaired, skipped_closed };
+  return { scanned: rows.length, repaired, skipped_closed, incomplete: !!error };
 }
 
 /** Redacted capability snapshot intended for workspace customers. */

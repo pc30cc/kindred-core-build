@@ -9,10 +9,13 @@
 -- POST /api/calls/create (an operator's call) and the widget's
 -- POST /calls/request (a visitor's call) checked the plan's
 -- max_concurrent_calls before inserting the call and outside any lock, so two
--- requests at limit − 1 both went through. 298 closed that for colleague calls
--- only (team_call_place with p_max_concurrent). call_session_create() takes the
--- same per-workspace lock as 298 ('call_concurrency:' || workspace), so all
--- three ways of starting a call queue behind each other; counts the
+-- requests at limit − 1 both went through; a visitor accepting an operator's
+-- call invitation (POST /api/widget/call-invitations/:id/join) did not check
+-- it at all. 298 closed that for colleague calls only (team_call_place with
+-- p_max_concurrent). Those three now write their call through
+-- call_session_create(), which takes the same per-workspace lock as 298
+-- ('call_concurrency:' || workspace), so every way of starting a call queues
+-- behind the others; counts the
 -- workspace's live calls the way 298 and the API's resolver do
 -- (usageResolvers.ts resolveMaxConcurrentCalls: pending, ringing, connecting,
 -- active, every entry source); and either answers

@@ -154,18 +154,55 @@ suite('server reads past DATABASE_MAX_ROWS (audit 2026-11-04)', () => {
     expect(rows).toEqual([{ status: 'active', n: 2 }, { status: 'deleted', n: 6 }]);
   });
 
-  it('turning the AI off hands every AI-held conversation back', async () => {
+  it('turning the AI off hands every open AI-held conversation back; closed ones are only counted', async () => {
     const held: string[] = [];
     for (let i = 0; i < 7; i++) {
       held.push(String((await one(`INSERT INTO public.conversations (workspace_id, status, metadata)
                                    VALUES ($1, 'open', '{"ai_state":"ai_managed"}') RETURNING id`, [ws])).id));
     }
+    await q(`INSERT INTO public.conversations (workspace_id, status, metadata) VALUES ($1, 'closed', '{"ai_state":"ai_managed"}')`, [ws]);
     const { repairPlatformOffConversations } = await import('../../../server/services/ai-agent/platformSettings.js');
     const out = await repairPlatformOffConversations(config, 'platform_ai_disabled', { workspaceId: ws });
-    expect(out.scanned).toBe(7);
-    expect(out.repaired).toBe(7);
+    expect(out).toEqual({ scanned: 7, repaired: 7, skipped_closed: 1, incomplete: false });
     const left = await one(`SELECT count(*)::int AS n FROM public.conversations WHERE id = ANY($1::uuid[]) AND ai_state = 'ai_managed'`, [held]);
     expect(left.n).toBe(0);
+  });
+
+  it('keyset pages: a row leaving the filter between two pages skips nothing (offset pages would)', async () => {
+    const w = randomUUID();
+    await q(`INSERT INTO public.workspaces (id, name, slug, owner_id) VALUES ($1, 'Keys', $2, $3)`, [w, `k-${w.slice(0, 8)}`, owner]);
+    for (let i = 0; i < 9; i++) {
+      await q(`INSERT INTO public.knowledge_base_articles (workspace_id, slug, locale, title, content, status, used_by_ai)
+               VALUES ($1, $2, 'en', $3, 'x', 'published', true)`, [w, `k-${i}`, `K ${i}`]);
+    }
+    const all = (await q(`SELECT id FROM public.knowledge_base_articles WHERE workspace_id = $1 ORDER BY id`, [w])).map((r) => String(r.id));
+    const { readRows, readRowsByKey, keyPage } = await import('../../../server/lib/pagedRows.js');
+    const { getServiceClient } = await import('../../../server/supabase.js');
+    const sb = getServiceClient(config);
+    const published = () => sb.from('knowledge_base_articles').select('id').eq('workspace_id', w).eq('status', 'published');
+    // After the first page (3 rows, DATABASE_MAX_ROWS), its first article is
+    // unpublished, as an operator could at that moment.
+    const unpublishAfterFirstPage = (pageNo: number) => (pageNo === 1
+      ? q(`UPDATE public.knowledge_base_articles SET status = 'draft' WHERE id = $1`, [all[0]])
+      : Promise.resolve([]));
+
+    let pages = 0;
+    const byOffset = await readRows<{ id: string }>(async (from, to) => {
+      await unpublishAfterFirstPage(pages++);
+      return published().order('id', { ascending: true }).range(from, to);
+    });
+    // The offset read lost the row that slid back across the boundary.
+    expect(byOffset.data.map((r) => r.id)).not.toContain(all[3]);
+
+    await q(`UPDATE public.knowledge_base_articles SET status = 'published' WHERE id = $1`, [all[0]]);
+    pages = 0;
+    const byKey = await readRowsByKey<{ id: string }>('id', async (after, size) => {
+      await unpublishAfterFirstPage(pages++);
+      return keyPage(published(), 'id', after, size);
+    });
+    expect(byKey.error).toBeNull();
+    // Every article still published after the change, and the one read before it.
+    expect(byKey.data.map((r) => r.id)).toEqual(all);
   });
 
   it('the weekly summary counts every message of every conversation touched', async () => {

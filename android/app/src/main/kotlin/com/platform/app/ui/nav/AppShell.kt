@@ -16,7 +16,8 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.activity.compose.BackHandler
@@ -826,8 +827,13 @@ private fun Scene<NavKey>.isCall(): Boolean = entries.lastOrNull()?.metadata?.ge
 private fun callRises(): ContentTransform =
     ContentTransform(
         targetContentEnter = slideInVertically(Motion.slowSpatial()) { height -> height },
-        initialContentExit = ExitTransition.KeepUntilTransitionsFinished,
+        // Held, fully drawn, for as long as the sheet takes to rise: a
+        // "scale" to the same size, so nothing under the call ever fades.
+        initialContentExit = scaleOut(tween(CALL_SHEET_HOLD_MS), targetScale = 1f),
     )
+
+/** Longer than the spatial spring the sheet rises on. */
+private const val CALL_SHEET_HOLD_MS = 700
 
 private fun callSinks(): ContentTransform =
     ContentTransform(

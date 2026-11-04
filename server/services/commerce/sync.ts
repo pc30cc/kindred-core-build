@@ -21,6 +21,10 @@ const MAX_PAGES_PER_RUN = 20; // bounds one worker tick to <= 1000 products
 const MAX_ATTEMPTS = 5;
 const RETRY_BASE_DELAY_MS = 30_000;
 const RETRY_MAX_DELAY_MS = 15 * 60_000;
+/** The claim's lease. commerce_claim_sync_job reclaims a running job once it lapses. */
+export const SYNC_LEASE_SECONDS = 300;
+/** How often a running job renews its lease: well inside SYNC_LEASE_SECONDS. */
+export const SYNC_LEASE_RENEW_MS = 60_000;
 
 export interface SyncJobRow {
   id: string;
@@ -32,6 +36,8 @@ export interface SyncJobRow {
   max_attempts: number;
   /** Returned by the claim RPC (`RETURNING *`); fallback walk-start marker. */
   created_at?: string | null;
+  /** The worker holding the lease (claim RPC); every write of the run is scoped to it. */
+  leased_by?: string | null;
 }
 
 function isIsoTimestamp(value: unknown): value is string {
@@ -59,7 +65,7 @@ export async function enqueueSyncJob(
 
 export async function claimNextSyncJob(config: ServerConfig, workerId: string): Promise<SyncJobRow | null> {
   const sb = getServiceClient(config);
-  const { data, error } = await sb.rpc('commerce_claim_sync_job', { p_worker_id: workerId, p_lease_seconds: 300 });
+  const { data, error } = await sb.rpc('commerce_claim_sync_job', { p_worker_id: workerId, p_lease_seconds: SYNC_LEASE_SECONDS });
   if (error) throw new Error(`sync job claim failed: ${error.message}`);
   const row = Array.isArray(data) ? data[0] : data;
   return (row as SyncJobRow | null) ?? null;
@@ -93,6 +99,69 @@ async function fetchProductPage(
  * safe no-op, not a regression.
  */
 export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Promise<void> {
+  const lease = holdSyncLease(config, job);
+  try {
+    await runLeasedSyncJob(config, job, lease);
+  } finally {
+    lease.stop();
+  }
+}
+
+export interface SyncLease {
+  /** True once a renewal found the job no longer ours (reclaimed, retried or finished elsewhere). */
+  readonly lost: boolean;
+  stop(): void;
+}
+
+/**
+ * Keeps the claim's lease alive while the run lasts. A run of
+ * MAX_PAGES_PER_RUN pages against a slow store (each request with its own
+ * timeout and retries, then a thousand upserts) can outlast the
+ * SYNC_LEASE_SECONDS the claim took, and commerce_claim_sync_job then hands
+ * the same job to the next worker that polls (a redeploy's new container,
+ * while the old one is still finishing): two walks of one cursor. The
+ * renewal is scoped to the worker that holds the lease, so it never extends
+ * someone else's; when it matches nothing, the run stops writing.
+ */
+export function holdSyncLease(config: ServerConfig, job: SyncJobRow, renewMs: number = SYNC_LEASE_RENEW_MS): SyncLease {
+  const state = { lost: false, stopped: false };
+  if (!job.leased_by) {
+    return { get lost() { return state.lost; }, stop() { state.stopped = true; } };
+  }
+  const sb = getServiceClient(config);
+  const renew = async () => {
+    if (state.stopped || state.lost) return;
+    const { data, error } = await sb
+      .from('commerce_sync_jobs')
+      .update({ leased_until: new Date(Date.now() + SYNC_LEASE_SECONDS * 1000).toISOString() })
+      .eq('id', job.id)
+      .eq('status', 'running')
+      .eq('leased_by', job.leased_by as string)
+      .select('id')
+      .maybeSingle();
+    // A failed renewal (the database briefly away) is not a lost lease: the
+    // next one retries, and the lease still has most of its time left.
+    if (!error && !data && !state.stopped) state.lost = true;
+  };
+  const timer = setInterval(() => { void renew().catch(() => {}); }, renewMs);
+  timer.unref?.();
+  return {
+    get lost() { return state.lost; },
+    stop() { state.stopped = true; clearInterval(timer); },
+  };
+}
+
+/**
+ * The job's own row, scoped to the lease this run holds: a worker whose lease
+ * lapsed and was reclaimed must not mark the other worker's run succeeded,
+ * re-queue it or dead-letter it.
+ */
+function updateOwnJob(config: ServerConfig, job: SyncJobRow, patch: Record<string, unknown>) {
+  const q = getServiceClient(config).from('commerce_sync_jobs').update(patch).eq('id', job.id);
+  return job.leased_by ? q.eq('status', 'running').eq('leased_by', job.leased_by) : q;
+}
+
+async function runLeasedSyncJob(config: ServerConfig, job: SyncJobRow, lease: SyncLease): Promise<void> {
   const sb = getServiceClient(config);
   const { data: connection, error: connError } = await sb
     .from('commerce_connections')
@@ -211,6 +280,10 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
 
   try {
     while (hasMore && pagesThisRun < MAX_PAGES_PER_RUN) {
+      if (lease.lost) {
+        console.warn('[commerce.sync] lease lost, run stopped', { jobId: job.id, page });
+        return;
+      }
       const { products, hasMore: more } = await fetchProductPage(
         config, job.connection_id, connection.installation_id, connection.approved_origin, secret, page, modifiedAfter,
         (connection as { protocol_version?: string | null }).protocol_version ?? null,
@@ -256,7 +329,7 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
       // whole page budget made progress, so it is not a failed attempt: every
       // claim counts one, and without the reset a catalogue of more than
       // MAX_ATTEMPTS runs dead-lettered on its first transient error.
-      await sb.from('commerce_sync_jobs').update({ status: 'queued', attempts: 0 }).eq('id', job.id);
+      await updateOwnJob(config, job, { status: 'queued', attempts: 0 });
       return;
     }
 
@@ -269,11 +342,15 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
     // the next sync simply because it rewrites what it finds — so without this
     // a missed `product.deleted` is permanent, and the assistant keeps
     // recommending a product whose page 404s.
+    if (lease.lost) {
+      console.warn('[commerce.sync] lease lost before completion', { jobId: job.id });
+      return;
+    }
     if (isFullSync && sweepEpoch) {
       await sweepUnseenProducts(config, job.connection_id, sweepEpoch);
     }
 
-    await sb.from('commerce_sync_jobs').update({ status: 'succeeded' }).eq('id', job.id);
+    await updateOwnJob(config, job, { status: 'succeeded' });
     // The walk is complete: reset the page and hand over its START time as
     // the next watermark (changes made while it ran are re-read next time).
     await sb
@@ -335,16 +412,12 @@ export function syncRetryDelayMs(attempts: number): number {
 }
 
 async function failJob(config: ServerConfig, job: SyncJobRow, code: string, permanent: boolean): Promise<void> {
-  const sb = getServiceClient(config);
   const now = Date.now();
   // 401/403/invalid-installation-shaped errors and exhausted retries go to
   // dead_letter; anything else is retried after a backoff.
   const isPermanentCode = code === 'commerce_permission_denied' || code === 'commerce_not_connected' || code === 'protocol_mismatch';
   if (permanent || isPermanentCode) {
-    await sb
-      .from('commerce_sync_jobs')
-      .update({ status: 'dead_letter', last_error_code: code, last_error_at: new Date(now).toISOString() })
-      .eq('id', job.id);
+    await updateOwnJob(config, job, { status: 'dead_letter', last_error_code: code, last_error_at: new Date(now).toISOString() });
     return;
   }
   // Re-queued at once, a failed job was claimed again on the worker's very
@@ -353,16 +426,13 @@ async function failJob(config: ServerConfig, job: SyncJobRow, code: string, perm
   // job instead keeps a lease that nobody holds until the retry is due, and
   // commerce_claim_sync_job reclaims an expired lease exactly as it does a
   // crashed worker's, so this needs no schema change.
-  await sb
-    .from('commerce_sync_jobs')
-    .update({
-      status: 'running',
-      leased_by: null,
-      leased_until: new Date(now + syncRetryDelayMs(job.attempts)).toISOString(),
-      last_error_code: code,
-      last_error_at: new Date(now).toISOString(),
-    })
-    .eq('id', job.id);
+  await updateOwnJob(config, job, {
+    status: 'running',
+    leased_by: null,
+    leased_until: new Date(now + syncRetryDelayMs(job.attempts)).toISOString(),
+    last_error_code: code,
+    last_error_at: new Date(now).toISOString(),
+  });
 }
 
 const SUCCEEDED_JOB_KEEP_MS = 7 * 24 * 60 * 60_000;

@@ -32,6 +32,7 @@
 // vendor HTTP call, far lighter than a multi-page crawl, so it shares this
 // worker's single poller rather than needing its own kind/container (see
 // worker/seo-crawler/index.ts and worker/seo-backlinks/processScan.ts).
+import { writeFileSync } from 'node:fs';
 import { waitForDatabase } from '../server/db/status.js';
 
 const ALLOWED = new Set([
@@ -152,3 +153,23 @@ main().catch((e) => {
 // Keep the event loop alive in case the chosen worker uses unref'd timers.
 const keepAlive = setInterval(() => {}, 1 << 30);
 process.on('exit', () => clearInterval(keepAlive));
+
+// Liveness for Dockerfile.worker's HEALTHCHECK: the time, written every
+// WORKER_HEALTH_EVERY_MS by this process's event loop. The check used to be
+// `pgrep -f "worker/index.ts"`, which also matches the healthcheck's own
+// `/bin/sh -c` command line, so it passed with no worker at all — and a
+// worker whose event loop is stuck (a runaway regex on a crawled page, a
+// synchronous loop) kept reporting healthy. A file older than the check's
+// limit (60 s) means this loop has not run.
+export const WORKER_HEALTH_FILE = process.env.WORKER_HEALTH_FILE || '/tmp/worker-health';
+const WORKER_HEALTH_EVERY_MS = 15_000;
+function writeHealth() {
+  try {
+    writeFileSync(WORKER_HEALTH_FILE, String(Date.now()));
+  } catch (err) {
+    console.error('[worker] health file write failed:', (err as Error)?.message);
+  }
+}
+writeHealth();
+const healthTimer = setInterval(writeHealth, WORKER_HEALTH_EVERY_MS);
+process.on('exit', () => clearInterval(healthTimer));

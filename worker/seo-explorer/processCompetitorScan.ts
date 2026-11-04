@@ -42,7 +42,7 @@ export async function processExplorerCompetitorScan(
   const hb = await heartbeatJob(config, { jobId, workerId, lockTtlSeconds, progress: 20, progressStage: 'fetching', status: 'processing' });
   if (hb.cancelRequested) {
     await sb.from('seo_explorer_competitor_scans').update({ status: 'cancelled', finished_at: new Date().toISOString(), progress_stage: 'cancelled' }).eq('id', scan.id);
-    await acknowledgeJobCancel(config, jobId);
+    await acknowledgeJobCancel(config, jobId, workerId);
     log('scan cancelled', { scanId: scan.id, jobId });
     return;
   }
@@ -71,6 +71,6 @@ export async function processExplorerCompetitorScan(
     finished_at: new Date().toISOString(),
   }).eq('id', scan.id);
 
-  await completeJob(config, { jobId });
+  await completeJob(config, { jobId, workerId });
   log('scan completed', { scanId: scan.id, jobId, totalDomains: result.items.length });
 }

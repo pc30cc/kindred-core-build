@@ -386,9 +386,10 @@ public sealed partial class VisitorsPage : Page
             var core = Map.CoreWebView2;
             core.Settings.AreDevToolsEnabled = false;
             core.Settings.AreDefaultContextMenusEnabled = false;
-            core.SetVirtualHostNameToFolderMapping("webyar.app", Path.Combine(AppContext.BaseDirectory, "Assets"), CoreWebView2HostResourceAccessKind.Allow);
+            // Leaflet comes from the install (Assets); the attribution links open in the browser.
+            AppPages.Serve(core);
             core.WebMessageReceived += OnMapMessage;
-            core.Navigate("https://webyar.app/Visitors/map.html");
+            core.Navigate(AppPages.Origin + "/Visitors/map.html");
         }
         catch (Exception e)
         {
@@ -399,6 +400,7 @@ public sealed partial class VisitorsPage : Page
 
     private void OnMapMessage(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs args)
     {
+        if (!AppPages.FromOwnPage(args)) return;
         try
         {
             using var doc = JsonDocument.Parse(args.WebMessageAsJson);

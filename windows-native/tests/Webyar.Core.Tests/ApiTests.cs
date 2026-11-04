@@ -1,5 +1,6 @@
 using System.Net;
 using Webyar.Core.Api;
+using Webyar.Core.Config;
 using Xunit;
 
 namespace Webyar.Core.Tests;
@@ -110,11 +111,80 @@ public class ApiTests
     [Fact]
     public async Task Origin_discovery_moves_to_the_platform_answer()
     {
-        var http = new FakeHttp((_, _) => (HttpStatusCode.OK, """{"apiBaseUrl":"https://api.example.com/some/path","supportUrl":"https://help.example.com"}"""));
+        var api = $"https://api2.{Brand.SiteHost}";
+        var http = new FakeHttp((_, _) => (HttpStatusCode.OK, $$"""{"apiBaseUrl":"{{api}}/some/path","supportUrl":"https://help.example.com"}"""));
         using var client = new ApiClient(new MemorySessionStore(), handler: http);
         var origins = await client.RefreshOriginAsync();
         Assert.Equal("https://help.example.com", origins!.SupportUrl);
-        Assert.Equal(new Uri("https://api.example.com/"), client.Origin);
+        Assert.Equal(new Uri(api + "/"), client.Origin);
+    }
+
+    [Fact]
+    public async Task Origin_discovery_carries_no_session()
+    {
+        var http = new FakeHttp((_, _) => (HttpStatusCode.OK, "{}"));
+        using var client = new ApiClient(new MemorySessionStore("secret"), handler: http);
+        await client.RefreshOriginAsync();
+        Assert.Null(http.Requests[0].Request.Headers.Authorization);
+    }
+
+    [Fact]
+    public async Task A_dead_origin_falls_back_to_the_builds_own()
+    {
+        // Super Admin's API address had a typo: the stored origin never answers.
+        var bad = new Uri($"https://apii.{Brand.SiteHost}");
+        var http = new FakeHttp((r, _) => r.RequestUri!.Host == bad.Host
+            ? (HttpStatusCode.BadGateway, "")
+            : (HttpStatusCode.OK, $$"""{"apiBaseUrl":"{{bad}}"}"""));
+        using var client = new ApiClient(new MemorySessionStore(), bad, http);
+        Assert.Equal(bad, client.Origin);
+        Assert.NotNull(await client.RefreshOriginAsync());
+        // The platform still names the dead one: the build's own is kept.
+        Assert.Equal(ApiClient.DefaultOrigin, client.Origin);
+        Assert.Equal(ApiClient.DefaultOrigin.Host, http.Requests[^1].Request.RequestUri!.Host);
+    }
+
+    [Fact]
+    public async Task A_dead_origin_moves_to_the_corrected_one()
+    {
+        var bad = new Uri($"https://apii.{Brand.SiteHost}");
+        var fixedOrigin = $"https://api3.{Brand.SiteHost}";
+        var http = new FakeHttp((r, _) => r.RequestUri!.Host == bad.Host
+            ? throw new HttpRequestException("no such host")
+            : (HttpStatusCode.OK, $$"""{"apiBaseUrl":"{{fixedOrigin}}"}"""));
+        using var client = new ApiClient(new MemorySessionStore(), bad, http);
+        await client.RefreshOriginAsync();
+        Assert.Equal(new Uri(fixedOrigin + "/"), client.Origin);
+    }
+
+    [Fact]
+    public async Task No_answer_anywhere_keeps_the_origin_in_hand()
+    {
+        var stored = new Uri($"https://api2.{Brand.SiteHost}");
+        using var client = new ApiClient(new MemorySessionStore(), stored, new ThrowingHandler());
+        Assert.Null(await client.RefreshOriginAsync());
+        Assert.Equal(stored, client.Origin);
+    }
+
+    [Theory]
+    [InlineData("webyar", "https://api.webyar.ai", true)]
+    [InlineData("webyar", "https://api.example.com", true)]
+    [InlineData("webyar", "http://api.webyar.ai", false)]
+    [InlineData("respok", "https://api.respok.app", true)]
+    [InlineData("respok", "https://respok.app", true)]
+    [InlineData("respok", "https://API.Respok.App.", true)]
+    [InlineData("respok", "https://api.webyar.ai", false)]
+    [InlineData("respok", "https://respok.app.evil.example", false)]
+    [InlineData("respok", "https://evilrespok.app", false)]
+    [InlineData("respok", "http://api.respok.app", false)]
+    public void Only_the_brands_hosts_are_accepted(string brand, string origin, bool accepted) =>
+        Assert.Equal(accepted, ApiClient.Accepts(brand, new Uri(origin)));
+
+    [Fact]
+    public void A_stored_origin_the_build_may_not_use_is_ignored()
+    {
+        using var plain = new ApiClient(new MemorySessionStore(), new Uri("http://api.example.com"));
+        Assert.Equal(ApiClient.DefaultOrigin, plain.Origin);
     }
 
     [Fact]

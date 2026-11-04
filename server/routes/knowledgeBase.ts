@@ -17,6 +17,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { readRows } from '../lib/pagedRows.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import {
   checkKnowledgeBasePermission,
@@ -306,11 +307,16 @@ knowledgeBaseRouter.get('/articles', async (req: Request, res: Response) => {
   // round-trip.
   const articleIds = articles.map((a) => a.id).filter(Boolean);
   if (articleIds.length > 0) {
-    const { data: feedbackRows } = await getServiceClient(g.config)
+    // Every vote, page by page: the data layer caps a read at
+    // DATABASE_MAX_ROWS, which would undercount busy articles.
+    const fsb = getServiceClient(g.config);
+    const { data: feedbackRows } = await readRows<{ id: string; article_id: string; rating: string | null }>((from, to) => fsb
       .from('kb_article_feedback')
-      .select('article_id, rating')
-      .in('article_id', articleIds);
-    const counts = countArticleFeedback((feedbackRows || []) as Array<{ article_id: string; rating: string | null }>);
+      .select('id, article_id, rating')
+      .in('article_id', articleIds)
+      .order('id', { ascending: true })
+      .range(from, to));
+    const counts = countArticleFeedback(feedbackRows);
     for (const a of articles) {
       a.feedback = counts[a.id] || { helpful: 0, neutral: 0, notHelpful: 0 };
     }

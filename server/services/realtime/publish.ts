@@ -288,7 +288,11 @@ export type OperatorEventKind =
   // its unread number. Operators only, never on the conversation channel, no
   // names. The native apps tolerate a kind they do not know: iOS re-reads its
   // lists, Windows wakes its poll.
-  | 'conversation_seen';
+  | 'conversation_seen'
+  // A call on a conversation ended (services/calls/endSession.ts): its
+  // session id, who ended it and how long it lasted; the widget reads it too
+  // (WIDGET_EVENT_FIELDS).
+  | 'call:ended';
 
 export interface OperatorEventPayload {
   kind: OperatorEventKind;

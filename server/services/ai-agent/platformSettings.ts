@@ -16,6 +16,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { readRows } from '../../lib/pagedRows.js';
 import { isGlobalAdmin } from '../../middleware/adminBypass.js';
 import { checkModuleAccess, checkEntitlementFromDB } from '../../middleware/featureGating.js';
 
@@ -301,12 +302,18 @@ export async function repairPlatformOffConversations(
 ): Promise<{ scanned: number; repaired: number; skipped_closed: number }> {
   const sb = getServiceClient(config);
   const { clearAiManagementForPlatformOff } = await import('./handoffState.js');
-  const managed = sb
-    .from('conversations')
-    .select('id, workspace_id, status, metadata, ai_state')
-    .eq('ai_state', 'ai_managed');
-  const { data } = await (opts?.workspaceId ? managed.eq('workspace_id', opts.workspaceId) : managed);
-  const rows = (data as Array<{ id: string; workspace_id: string; status: string | null }> | null) || [];
+  // Every AI-held conversation, read page by page before any is changed
+  // (the data layer caps a read at DATABASE_MAX_ROWS; one past it would stay
+  // with the AI after the AI is turned off).
+  const { data: rows } = await readRows<{ id: string; workspace_id: string; status: string | null }>((from, to) => {
+    const managed = sb
+      .from('conversations')
+      .select('id, workspace_id, status')
+      .eq('ai_state', 'ai_managed');
+    return (opts?.workspaceId ? managed.eq('workspace_id', opts.workspaceId) : managed)
+      .order('id', { ascending: true })
+      .range(from, to);
+  });
   let repaired = 0;
   let skipped_closed = 0;
   for (const r of rows) {

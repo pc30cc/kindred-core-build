@@ -17,6 +17,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { readRows } from '../../lib/pagedRows.js';
 import { getKnowledgeIndexStatus, type KnowledgeIndexStatus } from './knowledgeIndex/sync.js';
 
 export interface TrainWarning {
@@ -99,27 +100,43 @@ export async function buildTrainOverview(
 ): Promise<TrainOverviewResponse> {
   const sb = getServiceClient(config);
 
+  // The data layer caps a read at DATABASE_MAX_ROWS (1000 by default), so
+  // every number here is an exact count, and the sources are read page by
+  // page, never a capped list counted in memory.
+  const countRows = async (table: string, build: (q: any) => any = (q) => q): Promise<number> => {
+    const { count } = await build(sb.from(table).select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId));
+    return count || 0;
+  };
+  const LEARNING_STATUSES = ['pending', 'approved', 'rejected', 'converted_to_qna', 'converted_to_kb'] as const;
   const [
     sourceRows,
-    qnaRows,
-    kbRows,
-    learningStats,
-    chunkAgg,
+    qnaCounts,
+    kbCounts,
+    learningCounts,
+    chunkCounts,
     syncLogs,
     recentJobs,
     knowledgeIndex,
   ] = await Promise.all([
-    sb.from('ai_data_sources')
+    readRows<any>((from, to) => sb.from('ai_data_sources')
       .select('id, source_type, status, last_synced_at, last_error, name')
       .eq('workspace_id', workspaceId)
-      .neq('status', 'deleted'),
-    sb.from('ai_agent_qna').select('id, enabled').eq('workspace_id', workspaceId),
-    sb.from('knowledge_base_articles').select('id, status').eq('workspace_id', workspaceId),
-    sb.from('ai_agent_learning_candidates').select('status').eq('workspace_id', workspaceId),
-    sb.from('ai_knowledge_chunks')
-      .select('source_type, status, embedding')
-      .eq('workspace_id', workspaceId)
-      .limit(20000),
+      .neq('status', 'deleted')
+      .order('id', { ascending: true })
+      .range(from, to)),
+    Promise.all([countRows('ai_agent_qna'), countRows('ai_agent_qna', (q) => q.eq('enabled', true))]),
+    Promise.all([
+      countRows('knowledge_base_articles'),
+      countRows('knowledge_base_articles', (q) => q.eq('status', 'published')),
+      countRows('knowledge_base_articles', (q) => q.eq('status', 'draft')),
+    ]),
+    Promise.all(LEARNING_STATUSES.map((st) => countRows('ai_agent_learning_candidates', (q) => q.eq('status', st)))),
+    Promise.all([
+      countRows('ai_knowledge_chunks', (q) => q.eq('status', 'active')),
+      countRows('ai_knowledge_chunks', (q) => q.eq('status', 'deleted')),
+      countRows('ai_knowledge_chunks', (q) => q.not('embedding', 'is', null)),
+      countRows('ai_knowledge_chunks', (q) => q.eq('status', 'active').is('embedding', null)),
+    ]),
     sb.from('ai_source_sync_logs')
       .select('id, source_id, status, message, pages_found, chunks_created, embedded_chunks, errors, created_at')
       .eq('workspace_id', workspaceId)
@@ -156,13 +173,12 @@ export async function buildTrainOverview(
   }
 
   // Q&A is a first-class source even though it isn't in ai_data_sources.
-  const qna = qnaRows.data || [];
-  const qnaEnabled = qna.filter((q: any) => q.enabled).length;
-  const qnaDisabled = qna.length - qnaEnabled;
-  if (qna.length > 0) {
+  const [qnaTotal, qnaEnabled] = qnaCounts;
+  const qnaDisabled = qnaTotal - qnaEnabled;
+  if (qnaTotal > 0) {
     byType.set('qna', {
       source_type: 'qna',
-      total: qna.length,
+      total: qnaTotal,
       active: qnaEnabled,
       paused: qnaDisabled,
       failed: 0,
@@ -170,13 +186,11 @@ export async function buildTrainOverview(
       last_synced_at: null,
     });
   }
-  const kb = kbRows.data || [];
-  const kbPublished = kb.filter((a: any) => a.status === 'published').length;
-  const kbDraft = kb.filter((a: any) => a.status === 'draft').length;
-  if (kb.length > 0) {
+  const [kbTotal, kbPublished, kbDraft] = kbCounts;
+  if (kbTotal > 0) {
     byType.set('kb_article', {
       source_type: 'kb_article',
-      total: kb.length,
+      total: kbTotal,
       active: kbPublished,
       paused: kbDraft,
       failed: 0,
@@ -186,26 +200,11 @@ export async function buildTrainOverview(
   }
 
   // Learning candidate breakdown
-  const learning = learningStats.data || [];
   const lc = { pending: 0, approved: 0, rejected: 0, converted_to_qna: 0, converted_to_kb: 0 };
-  for (const r of learning) {
-    const k = (r as any).status as keyof typeof lc;
-    if (k in lc) lc[k] += 1;
-  }
+  LEARNING_STATUSES.forEach((st, i) => { lc[st] = learningCounts[i]; });
 
   // Chunk aggregation
-  const chunks = chunkAgg.data || [];
-  let activeChunks = 0;
-  let embeddedChunks = 0;
-  let deletedChunks = 0;
-  let failedEmbeddings = 0;
-  for (const c of chunks) {
-    const st = (c as any).status as string;
-    if (st === 'active') activeChunks += 1;
-    if (st === 'deleted') deletedChunks += 1;
-    if ((c as any).embedding) embeddedChunks += 1;
-    else if (st === 'active') failedEmbeddings += 1;
-  }
+  const [activeChunks, deletedChunks, embeddedChunks, failedEmbeddings] = chunkCounts;
 
   // Warnings
   const warnings: TrainWarning[] = [];
@@ -239,7 +238,7 @@ export async function buildTrainOverview(
       message: `${lc.pending} learning candidate(s) awaiting review.`,
     });
   }
-  if (qna.length === 0) {
+  if (qnaTotal === 0) {
     warnings.push({
       code: 'no_qna',
       severity: 'info',

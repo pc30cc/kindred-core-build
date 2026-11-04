@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { readRows } from '../lib/pagedRows.js';
 import { z } from 'zod';
 
 export const adminReliabilityRouter = Router();
@@ -28,13 +29,16 @@ adminReliabilityRouter.get('/sla', async (req, res) => {
     const scopeType = String(req.query.scope_type || 'platform');
     const since = rangeSince(range);
     const sb = getServiceClient(config);
-    const { data, error } = await sb
+    // Up to 2000 rows, page by page: the data layer caps a single read at
+    // DATABASE_MAX_ROWS (1000). (bucket_hour, scope_key) is unique here.
+    const { data, error } = await readRows<any>((from, to) => sb
       .from('sla_reliability_hourly')
       .select('*')
       .eq('scope_type', scopeType)
       .gte('bucket_hour', since)
       .order('bucket_hour', { ascending: false })
-      .limit(2000);
+      .order('scope_key', { ascending: true })
+      .range(from, to), 2000);
     if (error) return res.status(500).json({ error: error.message });
     const rows = data || [];
     const summary = {
@@ -63,12 +67,15 @@ adminReliabilityRouter.get('/business', async (req, res) => {
     const range = String(req.query.range || '24h');
     const since = rangeSince(range);
     const sb = getServiceClient(config);
-    const { data, error } = await sb
+    // Up to 5000 rows, page by page: the data layer caps a single read at
+    // DATABASE_MAX_ROWS (1000). (bucket_hour, workspace_id) is the key.
+    const { data, error } = await readRows<any>((from, to) => sb
       .from('business_metrics_hourly')
       .select('*')
       .gte('bucket_hour', since)
       .order('bucket_hour', { ascending: false })
-      .limit(5000);
+      .order('workspace_id', { ascending: true })
+      .range(from, to), 5000);
     if (error) return res.status(500).json({ error: error.message });
     const rows = data || [];
     const summary = {

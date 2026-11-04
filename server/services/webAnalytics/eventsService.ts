@@ -14,7 +14,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { normalizePath, getSessionCount, type DateRange } from './reportService.js';
+import { normalizePath, getSessionCount, readCapped, type DateRange } from './reportService.js';
 
 const ROW_CAP = 20_000;
 
@@ -88,18 +88,22 @@ interface EventRow {
 async function loadEvents(config: ServerConfig, workspaceId: string, range: DateRange, eventName?: string): Promise<{ events: EventRow[]; truncated: boolean }> {
   const sb = getServiceClient(config);
   const { startIso, endIso } = rangeToTimestamps(range);
-  let query = sb.from('web_analytics_events')
-    .select('visitor_session_id, event_name, properties, created_at')
-    .eq('workspace_id', workspaceId)
-    .gte('created_at', startIso)
-    .lte('created_at', endIso)
-    .order('created_at', { ascending: true })
-    .limit(ROW_CAP);
-  if (eventName) query = query.eq('event_name', eventName);
-  const { data, error } = await query;
+  // Paged up to ROW_CAP (+1 to know it was hit): the data layer caps a single
+  // read at DATABASE_MAX_ROWS (1000).
+  const { rows, truncated, error } = await readCapped<EventRow & { id: string }>((from, to) => {
+    let query = sb.from('web_analytics_events')
+      .select('id, visitor_session_id, event_name, properties, created_at')
+      .eq('workspace_id', workspaceId)
+      .gte('created_at', startIso)
+      .lte('created_at', endIso);
+    if (eventName) query = query.eq('event_name', eventName);
+    return query
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to);
+  }, ROW_CAP);
   if (error) throw new Error(`web_analytics_events_query_failed: ${error.message}`);
-  const events = (data || []) as EventRow[];
-  return { events, truncated: events.length >= ROW_CAP };
+  return { events: rows, truncated };
 }
 
 export interface TrackedEventRow {
@@ -250,20 +254,26 @@ export async function computeFunnel(
 
   const { startIso, endIso } = rangeToTimestamps(range);
   const [pageViewsRes, eventsRes] = await Promise.all([
-    sb.from('visitor_page_views').select('visitor_session_id, url, viewed_at').eq('workspace_id', workspaceId).gte('viewed_at', startIso).lte('viewed_at', endIso).limit(ROW_CAP),
-    sb.from('web_analytics_events').select('visitor_session_id, event_name, created_at').eq('workspace_id', workspaceId).gte('created_at', startIso).lte('created_at', endIso).limit(ROW_CAP),
+    // Up to ROW_CAP rows each, page by page: the data layer caps a single
+    // read at DATABASE_MAX_ROWS (1000).
+    readCapped<{ visitor_session_id: string; url: string; viewed_at: string }>((from, to) => sb.from('visitor_page_views')
+      .select('id, visitor_session_id, url, viewed_at').eq('workspace_id', workspaceId).gte('viewed_at', startIso).lte('viewed_at', endIso)
+      .order('viewed_at', { ascending: true }).order('id', { ascending: true }).range(from, to), ROW_CAP),
+    readCapped<{ visitor_session_id: string | null; event_name: string; created_at: string }>((from, to) => sb.from('web_analytics_events')
+      .select('id, visitor_session_id, event_name, created_at').eq('workspace_id', workspaceId).gte('created_at', startIso).lte('created_at', endIso)
+      .order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to), ROW_CAP),
   ]);
   if (pageViewsRes.error) throw new Error(`funnel_page_views_query_failed: ${pageViewsRes.error.message}`);
   if (eventsRes.error) throw new Error(`funnel_events_query_failed: ${eventsRes.error.message}`);
 
   type TimelineEntry = { type: 'pageview' | 'event'; value: string; at: string };
   const bySession = new Map<string, TimelineEntry[]>();
-  for (const pv of (pageViewsRes.data || []) as Array<{ visitor_session_id: string; url: string; viewed_at: string }>) {
+  for (const pv of pageViewsRes.rows) {
     const list = bySession.get(pv.visitor_session_id) || [];
     list.push({ type: 'pageview', value: normalizePath(pv.url), at: pv.viewed_at });
     bySession.set(pv.visitor_session_id, list);
   }
-  for (const e of (eventsRes.data || []) as Array<{ visitor_session_id: string | null; event_name: string; created_at: string }>) {
+  for (const e of eventsRes.rows) {
     if (!e.visitor_session_id) continue;
     const list = bySession.get(e.visitor_session_id) || [];
     list.push({ type: 'event', value: e.event_name, at: e.created_at });

@@ -18,6 +18,7 @@ import { safeCrawlFetch } from './safeCrawlFetch.js';
 import { extractFromHtml, sha256Hex } from './extractText.js';
 import { getRobotsRules, isPathAllowedByRobots } from './robots.js';
 import { chunkText } from '../knowledgeIndex/chunker.js';
+import { readRows } from '../../../lib/pagedRows.js';
 import { indexSource, getEmbedderForWorkspace } from '../knowledgeIndex/indexer.js';
 
 export interface CrawlOptions {
@@ -313,6 +314,9 @@ export function shouldSkipPrune(
   return null;
 }
 
+/** Chunk ids per pruning update. */
+const PRUNE_BATCH = 500;
+
 async function pruneUnseenPages(
   sb: ReturnType<typeof getServiceClient>,
   config: ServerConfig,
@@ -332,20 +336,25 @@ async function pruneUnseenPages(
   }
   // Supabase JS doesn't support NOT IN with a list field directly via select-builder
   // for large lists, but our ceiling is maxPages (e.g. ≤2000). Use a server-side
-  // "select then delete" pattern.
-  const { data: rows } = await sb
+  // "select then delete" pattern. The select is paged: the data layer caps a
+  // read at DATABASE_MAX_ROWS, and a chunk past it would stay answerable.
+  // A failed read prunes nothing.
+  const { data: rows, error } = await readRows<{ id: string; source_id: string }>((from, to) => sb
     .from('ai_knowledge_chunks')
     .select('id, source_id')
     .eq('workspace_id', opts.workspaceId)
     .eq('source_type', 'web_page')
     .like('source_id', `${opts.sourceId}:%`)
-    .neq('status', 'deleted');
+    .neq('status', 'deleted')
+    .order('id', { ascending: true })
+    .range(from, to));
+  if (error) return;
   const seenSet = new Set(seenSourceIds);
-  const stale = ((rows || []) as Array<{ id: string; source_id: string }>)
+  const stale = rows
     .filter((r) => !seenSet.has(r.source_id))
     .map((r) => r.id);
-  if (stale.length) {
-    await sb.from('ai_knowledge_chunks').update({ status: 'deleted' }).in('id', stale);
+  for (let i = 0; i < stale.length; i += PRUNE_BATCH) {
+    await sb.from('ai_knowledge_chunks').update({ status: 'deleted' }).in('id', stale.slice(i, i + PRUNE_BATCH));
   }
   void config;
 }

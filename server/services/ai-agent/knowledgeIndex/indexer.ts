@@ -8,6 +8,7 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import type { Chunk } from './chunker.js';
 import { chunkHash } from './hash.js';
+import { readRows } from '../../../lib/pagedRows.js';
 import { resolveEmbeddingProvider, isUsableEmbeddingProvider, type EmbeddingProvider } from '../embeddings/index.js';
 
 export type SourceType = 'kb_article' | 'qna' | 'learned_qna' | 'web_page' | 'file' | 'business_profile';
@@ -117,13 +118,17 @@ export async function indexSource(
     return result;
   }
 
-  // Load existing chunks for this source.
-  const { data: existing, error: existingError } = await sb
+  // Load existing chunks for this source, page by page: the data layer caps a
+  // read at DATABASE_MAX_ROWS, and a chunk missing here would be re-embedded
+  // (and billed) on every sync and never retired as an orphan.
+  const { data: existing, error: existingError } = await readRows<any>((from, to) => sb
     .from('ai_knowledge_chunks')
     .select('id, chunk_index, content_hash, embedding, status')
     .eq('workspace_id', input.workspaceId)
     .eq('source_type', input.sourceType)
-    .eq('source_id', input.sourceId);
+    .eq('source_id', input.sourceId)
+    .order('id', { ascending: true })
+    .range(from, to));
   if (existingError) {
     result.ok = false;
     result.errorCode = 'chunk_read_failed';

@@ -32,6 +32,8 @@ import {
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import {
   checkPlanConcurrencyCeiling,
+  insertCallSessionWithinCeiling,
+  planConcurrencyLimitReached,
   planConcurrencyDenialBody,
 } from '../services/calls/concurrencyLimit.js';
 import {
@@ -400,27 +402,30 @@ callsRouter.post('/create', async (req, res) => {
       body.context_type === 'conversation' && body.context_id
         ? await resolveConversationSessionId(config, body.workspace_id, body.context_id)
         : null;
-    const { data: inserted, error: insErr } = await sb
-      .from('call_sessions')
-      .insert({
-        workspace_id: body.workspace_id,
-        provider: providerId,
-        call_type: body.call_type,
-        context_type: body.context_type,
-        context_id: body.context_id ?? null,
-        visitor_session_id: visitorSessionId,
-        state: 'pending',
-        initiated_by: auth.userId,
-        initiated_by_type: 'operator',
-        recording_enabled: recordingRequested,
-        recording_state: recordingRequested ? 'pending' : 'disabled',
-        metadata: body.metadata ?? {},
-      })
-      .select('*')
-      .single();
-    if (insErr || !inserted) {
-      return res.status(500).json({ error: insErr?.message || 'insert_failed' });
+    // The plan ceiling again, race-free: counted and written under the
+    // workspace's lock (migration 302), so two creations at limit − 1 do not
+    // both pass the check above.
+    const created = await insertCallSessionWithinCeiling(sb, {
+      workspace_id: body.workspace_id,
+      provider: providerId,
+      call_type: body.call_type,
+      context_type: body.context_type,
+      context_id: body.context_id ?? null,
+      visitor_session_id: visitorSessionId,
+      state: 'pending',
+      initiated_by: auth.userId,
+      initiated_by_type: 'operator',
+      recording_enabled: recordingRequested,
+      recording_state: recordingRequested ? 'pending' : 'disabled',
+      metadata: body.metadata ?? {},
+    }, conc.limit);
+    if (created.verdict === 'limit_reached') {
+      return res.status(429).json(planConcurrencyDenialBody(planConcurrencyLimitReached(conc, created)));
     }
+    if (created.verdict !== 'created') {
+      return res.status(500).json({ error: created.message || 'insert_failed' });
+    }
+    const inserted = created.call;
 
     const room = await provider.createRoom(config, {
       workspaceId: body.workspace_id,

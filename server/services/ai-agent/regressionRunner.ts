@@ -11,6 +11,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { readRows } from '../../lib/pagedRows.js';
 import { recordAiAgentDebugEvent } from './debugEvents.js';
 import {
   runDryRunTest,
@@ -924,11 +925,14 @@ export async function getRegressionOverview(
   let coverage: { source_type: string; runs: number }[] = [];
   let erroredRunsCount = 0;
   if (batchIds7d.length) {
-    const { data: runs } = await sb
+    // Up to 2000 runs, page by page (the data layer caps one read at
+    // DATABASE_MAX_ROWS, so `.limit(2000)` alone returned 1000).
+    const { data: runs } = await readRows<OverviewRunRow & { id: string }>((from, to) => sb
       .from('ai_agent_test_runs')
-      .select('status,failure_reasons,selected_sources')
+      .select('id,status,failure_reasons,selected_sources')
       .in('regression_batch_id', batchIds7d)
-      .limit(2000);
+      .order('id', { ascending: true })
+      .range(from, to), 2000);
     const counts = new Map<string, number>();
     const cov = new Map<string, number>();
     for (const r of (runs || []) as OverviewRunRow[]) {

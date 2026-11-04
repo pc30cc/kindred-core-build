@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -126,6 +127,9 @@ internal fun VideoScrims(modifier: Modifier = Modifier) {
  * The size of the face on a call screen: large on a tall phone, smaller on
  * a short one (or a phone on its side) so the name and the buttons still fit.
  */
+/** Below this height (a phone on its side) a call screen leaves the face out. */
+internal val COMPACT_CALL_HEIGHT = 480.dp
+
 internal fun callFaceSize(maxHeight: Dp, incoming: Boolean): Dp = when {
     maxHeight < 560.dp -> 88.dp
     maxHeight < 700.dp -> if (incoming) 120.dp else 108.dp
@@ -305,7 +309,8 @@ internal fun CallToggle(
             onClick = onClick,
             interactionSource = interaction,
             modifier = Modifier
-                .size(diameter)
+                // Never squeezed: the screen's header gives way first.
+                .requiredSize(diameter)
                 .graphicsLayer {
                     scaleX = scale
                     scaleY = scale

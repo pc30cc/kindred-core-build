@@ -107,7 +107,9 @@ class CallSession(
 
     private var invitationId: String? = null
     private var callSessionId: String? = null
-    private var started = false
+    /** Whether [start] or [ring] has run: one session is one call. */
+    var started = false
+        private set
     private var language: Language = Language.EN
 
     /** Set for a call-centre call this phone was rung for: whose queue it is in. */
@@ -431,6 +433,11 @@ class CallSession(
                 if (!result.microphone) {
                     _muted.value = true
                     _degraded.value = CallDegradation.NO_MICROPHONE
+                } else if (_muted.value) {
+                    // Muted before the call connected (from the small window):
+                    // the room joins with the microphone on, so the choice
+                    // made then is applied now — never shown muted and sending.
+                    room.setMicrophone(enabled = false)
                 }
                 if (channel == CallChannel.VIDEO && !result.camera) {
                     _cameraOn.value = false
@@ -480,7 +487,13 @@ class CallSession(
         _cameraOn.value = next
         // The service holds the camera only while it is on.
         if (inForeground) showForeground()
-        viewModelScope.launch { room.setCamera(enabled = next) }
+        viewModelScope.launch {
+            // A camera that would not start: the button and the service say so.
+            if (!room.setCamera(enabled = next) && next && _cameraOn.value) {
+                _cameraOn.value = false
+                if (inForeground) showForeground()
+            }
+        }
     }
 
     fun toggleSpeaker() {

@@ -208,6 +208,13 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // A tap that opens a screen of its own (a chat, a ring) while the call
+        // is in its small window: the window coming back must not cover it
+        // with the call. The launcher and the call's own notification
+        // (ACTION_MAIN, no link) still bring the call back.
+        val navigates = runCatching { IncomingCallLink.from(intent) }.getOrNull() != null ||
+            runCatching { PushPayload.from(intent) }.getOrNull() != null
+        if (navigates) pictureInPicture.notificationOpened()
         handleNotificationTap(intent)
     }
 

@@ -20,6 +20,7 @@ class ActiveCallTest {
     @Test
     fun `only a call placed or answered, and not over, goes into a small window`() {
         assertTrue(ActiveCallStage.OUTGOING.minimisable)
+        assertTrue(ActiveCallStage.RINGING_OUT.minimisable)
         assertTrue(ActiveCallStage.CONNECTING.minimisable)
         assertTrue(ActiveCallStage.LIVE.minimisable)
         // A ring is answered on its own full screen; a finished call has nothing to show.
@@ -30,7 +31,8 @@ class ActiveCallTest {
     @Test
     fun `a colleague call's phases, as the small views see them`() {
         assertEquals(ActiveCallStage.OUTGOING, TeamCallPhase.Calling.activeStage(incoming = false))
-        assertEquals(ActiveCallStage.OUTGOING, TeamCallPhase.Ringing.activeStage(incoming = false))
+        // The colleague's phone rang: "Ringing…", as the full screen says it.
+        assertEquals(ActiveCallStage.RINGING_OUT, TeamCallPhase.Ringing.activeStage(incoming = false))
         assertEquals(ActiveCallStage.RINGING_HERE, TeamCallPhase.Ringing.activeStage(incoming = true))
         assertEquals(ActiveCallStage.CONNECTING, TeamCallPhase.Connecting.activeStage(incoming = true))
         assertEquals(ActiveCallStage.LIVE, TeamCallPhase.Live(Instant.EPOCH).activeStage(incoming = false))

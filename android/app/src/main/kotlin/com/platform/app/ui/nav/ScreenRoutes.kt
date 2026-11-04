@@ -1784,6 +1784,12 @@ fun CallRoute(
     ) { permissionsAsked = true }
 
     LaunchedEffect(wanted) {
+        // Asked once, before the call: a screen brought back from its bubble
+        // composes this again, and must not ask over a call in progress.
+        if (session.started) {
+            permissionsAsked = true
+            return@LaunchedEffect
+        }
         val missing = wanted.any {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
@@ -1845,7 +1851,7 @@ fun CallRoute(
         localVideo = localVideo,
         room = room,
         onToggleMute = session::toggleMute,
-        onToggleCamera = session::toggleCamera,
+        onToggleCamera = rememberCameraToggle({ session.cameraOn.value }, session::toggleCamera),
         onToggleSpeaker = session::toggleSpeaker,
         onHangUp = session::hangUp,
         onDone = onDone,
@@ -1945,16 +1951,28 @@ fun IncomingCallRoute(
         com.platform.app.core.push.CallNotifications.stop(context, key.callId, missed = false, language = language)
         com.platform.app.core.push.CallNotifications.forget(key.callId)
     }
+    // Only a ring is answered: the key's own Answer, run again as the screen
+    // comes back from its bubble, asks for nothing twice.
     val answer = {
-        session.answerAsked()
-        silence()
-        val missing = wanted.any {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        if (session.phase.value == com.platform.app.feature.call.CallPhase.Ringing) {
+            session.answerAsked()
+            silence()
+            val missing = wanted.any {
+                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing) permissions.launch(wanted) else session.answer()
         }
-        if (missing) permissions.launch(wanted) else session.answer()
     }
     LaunchedEffect(key.callId, key.answer) {
         if (key.answer) answer()
+    }
+    // Back on the ring is Decline, as on a colleague's ring: the ring stops
+    // here, and — a plain handler — the predictive preview never slides the
+    // ring away to show the screen behind it.
+    BackHandler(enabled = phase == com.platform.app.feature.call.CallPhase.Ringing) {
+        silence()
+        session.decline()
+        onDone()
     }
     // The server stopped the ring — somebody else took it, or the caller gave up.
     LaunchedEffect(graph, key.callId) {
@@ -1985,7 +2003,7 @@ fun IncomingCallRoute(
         localVideo = localVideo,
         room = room,
         onToggleMute = session::toggleMute,
-        onToggleCamera = session::toggleCamera,
+        onToggleCamera = rememberCameraToggle({ session.cameraOn.value }, session::toggleCamera),
         onToggleSpeaker = session::toggleSpeaker,
         onHangUp = session::hangUp,
         onDone = onDone,

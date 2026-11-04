@@ -10,7 +10,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.absoluteOffset
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -130,12 +131,19 @@ fun FloatingCallBubble(call: ActiveCall, language: Language, onOpen: () -> Unit,
     val width = if (picture != null) 112.dp else 96.dp
     val height = if (picture != null) 152.dp else 120.dp
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    BoxWithConstraints(modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(Space.md)) {
+    // Screen coordinates, left to right, whatever the layout direction: a
+    // drag's x is the finger's, so the offset must be too (a Persian layout
+    // would otherwise move the bubble against the finger).
+    BoxWithConstraints(
+        modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(Space.md),
+        contentAlignment = AbsoluteAlignment.TopLeft,
+    ) {
         val density = LocalDensity.current
         val maxX = with(density) { (maxWidth - width).toPx().coerceAtLeast(0f) }
         val maxY = with(density) { (maxHeight - height).toPx().coerceAtLeast(0f) }
-        // Starts at the top on the end side, out of the way of a list's
-        // first rows and the back arrow; stays where it is dropped.
+        // Starts at the top on the end side (the right in English, the left
+        // in Persian), out of the way of a list's first rows and the back
+        // arrow; stays where it is dropped.
         var x by remember { mutableFloatStateOf(Float.NaN) }
         var y by remember { mutableFloatStateOf(with(density) { 56.dp.toPx() }) }
         if (x.isNaN()) x = if (rtl) 0f else maxX
@@ -145,7 +153,7 @@ fun FloatingCallBubble(call: ActiveCall, language: Language, onOpen: () -> Unit,
             color = CALL_BACKGROUND,
             contentColor = Color.White,
             modifier = Modifier
-                .offset { IntOffset(x.coerceIn(0f, maxX).roundToInt(), y.coerceIn(0f, maxY).roundToInt()) }
+                .absoluteOffset { IntOffset(x.coerceIn(0f, maxX).roundToInt(), y.coerceIn(0f, maxY).roundToInt()) }
                 .size(width, height)
                 .shadow(12.dp, RoundedCornerShape(20.dp))
                 .pointerInput(maxX, maxY) {
@@ -201,6 +209,7 @@ internal fun CallClock(state: ActiveCallState, language: Language, color: Color)
         }
         ActiveCallStage.CONNECTING -> Str.teamCallConnecting(language)
         ActiveCallStage.OVER -> Str.teamCallEnded(language)
+        ActiveCallStage.RINGING_OUT -> Str.teamCallRinging(language)
         ActiveCallStage.OUTGOING, ActiveCallStage.RINGING_HERE -> Str.teamCallCalling(language)
     }
     Text(

@@ -64,7 +64,26 @@ class CallPictureInPicture(private val activity: ComponentActivity) {
     /** The call the window is for, and how to draw it; null with no call on. */
     private var spec: Spec? = null
 
-    data class Spec(val call: ActiveCall, val aspect: Rational, val muted: Boolean, val language: Language)
+    data class Spec(
+        val call: ActiveCall,
+        val aspect: Rational,
+        val muted: Boolean,
+        val language: Language,
+        /** Both on the line: only then is there a microphone to mute (the full screen's Mute is off before too). */
+        val live: Boolean = true,
+    )
+
+    /**
+     * The next way out of the window is not "tapped back to full size": a
+     * notification the member tapped (a chat, a ring's Answer) has already
+     * put its own screen in front, which raising the call would cover.
+     */
+    private var skipNextRaise = false
+
+    /** A notification tap is navigating while the call is in the window. */
+    fun notificationOpened() {
+        if (inWindow) skipNextRaise = true
+    }
 
     private val supported: Boolean =
         activity.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
@@ -73,7 +92,7 @@ class CallPictureInPicture(private val activity: ComponentActivity) {
         override fun onReceive(context: Context, intent: Intent) {
             val call = spec?.call ?: return
             when (intent.action) {
-                ACTION_MUTE -> call.toggleMute()
+                ACTION_MUTE -> if (spec?.live == true) call.toggleMute()
                 ACTION_HANG_UP -> call.hangUp()
             }
         }
@@ -81,6 +100,9 @@ class CallPictureInPicture(private val activity: ComponentActivity) {
 
     /** From the activity's `onCreate`: the window's buttons, and its comings and goings. */
     fun attach() {
+        // Recreated while in the window (a change this activity does not
+        // handle itself): no mode change will say so.
+        inWindow = activity.isInPictureInPictureMode
         ContextCompat.registerReceiver(
             activity,
             receiver,
@@ -96,8 +118,12 @@ class CallPictureInPicture(private val activity: ComponentActivity) {
             // Out of the window, and still in front: it was tapped back to
             // full size, so the call's screen comes back. Dismissed instead
             // (the window swiped away), the activity has already stopped.
-            if (was && !inWindow && activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                spec?.call?.let { call -> activityCalls()?.requestShow(call) }
+            if (was && !inWindow) {
+                val skip = skipNextRaise
+                skipNextRaise = false
+                if (!skip && activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                    spec?.call?.let { call -> activityCalls()?.requestShow(call) }
+                }
             }
         }
     }
@@ -156,6 +182,15 @@ class CallPictureInPicture(private val activity: ComponentActivity) {
         val l = spec.language
         val muteTitle = if (spec.muted) Str.teamCallUnmute(l) else Str.teamCallMute(l)
         val hangUpTitle = Str.teamCallHangUp(l)
+        val hangUp = RemoteAction(
+            Icon.createWithResource(activity, R.drawable.ic_pip_call_end),
+            hangUpTitle,
+            hangUpTitle,
+            broadcast(ACTION_HANG_UP, REQUEST_HANG_UP),
+        )
+        // Mute only once both are on the line, as on the full screen: before
+        // it there is no microphone in a room to mute.
+        if (!spec.live) return listOf(hangUp)
         return listOf(
             RemoteAction(
                 Icon.createWithResource(activity, if (spec.muted) R.drawable.ic_pip_mic_off else R.drawable.ic_pip_mic),
@@ -163,12 +198,7 @@ class CallPictureInPicture(private val activity: ComponentActivity) {
                 muteTitle,
                 broadcast(ACTION_MUTE, REQUEST_MUTE),
             ),
-            RemoteAction(
-                Icon.createWithResource(activity, R.drawable.ic_pip_call_end),
-                hangUpTitle,
-                hangUpTitle,
-                broadcast(ACTION_HANG_UP, REQUEST_HANG_UP),
-            ),
+            hangUp,
         )
     }
 
@@ -214,8 +244,11 @@ fun CallPictureInPictureHost(controller: CallPictureInPicture, calls: ActiveCall
     val remote by remoteFlow.collectAsState()
     val aspect = rememberVideoAspect(remote?.takeIf { state?.video == true })
     val shape = aspect?.takeIf { state?.video == true } ?: VOICE_PIP_ASPECT
-    LaunchedEffect(call, shape, state?.muted, language) {
-        controller.update(if (call != null && state != null) CallPictureInPicture.Spec(call, shape, state.muted, language) else null)
+    val live = state?.stage == ActiveCallStage.LIVE
+    LaunchedEffect(call, shape, state?.muted, live, language) {
+        controller.update(
+            if (call != null && state != null) CallPictureInPicture.Spec(call, shape, state.muted, language, live) else null,
+        )
     }
     if (controller.inWindow) {
         Box(Modifier.fillMaxSize()) {

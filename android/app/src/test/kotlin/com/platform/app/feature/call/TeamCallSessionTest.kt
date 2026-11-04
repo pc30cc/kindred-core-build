@@ -73,13 +73,19 @@ class TeamCallSessionTest {
         /** Whether a switch of lens ends on the lens asked for. */
         var lensMoves = true
 
+        /** The microphone as the room has it: on from the join, as LiveKit does. */
+        var micEnabled: Boolean? = null; private set
+        /** Whether the camera starts when asked (no permission, another app has it). */
+        var cameraStarts = true
+
         override suspend fun connect(url: String, credentials: CallToken, wantsVideo: Boolean): CallRoom.Result {
             connected = true
             speakerAtConnect = speaker
+            micEnabled = true
             return CallRoom.Result.Joined(microphone = true, camera = true)
         }
-        override suspend fun setMicrophone(enabled: Boolean) = true
-        override suspend fun setCamera(enabled: Boolean) = true
+        override suspend fun setMicrophone(enabled: Boolean): Boolean { micEnabled = enabled; return true }
+        override suspend fun setCamera(enabled: Boolean) = !enabled || cameraStarts
         override fun setSpeaker(on: Boolean) { speaker = on }
         override suspend fun switchCamera(front: Boolean) = lensMoves
         override val hasRemoteParticipant: Boolean get() = remote
@@ -291,6 +297,46 @@ class TeamCallSessionTest {
         poll()
         assertEquals(TeamCallPhase.Connecting, call.phase.value)
         assertEquals(0, ringback.starts)
+        call.hangUp()
+        runCurrent()
+    }
+
+    /** Muted on "Calling…" (from the small window): still muted once the room is joined. */
+    @Test
+    fun `a mute chosen while it rings holds once the call connects`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING))
+        val call = session(api)
+        call.placing()
+        runCurrent()
+        call.toggleMute()
+        runCurrent()
+
+        api.reads += serverCall(TeamCallState.CONNECTING)
+        poll()
+        assertTrue(room.connected)
+        assertTrue(call.muted.value)
+        assertEquals(false, room.micEnabled)
+        call.hangUp()
+        runCurrent()
+    }
+
+    /** A video call answered "Audio only": a camera that then will not start is shown off. */
+    @Test
+    fun `audio only, then a camera that would not start, is shown off`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, role = TeamCallRole.CALLEE, channel = CallChannel.VIDEO))
+        val call = session(api)
+        room.cameraStarts = false
+        call.ringing(CallChannel.VIDEO)
+        runCurrent()
+        call.answer(withVideo = false)
+        runCurrent()
+        assertFalse(call.cameraOn.value)
+
+        room.emitted.tryEmit(CallRoom.Event.VisitorPresenceChanged(present = true))
+        runCurrent()
+        call.toggleCamera()
+        runCurrent()
+        assertFalse(call.cameraOn.value)
         call.hangUp()
         runCurrent()
     }

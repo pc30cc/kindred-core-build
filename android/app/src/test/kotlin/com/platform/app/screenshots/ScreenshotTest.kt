@@ -470,4 +470,31 @@ class ScreenshotTest {
             )
         }
     }
+
+    /** A phone on its side: no face, the red button whole. */
+    @Test
+    @Config(qualifiers = "+land")
+    fun teamCallLiveLandFa() = shot("team_call_live_land_fa", Language.FA, dark = true) {
+        TeamCallScreen(
+            phase = TeamCallPhase.Live(Instant.now().minusSeconds(83)),
+            incoming = false,
+            channel = CallChannel.VIDEO,
+            peerName = "مهسا رضایی",
+            peerAvatarUrl = null,
+            language = Language.FA,
+            onMinimise = {},
+        )
+    }
+
+    /** The ring on a small phone: Decline and Answer whole, with their names. */
+    @Test
+    @Config(qualifiers = "w320dp-h569dp-port")
+    fun callCenterRingingSmallEn() = shot("call_center_ringing_small_en", Language.EN, dark = true) {
+        CallScreen(
+            phase = CallPhase.Ringing,
+            channel = CallChannel.VIDEO,
+            contactName = "Visitor 421",
+            language = Language.EN,
+        )
+    }
 }

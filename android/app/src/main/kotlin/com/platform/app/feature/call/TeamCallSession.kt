@@ -471,6 +471,11 @@ class TeamCallSession(
                 if (!result.microphone) {
                     _muted.value = true
                     _degraded.value = CallDegradation.NO_MICROPHONE
+                } else if (_muted.value) {
+                    // Muted before the call connected (from the small window):
+                    // the room joins with the microphone on, so the choice
+                    // made then is applied now — never shown muted and sending.
+                    room.setMicrophone(enabled = false)
                 }
                 if (wantsVideo && !result.camera) {
                     _cameraOn.value = false
@@ -519,9 +524,17 @@ class TeamCallSession(
         if (channel != CallChannel.VIDEO) return
         val next = !_cameraOn.value
         _cameraOn.value = next
-        viewModelScope.launch { room.setCamera(enabled = next) }
         // The service holds the camera only while it is on.
         (_phase.value as? TeamCallPhase.Live)?.let { foreground.show(ongoing(it.since)) }
+        viewModelScope.launch {
+            // A camera that would not start (no permission, another app has
+            // it): the button and the service say so, rather than showing a
+            // camera on that nobody sees.
+            if (!room.setCamera(enabled = next) && next && _cameraOn.value) {
+                _cameraOn.value = false
+                (_phase.value as? TeamCallPhase.Live)?.let { foreground.show(ongoing(it.since)) }
+            }
+        }
     }
 
     /**

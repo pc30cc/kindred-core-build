@@ -187,7 +187,9 @@ fun TeamCallRoute(
         }
     } else {
         LaunchedEffect(Unit) {
-            if (wanted.all(::granted)) outgoingAsked = true else permissions.launch(wanted)
+            // Asked once, before the call: a screen brought back from its
+            // bubble composes this again, and must not ask over a live call.
+            if (session.started || wanted.all(::granted)) outgoingAsked = true else permissions.launch(wanted)
         }
         // Asks the session to call; `place` is idempotent, so a
         // recomposition never rings twice. See CallRoute.
@@ -269,7 +271,7 @@ fun TeamCallRoute(
         onAnswerVoiceOnly = if (channel == CallChannel.VIDEO) ({ answerAs(false) }) else null,
         onHangUp = { if (ringId != null && phase == TeamCallPhase.Ringing) decline() else session.hangUp() },
         onToggleMute = session::toggleMute,
-        onToggleCamera = session::toggleCamera,
+        onToggleCamera = rememberCameraToggle({ session.cameraOn.value }, session::toggleCamera),
         onSwitchCamera = session::switchCamera,
         onToggleSpeaker = session::toggleSpeaker,
         onDone = onDone,
@@ -283,6 +285,24 @@ fun TeamCallRoute(
  * leaves the display when minimised and comes back — and withdrawn when the
  * session is cleared. Null without the app's graph (a preview, a test).
  */
+/**
+ * The camera button: turning the camera on asks for it first when it was
+ * never granted (a video call answered "Audio only", or a refusal at the
+ * start), and turns it on only once allowed. Turning it off asks nothing.
+ */
+@Composable
+internal fun rememberCameraToggle(cameraOn: () -> Boolean, toggle: () -> Unit): () -> Unit {
+    val context = LocalContext.current
+    val currentToggle by rememberUpdatedState(toggle)
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) currentToggle()
+    }
+    return {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        if (!cameraOn() && !granted) ask.launch(Manifest.permission.CAMERA) else toggle()
+    }
+}
+
 @Composable
 internal fun rememberActiveCall(owner: ViewModel, build: () -> ActiveCall): ActiveCall? {
     val graph = LocalAppGraph.current ?: return null

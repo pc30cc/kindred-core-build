@@ -70,11 +70,19 @@ class CallSessionTest {
             wantsVideo: Boolean,
         ): CallRoom.Result {
             connected = true
+            // As LiveKit does: the room joins with the microphone on.
+            if (result is CallRoom.Result.Joined) micEnabled = true
             return result
         }
 
+        /** Whether the camera starts when asked (no permission, another app has it). */
+        var cameraStarts = true
+
         override suspend fun setMicrophone(enabled: Boolean): Boolean { micEnabled = enabled; return true }
-        override suspend fun setCamera(enabled: Boolean): Boolean { cameraEnabled = enabled; return true }
+        override suspend fun setCamera(enabled: Boolean): Boolean {
+            cameraEnabled = enabled
+            return !enabled || cameraStarts
+        }
         override fun setSpeaker(on: Boolean) { speaker = on }
         override suspend fun switchCamera(front: Boolean) = true
         override val hasRemoteParticipant = false
@@ -577,6 +585,41 @@ class CallSessionTest {
         // Muted means the microphone is OFF — getting this the wrong way round
         // is a call nobody can hear with a button that says it is fine.
         assertEquals(false, room.micEnabled)
+    }
+
+    /**
+     * Muted before the visitor joined (the small window's button): the room
+     * joins with the microphone on, and the choice is applied then — never
+     * shown muted while sending.
+     */
+    @Test
+    fun `a mute chosen before the call connects holds once it does`() = runTest(dispatcher) {
+        val room = FakeRoom()
+        val call = session(ScriptedApi(listOf(invitation("joined", sessionId = "cs-1"))), room)
+        call.dial()
+        call.toggleMute()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(CallPhase.Connected, call.phase.value)
+        assertTrue(call.muted.value)
+        assertEquals(false, room.micEnabled)
+    }
+
+    /** A camera that will not start does not leave the button saying it is on. */
+    @Test
+    fun `a camera that would not start is shown off`() = runTest(dispatcher) {
+        val room = FakeRoom().apply { cameraStarts = false }
+        val call = session(ScriptedApi(listOf(invitation("joined", sessionId = "cs-1"))), room)
+        call.dial(CallChannel.VIDEO)
+        testScheduler.advanceUntilIdle()
+
+        call.toggleCamera() // off
+        testScheduler.advanceUntilIdle()
+        assertFalse(call.cameraOn.value)
+        call.toggleCamera() // on, and it fails
+        testScheduler.advanceUntilIdle()
+        assertFalse(call.cameraOn.value)
+        assertEquals(true, room.cameraEnabled)
     }
 
     /** A voice call has no camera to toggle, and the button is not drawn. */

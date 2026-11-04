@@ -18,8 +18,11 @@ import java.time.Instant
  * kind of call it is.
  */
 enum class ActiveCallStage {
-    /** Placed from here, not answered yet: "Calling…", "Ringing…", an invitation out. */
+    /** Placed from here, not answered yet: "Calling…", an invitation out. */
     OUTGOING,
+
+    /** Placed from here, and the colleague's phone said it rings (`rang_at`): "Ringing…". */
+    RINGING_OUT,
 
     /** Ringing THIS phone: only its own full screen shows it, never a small view. */
     RINGING_HERE,
@@ -34,7 +37,7 @@ enum class ActiveCallStage {
     OVER;
 
     /** A call that can go on in a small window: placed or answered, and not over. */
-    val minimisable: Boolean get() = this == OUTGOING || this == CONNECTING || this == LIVE
+    val minimisable: Boolean get() = this == OUTGOING || this == RINGING_OUT || this == CONNECTING || this == LIVE
 }
 
 /** What the small views draw, as the call's session says it now. */
@@ -81,7 +84,7 @@ class ActiveCall(
 /** A colleague call's phase, as the small views see it. */
 fun TeamCallPhase.activeStage(incoming: Boolean): ActiveCallStage = when (this) {
     TeamCallPhase.Calling -> ActiveCallStage.OUTGOING
-    TeamCallPhase.Ringing -> if (incoming) ActiveCallStage.RINGING_HERE else ActiveCallStage.OUTGOING
+    TeamCallPhase.Ringing -> if (incoming) ActiveCallStage.RINGING_HERE else ActiveCallStage.RINGING_OUT
     TeamCallPhase.Connecting -> ActiveCallStage.CONNECTING
     is TeamCallPhase.Live -> ActiveCallStage.LIVE
     is TeamCallPhase.Ended -> ActiveCallStage.OVER

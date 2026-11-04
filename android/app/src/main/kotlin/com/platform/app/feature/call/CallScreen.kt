@@ -17,6 +17,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -169,6 +171,8 @@ fun CallScreen(
         CompositionLocalProvider(LocalContentColor provides Color.White) {
             BoxWithConstraints(Modifier.fillMaxSize().onGloballyPositioned { screenTop = it.boundsInRoot().top }) {
                 val faceSize = callFaceSize(maxHeight, incoming = phase == CallPhase.Ringing)
+                // A phone on its side: no face, so the buttons keep their room.
+                val roomy = maxHeight >= COMPACT_CALL_HEIGHT
                 CallBackdrop()
                 if (room != null) {
                     stage.big?.let {
@@ -186,30 +190,37 @@ fun CallScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     CallTopBar(language, onMinimise = onMinimise?.takeIf { phase.isLive && phase != CallPhase.Ringing })
+                    // The controls are measured first and never shrink; the
+                    // name and the face take what is left, and scroll on a
+                    // phone on its side or a short screen rather than push
+                    // the red button off it.
                     Column(
-                        Modifier.onGloballyPositioned { headerBottom = it.boundsInRoot().bottom },
+                        Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Identity(
-                            phase = phase,
-                            contactName = contactName,
-                            contactAvatarUrl = contactAvatarUrl,
-                            visitor = visitor,
-                            connectedAt = connectedAt,
-                            language = language,
-                            // The face is redundant once a picture fills the screen,
-                            // and a circle over a video window is just something in
-                            // the way.
-                            compact = stage.big != null,
-                            video = channel == CallChannel.VIDEO,
-                            faceSize = faceSize,
-                        )
+                        Column(
+                            Modifier.onGloballyPositioned { headerBottom = it.boundsInRoot().bottom },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Identity(
+                                phase = phase,
+                                contactName = contactName,
+                                contactAvatarUrl = contactAvatarUrl,
+                                visitor = visitor,
+                                connectedAt = connectedAt,
+                                language = language,
+                                // The face is redundant once a picture fills the screen,
+                                // and a circle over a video window is just something in
+                                // the way.
+                                compact = stage.big != null || !roomy,
+                                video = channel == CallChannel.VIDEO,
+                                faceSize = faceSize,
+                            )
 
-                        if (relayWarning) Notice(Str.callRelayWarning(language))
-                        degraded?.let { Notice(it.title(language)) }
+                            if (relayWarning) Notice(Str.callRelayWarning(language))
+                            degraded?.let { Notice(it.title(language)) }
+                        }
                     }
-
-                    Spacer(Modifier.weight(1f))
 
                     Box(Modifier.onGloballyPositioned { controlsTop = it.boundsInRoot().top }) {
                         Controls(

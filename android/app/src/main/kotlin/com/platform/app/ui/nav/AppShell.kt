@@ -17,6 +17,7 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -715,6 +716,11 @@ fun AppShell(
         backNavigationBehavior = BackNavigationBehavior.PopLatest,
     )
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    // Over the lock screen a call screen comes and goes at once: a sheet
+    // rising or sinking would show the inbox — customers' names and
+    // messages — on a locked phone for the length of the animation.
+    val keyguard = remember(context) { context.getSystemService(android.app.KeyguardManager::class.java) }
+    val keyguardLocked = { keyguard?.isKeyguardLocked == true }
 
     Box(modifier.fillMaxSize()) {
         NavigationSuiteScaffold(
@@ -773,8 +779,8 @@ fun AppShell(
                         onBack = { navigator.back() },
                         sceneStrategies = listOf(listDetail),
                         sharedTransitionScope = this,
-                        transitionSpec = { forward(rtl) },
-                        popTransitionSpec = { backward(rtl) },
+                        transitionSpec = { forward(rtl, keyguardLocked) },
+                        popTransitionSpec = { backward(rtl, keyguardLocked) },
                     )
                 }
             }
@@ -832,6 +838,9 @@ private fun callRises(): ContentTransform =
         initialContentExit = scaleOut(tween(CALL_SHEET_HOLD_MS), targetScale = 1f),
     )
 
+/** On a locked phone: no animation, so nothing under the call is ever drawn beside it. */
+private fun callCuts(): ContentTransform = ContentTransform(EnterTransition.None, ExitTransition.None)
+
 /** Longer than the spatial spring the sheet rises on. */
 private const val CALL_SHEET_HOLD_MS = 700
 
@@ -849,8 +858,10 @@ private fun callSinks(): ContentTransform =
  * start, both a fifth of the width, on the Expressive springs. Between tabs:
  * fade through, which says "somewhere else" rather than "further in".
  */
-private fun AnimatedContentTransitionScope<Scene<NavKey>>.forward(rtl: Boolean): ContentTransform =
-    if (targetState.isCall() && !initialState.isCall()) {
+private fun AnimatedContentTransitionScope<Scene<NavKey>>.forward(rtl: Boolean, locked: () -> Boolean): ContentTransform =
+    if ((targetState.isCall() || initialState.isCall()) && locked()) {
+        callCuts()
+    } else if (targetState.isCall() && !initialState.isCall()) {
         callRises()
     } else if (initialState.isCall() && !targetState.isCall()) {
         // A minimised call coming off the display is a push to Navigation
@@ -865,8 +876,10 @@ private fun AnimatedContentTransitionScope<Scene<NavKey>>.forward(rtl: Boolean):
                 fadeOut(Motion.fastEffects()))
     }
 
-private fun AnimatedContentTransitionScope<Scene<NavKey>>.backward(rtl: Boolean): ContentTransform =
-    if (initialState.isCall() && !targetState.isCall()) {
+private fun AnimatedContentTransitionScope<Scene<NavKey>>.backward(rtl: Boolean, locked: () -> Boolean): ContentTransform =
+    if ((targetState.isCall() || initialState.isCall()) && locked()) {
+        callCuts()
+    } else if (initialState.isCall() && !targetState.isCall()) {
         callSinks()
     } else if (targetState.isCall() && !initialState.isCall()) {
         callRises()

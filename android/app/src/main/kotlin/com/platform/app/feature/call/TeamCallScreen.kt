@@ -18,6 +18,8 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -149,6 +151,9 @@ fun TeamCallScreen(
         CompositionLocalProvider(LocalContentColor provides Color.White) {
             BoxWithConstraints(Modifier.fillMaxSize().onGloballyPositioned { screenTop = it.boundsInRoot().top }) {
                 val faceSize = callFaceSize(maxHeight, incoming = ringingHere)
+                // A phone on its side: the name, the state and the buttons,
+                // without the face, which would leave no room for them.
+                val roomy = maxHeight >= COMPACT_CALL_HEIGHT
                 CallBackdrop()
                 if (room != null) {
                     stage.big?.let {
@@ -166,38 +171,45 @@ fun TeamCallScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     CallTopBar(language, onMinimise = onMinimise?.takeIf { !phase.isOver && !ringingHere })
+                    // The controls are measured first and never shrink; the
+                    // name and the face take what is left, and scroll on a
+                    // phone on its side or a short screen rather than push
+                    // the red button off it.
                     Column(
-                        Modifier
-                            .padding(top = if (stage.big == null) Space.lg else Space.sm)
-                            .onGloballyPositioned { headerBottom = it.boundsInRoot().bottom },
+                        Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(Space.md),
                     ) {
-                        // Their face is redundant once a picture fills the
-                        // screen, and a circle over a video is in the way.
-                        AnimatedVisibility(
-                            visible = stage.big == null,
-                            enter = fadeIn() + scaleIn(initialScale = 0.9f),
-                            exit = fadeOut() + scaleOut(targetScale = 0.9f),
+                        Column(
+                            Modifier
+                                .padding(top = if (stage.big == null) Space.lg else Space.sm)
+                                .onGloballyPositioned { headerBottom = it.boundsInRoot().bottom },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(Space.md),
                         ) {
-                            CallHalo(ringing = !phase.isOver && phase !is TeamCallPhase.Live, faceSize = faceSize) {
-                                OperatorAvatar(imageUrl = peerAvatarUrl, size = faceSize)
+                            // Their face is redundant once a picture fills the
+                            // screen, and a circle over a video is in the way.
+                            AnimatedVisibility(
+                                visible = stage.big == null && roomy,
+                                enter = fadeIn() + scaleIn(initialScale = 0.9f),
+                                exit = fadeOut() + scaleOut(targetScale = 0.9f),
+                            ) {
+                                CallHalo(ringing = !phase.isOver && phase !is TeamCallPhase.Live, faceSize = faceSize) {
+                                    OperatorAvatar(imageUrl = peerAvatarUrl, size = faceSize)
+                                }
                             }
+                            Text(
+                                peerName,
+                                style = if (stage.big == null) AppType.headlineMediumEmphasized else MaterialTheme.typography.titleLarge,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            TeamCallStatus(phase, incoming, channel, language)
+                            if (relayWarning) Notice(Str.callRelayWarning(language))
+                            degraded?.let { Notice(it.title(language)) }
                         }
-                        Text(
-                            peerName,
-                            style = if (stage.big == null) AppType.headlineMediumEmphasized else MaterialTheme.typography.titleLarge,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        TeamCallStatus(phase, incoming, channel, language)
-                        if (relayWarning) Notice(Str.callRelayWarning(language))
-                        degraded?.let { Notice(it.title(language)) }
                     }
-
-                    Spacer(Modifier.weight(1f))
 
                     Box(Modifier.onGloballyPositioned { controlsTop = it.boundsInRoot().top }) {
                         TeamCallControls(

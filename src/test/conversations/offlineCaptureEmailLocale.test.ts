@@ -123,6 +123,8 @@ beforeEach(() => {
     { id: 'u-en', email: 'john@example.com', preferred_locale: 'en-US' },
   ];
   state.db.tables.platform_settings = [{ id: 1, default_locale: 'fa' }];
+  // The widget and its chat on (POST /offline-messages checks them, as /message).
+  (state.db.tables.widget_settings ||= []).push({ workspace_id: WS, enabled: true, chat_enabled: true });
   state.sent.length = 0;
   __resetWidgetRateLimitsForTests();
   __resetOperatorLocaleCache();

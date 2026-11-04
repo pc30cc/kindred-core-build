@@ -7,14 +7,14 @@
  * visitor cookie itself — it cannot rely on the parent to have set
  * req._widgetWorkspaceId / req.visitorId.
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { createCallbackRequest } from '../services/calls/callbacks.js';
 import { markEntryAsCallback } from '../services/calls/queue.js';
 import { getServiceClient } from '../supabase.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
-import { enforceWidgetToken, enforceOrigin } from '../services/widget/security.js';
+import { enforceWidgetToken, enforceOrigin, widgetRateLimit, verifyConversationOwnership } from '../services/widget/security.js';
 import { readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import {
   ensureVisitorSessionRow,
@@ -42,13 +42,19 @@ async function canonicalSessionIds(
       .eq('visitor_id', visitorId)
       .order('last_seen_at', { ascending: false })
       .limit(20);
-    return (data || []).map((r: any) => r.id as string);
+    return ((data || []) as Array<{ id: string }>).map((r) => r.id);
   } catch {
     return [];
   }
 }
 
 export const widgetCallbacksRouter = Router();
+
+/** What the app and the token gate put on a widget request. */
+type WidgetCallbackRequest = Request & { serverConfig?: ServerConfig; _widgetWorkspaceId?: string };
+
+/** The fields of an open callback the widget's badge reads. */
+interface OpenCallbackRow { status: string; channel: string; requested_at: string | null; created_at: string }
 
 widgetCallbacksRouter.use(enforceWidgetToken);
 widgetCallbacksRouter.use(enforceOrigin);
@@ -65,8 +71,8 @@ const CALLBACK_COOLDOWN_MS = 10 * 60 * 1000;
  * "Callback pending" badge and approximate cooldown countdown.
  */
 widgetCallbacksRouter.get('/status', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
+  const config = (req as WidgetCallbackRequest).serverConfig as ServerConfig;
+  const workspaceId = (req as WidgetCallbackRequest)._widgetWorkspaceId;
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
   const visitorId = readVisitorCookie(req, workspaceId)?.v;
   if (!visitorId) {
@@ -88,13 +94,14 @@ widgetCallbacksRouter.get('/status', async (req, res) => {
       .limit(1)
       .maybeSingle();
     if (!data) return res.json({ has_open_callback: false });
-    const createdMs = new Date((data as any).created_at).getTime();
+    const open = data as OpenCallbackRow;
+    const createdMs = new Date(open.created_at).getTime();
     const cooldownUntil = new Date(createdMs + CALLBACK_COOLDOWN_MS).toISOString();
     res.json({
       has_open_callback: true,
-      status: (data as any).status,
-      channel: (data as any).channel,
-      requested_at: (data as any).requested_at,
+      status: open.status,
+      channel: open.channel,
+      requested_at: open.requested_at,
       cooldown_until: cooldownUntil,
     });
   } catch {
@@ -102,9 +109,15 @@ widgetCallbacksRouter.get('/status', async (req, res) => {
   }
 });
 
-widgetCallbacksRouter.post('/request', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
+// Rate-limited as a message (audit widgetapi-2): each request is a
+// callback_requests row and a push to every eligible operator device. The
+// signed visitor is required, so the 10-minute dedupe of
+// createCallbackRequest (keyed on the visitor's session) always has a key:
+// a cookieless request was never deduped. No widget calls this route today
+// (the call widget has its own); a caller without the visitor gets 401.
+widgetCallbacksRouter.post('/request', widgetRateLimit('message'), async (req, res) => {
+  const config = (req as WidgetCallbackRequest).serverConfig as ServerConfig;
+  const workspaceId = (req as WidgetCallbackRequest)._widgetWorkspaceId;
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
   const visitorId = readVisitorCookie(req, workspaceId)?.v;
   // Plan composer gate — visitor-initiated callback request.
@@ -122,6 +135,9 @@ widgetCallbacksRouter.post('/request', async (req, res) => {
   } catch {
     return res.status(403).json({ error: 'plan_forbidden', capability: 'call_callbacks', upgrade_required: true });
   }
+  // After the plan's answer, so plan_forbidden stays what a plan without
+  // callbacks gets.
+  if (!visitorId) return res.status(401).json({ error: 'visitor_required' });
   const parsed = z.object({
     channel: z.enum(['audio', 'video']),
     conversation_id: z.string().uuid().optional(),
@@ -146,18 +162,29 @@ widgetCallbacksRouter.post('/request', async (req, res) => {
     }
     scheduledForIso = new Date(t).toISOString();
   }
+  // A conversation the body names must be the visitor's own (else an
+  // operator's callback card links somebody else's thread).
+  if (parsed.data.conversation_id) {
+    const owned = await verifyConversationOwnership(config, parsed.data.conversation_id, workspaceId, null, null, req);
+    if (!owned.valid) return res.status(403).json({ error: 'conversation_access_denied' });
+  }
   // Canonical session id (created if the visitor has none yet) — same shared
   // writer the chat and call widgets use, so geo/IP enrichment runs here too.
   let visitorSessionId: string | null = null;
-  if (visitorId) {
-    try {
-      const sb = getServiceClient(config);
-      const net = await resolveSessionNetworkContext(sb, req as any, workspaceId);
-      visitorSessionId = await ensureVisitorSessionRow(
-        sb, workspaceId, visitorId, null, 'chat_widget', net, { config, touchPresence: true },
-      );
-    } catch { /* callback must still be creatable */ }
+  try {
+    const sb = getServiceClient(config);
+    const net = await resolveSessionNetworkContext(sb, req, workspaceId);
+    visitorSessionId = await ensureVisitorSessionRow(
+      sb, workspaceId, visitorId, null, 'chat_widget', net, { config, touchPresence: true },
+    );
+  } catch { /* callback must still be creatable */ }
+  // No session could be written: one open callback per visitor and
+  // workspace all the same (the dedupe of createCallbackRequest needs one).
+  if (!visitorSessionId) {
+    const sessionIds = await canonicalSessionIds(config, workspaceId, visitorId);
+    visitorSessionId = sessionIds[0] ?? null;
   }
+  if (!visitorSessionId) return res.status(503).json({ error: 'visitor_session_unavailable' });
   try {
     const cb = await createCallbackRequest(config, {
       workspaceId,
@@ -178,7 +205,7 @@ widgetCallbacksRouter.post('/request', async (req, res) => {
     const createdMs = new Date(cb.created_at).getTime();
     const cooldownUntil = new Date(createdMs + CALLBACK_COOLDOWN_MS).toISOString();
     res.json({ callback: cb, cooldown_until: cooldownUntil });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message || 'callback_failed' });
+  } catch (e: unknown) {
+    res.status(500).json({ error: (e as { message?: string } | null)?.message || 'callback_failed' });
   }
 });

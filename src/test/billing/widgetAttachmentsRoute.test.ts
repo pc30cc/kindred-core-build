@@ -38,6 +38,12 @@ vi.mock("../../../server/supabase.js", () => ({
   getServiceClient: () => sbMock,
 }));
 
+// The widget's signed visitor, whose upload this is (widgetAttachments.ts UPLOADER_COLUMN).
+vi.mock("../../../server/services/widget/visitorIdentity.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../server/services/widget/visitorIdentity.js")>()),
+  readVisitorCookie: () => ({ v: "visitor-1", w: "22222222-2222-2222-2222-222222222222", iat: 1, exp: 9e9 }),
+}));
+
 vi.mock("../../../server/middleware/featureGating.js", () => ({
   requireLimit: () => async (_req: any, res: any, next: any) => {
     if (state.gateAllow) return next();
@@ -106,6 +112,8 @@ describe("widgetAttachments POST /:id/upload — entitlement cleanup", () => {
       mime_type: "image/png",
       size_bytes: 12,
       status: "uploading",
+      uploaded_by_type: "visitor",
+      uploaded_by_visitor_id: "visitor-1",
     };
     state.updates = [];
     state.gateAllow = true;

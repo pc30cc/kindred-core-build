@@ -28,6 +28,7 @@ import { isMemberLocked } from '../billing/locks/predicates.js';
 import { operatorLocales } from '../operatorLocale.js';
 import { canUseInbox } from '../../../shared/chatRoles.js';
 import { mobileAppAllowed } from '../mobileApp/planGate.js';
+import { hiddenMembersByWorkspace } from '../teamVisibility.js';
 
 /**
  * `team_message` is a colleague's direct message in team chat: addressed to
@@ -492,7 +493,11 @@ export async function unreadBadgeCount(
         p_user_id: userId,
         p_workspace_id: workspaceId ?? null,
       });
-      if (!error && data != null && Number.isFinite(Number(data))) return Number(data);
+      if (!error && data != null && Number.isFinite(Number(data))) {
+        // The statement knows nothing of hidden pairs (295): take away the
+        // hidden colleagues it counted.
+        return Math.max(0, Number(data) - await hiddenUnreadColleagues(config, userId, workspaceIds));
+      }
     } catch {
       // No such function, or a client without rpc: count it the long way.
     }
@@ -526,16 +531,71 @@ export async function unreadBadgeCount(
 
   // Colleagues with something unread for this operator — one each, however
   // many lines they sent, as the Colleagues tab counts them.
+  // A colleague hidden from this operator (295) is not counted: they are in
+  // no list the operator sees, so the thread could never be opened and read.
+  const hidden = await hiddenPeers(config, userId, workspaceIds);
   const { data: team } = await sb
     .from('team_messages')
-    .select('sender_id')
+    .select('sender_id, workspace_id')
     .in('workspace_id', workspaceIds)
     .eq('recipient_id', userId)
     .is('read_at', null)
     .limit(2000);
   const colleagues = new Set(
-    (team as { sender_id: string }[] | null ?? []).map((m) => String(m.sender_id)),
+    (team as { sender_id: string; workspace_id: string }[] | null ?? [])
+      .filter((m) => !hidden.get(String(m.workspace_id))?.has(String(m.sender_id)))
+      .map((m) => String(m.sender_id)),
   ).size;
 
   return conversations + colleagues;
+}
+
+/**
+ * The members hidden from [userId] in each of [workspaceIds]
+ * (teamVisibility.ts, the one reader of the pairs). A failed read hides
+ * nobody: a badge one too high beats a push that fails.
+ */
+async function hiddenPeers(
+  config: ServerConfig,
+  userId: string,
+  workspaceIds: readonly string[],
+): Promise<Map<string, Set<string>>> {
+  try {
+    return await hiddenMembersByWorkspace(config, workspaceIds, userId);
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * How many colleagues push_unread_badge (236) counted that are hidden from
+ * [userId]: a sender counts once there, across the workspaces, so one is
+ * taken away only when every unread line of theirs is in a workspace where
+ * they are hidden from [userId].
+ */
+async function hiddenUnreadColleagues(
+  config: ServerConfig,
+  userId: string,
+  workspaceIds: readonly string[],
+): Promise<number> {
+  const hidden = await hiddenPeers(config, userId, workspaceIds);
+  if (!hidden.size) return 0;
+  const senders = [...new Set([...hidden.values()].flatMap((set) => [...set]))];
+  const { data, error } = await getServiceClient(config)
+    .from('team_messages')
+    .select('sender_id, workspace_id')
+    .in('workspace_id', workspaceIds)
+    .in('sender_id', senders)
+    .eq('recipient_id', userId)
+    .is('read_at', null)
+    .limit(2000);
+  if (error) return 0;
+  const hiddenOnly = new Set<string>();
+  const visible = new Set<string>();
+  for (const m of (data as { sender_id: string; workspace_id: string }[] | null ?? [])) {
+    const sender = String(m.sender_id);
+    if (hidden.get(String(m.workspace_id))?.has(sender)) hiddenOnly.add(sender);
+    else visible.add(sender);
+  }
+  return [...hiddenOnly].filter((sender) => !visible.has(sender)).length;
 }

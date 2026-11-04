@@ -135,6 +135,17 @@ const ZARINPAL_TEST_ERRORS: Record<number, string> = {
   [-15]: 'terminal is suspended',
 };
 
+/**
+ * Verify answers (ZarinPal v4) that are final for this authority: -50 the
+ * session's amount is not the one sent (the server-bound amount: a retry
+ * sends the same), -51 not paid (cancelled, declined, or the customer never
+ * paid), -53 the session is not this merchant's, -54 the authority is not
+ * valid. Every other code (-9 validation, -10/-11/-15 terminal problems,
+ * -12 too many attempts, -52 ZarinPal's unexpected error, ...) is transient
+ * or ours to fix, and keeps the payment pending.
+ */
+export const ZARINPAL_VERIFY_FINAL_FAILURES: ReadonlySet<number> = new Set([-50, -51, -53, -54]);
+
 // ZarinPal (or an upstream WAF / filtering proxy) can answer with an HTML page
 // instead of JSON. res.json() would then throw a cryptic "Unexpected token '<'"
 // SyntaxError, so read the body as text and raise a descriptive error instead.
@@ -198,6 +209,8 @@ function zarinpalHandler(name: string, hosts: ZarinpalHosts): BillingProviderHan
     // Code 101 ("already verified") is reported as `already_verified`: the
     // verify is keyed by the stored authority (bound fail-closed), so the
     // account code may settle a pending payment of that authority with it.
+    // Only a final answer (ZARINPAL_VERIFY_FINAL_FAILURES) is `failed`; any
+    // other is `pending`, which the account code neither settles nor ends.
     async verifyPayment(config: BillingProviderConfig, params: Record<string, string>) {
       const amountIrr = parseInt(params.amount || '0');
       const currency = zarinpalCurrency(config);
@@ -209,11 +222,26 @@ function zarinpalHandler(name: string, hosts: ZarinpalHosts): BillingProviderHan
       });
       const data = await readZarinpalJson(res, 'verify payment');
       const code = readZarinpalVerifyCode(data);
+      if (code === 100 || code === 101) {
+        return {
+          verified: true,
+          providerRef: readZarinpalRefId(data) ?? '',
+          amount: amountIrr,
+          status: code === 100 ? 'success' : 'already_verified',
+        };
+      }
+      // Only an answer that says this payment will never verify ends it
+      // (ZARINPAL_VERIFY_FINAL_FAILURES). Anything else (too many attempts,
+      // ZarinPal's own unexpected error, a terminal problem, an answer we
+      // cannot read) settles nothing and fails nothing: the payment stays
+      // pending and the return page asks again. Failing it would tell a
+      // customer who paid that it failed, and nothing would verify it again.
+      const failure = readZarinpalErrorCode(data) ?? (typeof code === 'number' && Number.isFinite(code) ? code : undefined);
       return {
-        verified: code === 100 || code === 101,
+        verified: false,
         providerRef: readZarinpalRefId(data) ?? '',
         amount: amountIrr,
-        status: code === 100 ? 'success' : code === 101 ? 'already_verified' : 'failed',
+        status: failure !== undefined && ZARINPAL_VERIFY_FINAL_FAILURES.has(failure) ? 'failed' : 'pending',
       };
     },
 

@@ -21,7 +21,9 @@
  *   purging_user --(walk every user storage scope via the shared
  *     scopeCleanupEngine — same dedup/verify/drift-detection guarantees
  *     as workspace deletion — then call the existing admin_delete_user
- *     RPC for the final per-user-column sweep + profile delete; by this
+ *     RPC for the final purge (296: the user's own rows deleted, their
+ *     references elsewhere cleared, never another tenant's rows) + profile
+ *     delete; by this
  *     point zero workspaces remain owned by the user, so
  *     admin_delete_user's internal admin_purge_workspaces call is a
  *     guaranteed no-op)--> completed
@@ -361,10 +363,11 @@ async function purgeUser(config: ServerConfig, job: UserDeletionJobRow): Promise
       status: 'completed', purge_result: data ?? null, completed_at: now, locked_by: null, lease_expires_at: null,
     });
   } catch (err) {
-    // admin_delete_user sweeps every table with a user_id column, this
-    // job's own row included, so the row is normally gone by now: the purge
-    // succeeded and there is simply nothing left to mark. A row that still
-    // exists means another worker really holds the lease — surface that.
+    // Since 296 admin_delete_user keeps this job's row (before it, the
+    // purge deleted every row with a user_id column, this one included), so
+    // a fenced write normally means another worker holds the lease: surface
+    // that. A row that is gone (a database still on 182's function) means
+    // the purge succeeded and there is nothing left to mark.
     if (!(err instanceof LeaseFencedError)) throw err;
     const { data: row, error: rowError } = await sb.from('user_deletion_jobs').select('id').eq('id', job.id).maybeSingle();
     if (row || rowError) throw err;

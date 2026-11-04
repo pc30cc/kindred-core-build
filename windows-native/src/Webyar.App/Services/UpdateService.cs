@@ -47,6 +47,8 @@ public sealed partial class UpdateService : ObservableObject
     private UpdateInfo? _pending;
     /// <summary>Program Files install: the downloaded installer waiting to run.</summary>
     private string? _pendingSetup;
+    /// <summary>Its SHA-256 as GitHub published it (lower-case hex), checked again right before it runs.</summary>
+    private string? _pendingSetupSha256;
     private bool _prerelease;
     private static readonly HttpClient Http = CreateHttp();
 
@@ -125,6 +127,7 @@ public sealed partial class UpdateService : ObservableObject
                 _manager = null;
                 _pending = null;
                 _pendingSetup = null;
+                _pendingSetupSha256 = null;
                 _timer?.Dispose();
                 _timer = null;
                 Status = UpdateStatus.Unavailable;
@@ -235,8 +238,16 @@ public sealed partial class UpdateService : ObservableObject
                 }
             }
         }
+        // The file is checked here and again right before it runs as administrator:
+        // %TEMP% is the operator's to write, and so is anything running as them.
+        if (!HashMatches(part, release.Value.Sha256))
+        {
+            File.Delete(part);
+            throw new InvalidDataException($"{Brand.SetupName}.exe {version}: SHA-256 differs from the release's");
+        }
         File.Move(part, target, overwrite: true);
         _pendingSetup = target;
+        _pendingSetupSha256 = release.Value.Sha256;
         _ui(() => Status = UpdateStatus.Ready);
         Log.Write($"update {version} downloaded (setup)");
     }
@@ -246,7 +257,7 @@ public sealed partial class UpdateService : ObservableObject
     /// Only a trusted repository is asked, and only an installer published in
     /// its own releases is taken.
     /// </summary>
-    private async Task<(string Version, string Url)?> LatestSetupAsync()
+    private async Task<(string Version, string Url, string Sha256)?> LatestSetupAsync()
     {
         if (UpdateFeeds.TrustedGithubRepo(_feed ?? DefaultFeed) is not { } repo) return null;
         var ownerRepo = repo["https://github.com/".Length..];
@@ -262,7 +273,14 @@ public sealed partial class UpdateService : ObservableObject
                 if (asset.GetProperty("name").GetString() != Brand.SetupName + ".exe") continue;
                 var url = asset.GetProperty("browser_download_url").GetString() ?? "";
                 if (!url.StartsWith(repo + "/releases/download/", StringComparison.OrdinalIgnoreCase)) continue;
-                return (rel.GetProperty("tag_name").GetString() ?? "", url);
+                // GitHub's own digest of the uploaded file ("sha256:<hex>"); an installer without one is not run.
+                var digest = asset.TryGetProperty("digest", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() ?? "" : "";
+                if (!digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) || digest.Length != "sha256:".Length + 64)
+                {
+                    Log.Write($"update check (setup): {Brand.SetupName}.exe in {rel.GetProperty("tag_name").GetString()} has no SHA-256 digest; skipped");
+                    continue;
+                }
+                return (rel.GetProperty("tag_name").GetString() ?? "", url, digest["sha256:".Length..].ToLowerInvariant());
             }
         }
         return null;
@@ -271,9 +289,22 @@ public sealed partial class UpdateService : ObservableObject
     /// <summary>Runs the downloaded installer silently (Windows asks to allow it); it reopens Webyar when done.</summary>
     private bool RunSetup()
     {
-        if (_pendingSetup is null || !File.Exists(_pendingSetup)) return false;
+        if (_pendingSetup is null || _pendingSetupSha256 is null || !File.Exists(_pendingSetup)) return false;
         try
         {
+            // Held open, readable but not writable, renamable or deletable by anyone else,
+            // from the check until the elevated installer has started from it.
+            using var held = new FileStream(_pendingSetup, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (!HashMatches(held, _pendingSetupSha256))
+            {
+                Log.Write("run setup: the downloaded installer changed since it was checked; not run");
+                held.Dispose();
+                TryDelete(_pendingSetup);
+                _pendingSetup = null;
+                _pendingSetupSha256 = null;
+                _ui(() => Status = UpdateStatus.Failed);
+                return false;
+            }
             Process.Start(new ProcessStartInfo(_pendingSetup, "/silent /launch") { UseShellExecute = true, Verb = "runas" });
             return true;
         }
@@ -283,6 +314,25 @@ public sealed partial class UpdateService : ObservableObject
             Log.Error("run setup", e);
             return false;
         }
+    }
+
+    private static bool HashMatches(string path, string sha256)
+    {
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return HashMatches(file, sha256);
+    }
+
+    private static bool HashMatches(Stream file, string sha256)
+    {
+        file.Position = 0;
+        var actual = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(file));
+        return string.Equals(actual, sha256, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { File.Delete(path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
     /// <summary>Quits, applies the downloaded update and starts the new version.</summary>

@@ -389,7 +389,10 @@ app.use('/api/email-events', emailEventsRouter);
 // a future re-order can't accidentally consume the raw body. The widget
 // bootstrap also accepts its JSON as text/plain (a CORS-simple request, no
 // preflight) — see middleware/bodyParsers.ts; parsed here, before
-// widgetCorsMiddleware reads body.workspace_id.
+// widgetCorsMiddleware reads body.workspace_id. This runs before the IP
+// block, the abuse check and every rate limiter, so the public prefixes get a
+// 64 KB limit and no body is inflated but a provider webhook's (limits per
+// prefix in bodyParsers.ts; audit widgetapi-1).
 const parseJsonBody = jsonBodyParser();
 app.use((req, res, next) => {
   if (req.path === '/api/calls/livekit/webhook') return next();

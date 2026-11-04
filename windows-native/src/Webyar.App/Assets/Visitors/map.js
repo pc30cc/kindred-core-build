@@ -1,0 +1,60 @@
+// The web Visitors page's map, in the native app: markers from
+// /api/visitor-intel/map on the tiles /map-config names. The host posts
+// {type:'config'|'markers'|'select'|'theme'} and hears {type:'select', id}.
+const host = window.chrome && window.chrome.webview;
+const map = L.map('map', { zoomControl: true, attributionControl: true, worldCopyJump: true }).setView([32, 53], 3);
+let tiles = null;
+const layer = L.layerGroup().addTo(map);
+let selected = null;
+let fitted = false;
+
+// Marker/tooltip HTML goes through innerHTML and every field in it comes
+// from visitor data, so escape for both text and quoted attributes.
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+function icon(status, id) {
+  return L.divIcon({ className: '', iconSize: [14, 14], html: `<div class="dot ${esc(status || 'unknown')} ${id === selected ? 'selected' : ''}"></div>` });
+}
+
+function config(c) {
+  const url = c && c.tile_url || 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  if (tiles) tiles.remove();
+  tiles = L.tileLayer(url, { attribution: (c && c.attribution) || '&copy; OpenStreetMap', maxZoom: (c && c.max_zoom) || 18, minZoom: (c && c.min_zoom) || 1 }).addTo(map);
+  const d = c && c.default_center;
+  if (d && typeof d.lat === 'number' && typeof d.lng === 'number') map.setView([d.lat, d.lng], d.zoom || 3);
+}
+
+function markers(list) {
+  layer.clearLayers();
+  const pts = [];
+  for (const m of list || []) {
+    if (typeof m.lat !== 'number' || typeof m.lng !== 'number') continue;
+    const mk = L.marker([m.lat, m.lng], { icon: icon(m.status, m.id), riseOnHover: true });
+    const place = [m.city, m.country].filter(Boolean).join(', ');
+    mk.bindTooltip(`${esc(place)}${m.current_page ? '<br>' + esc(m.current_page) : ''}`, { direction: 'top', offset: [0, -8] });
+    mk.on('click', () => host && host.postMessage({ type: 'select', id: m.id }));
+    mk.addTo(layer);
+    pts.push([m.lat, m.lng]);
+  }
+  if (!fitted && pts.length) {
+    fitted = true;
+    map.fitBounds(pts, { padding: [60, 60], maxZoom: 6 });
+  }
+}
+
+if (host) {
+  host.addEventListener('message', (e) => {
+    const m = e.data || {};
+    if (m.type === 'config') config(m.config);
+    else if (m.type === 'markers') { selected = m.selected || selected; markers(m.markers); }
+    else if (m.type === 'theme') document.body.classList.toggle('dark', !!m.dark);
+    else if (m.type === 'select') {
+      selected = m.id;
+      if (typeof m.lat === 'number' && typeof m.lng === 'number') map.flyTo([m.lat, m.lng], Math.max(map.getZoom(), 6), { duration: 0.6 });
+    }
+  });
+  host.postMessage({ type: 'ready' });
+}

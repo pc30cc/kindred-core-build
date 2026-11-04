@@ -1648,7 +1648,7 @@ export async function chargeCardForUpgrade(
       tax_minor: charge.tax,
       tax_percent: vat,
       purpose: 'upgrade',
-      purpose_detail: { plan_id: input.planId, billing_interval: paid.billing_interval, card_id: card.id },
+      purpose_detail: { plan_id: input.planId, billing_interval: paid.billing_interval, card_id: card.id, quoted_charge_minor: quote.amount_minor },
       status: 'pending',
       created_by: input.actorId,
       source: 'card_charge',

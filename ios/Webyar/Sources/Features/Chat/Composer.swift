@@ -217,7 +217,13 @@ struct Composer: View {
         }
         .composerPill()
         .onAppear { pulse = true }
-        .onDisappear { pulse = false }
+        .onDisappear {
+            pulse = false
+            // The screen went away mid-recording (Back, a workspace switch, the
+            // plan lock, a sign-out): the session must not stay active, ducking
+            // the operator's music, for a recorder nobody can reach.
+            recorder.leave()
+        }
     }
 
     // MARK: - Picking

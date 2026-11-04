@@ -57,6 +57,7 @@ import { notifyInboundMessage } from '../services/push/index.js';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
 import { authorizeInboxAccess } from '../lib/inboxAccess.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
+import { conversationLockedBody, conversationLockedNow } from '../services/contactChatLocks.js';
 
 export const conversationNotesRouter = Router({ mergeParams: true });
 
@@ -82,8 +83,11 @@ async function authorizeMember(
 
 /**
  * Verify that the conversation belongs to the workspace claimed in the
- * request body/query. Returns the conversation row on success, or null
- * after sending a 404 response.
+ * request body/query, and that the plan's retention has not locked it
+ * (phase 4: a chat past `data_retention_days` cannot be read or written,
+ * its notes and timeline included, as every conversation route refuses it;
+ * fail open). Returns the conversation row on success, or null after
+ * sending a 404 / 403 `conversation_locked` response.
  */
 async function loadConversation(
   config: ServerConfig,
@@ -94,11 +98,16 @@ async function loadConversation(
   const sb = getServiceClient(config);
   const { data: conv } = await sb
     .from('conversations')
-    .select('id, workspace_id')
+    .select('id, workspace_id, created_at, updated_at')
     .eq('id', conversationId)
     .maybeSingle();
   if (!conv || conv.workspace_id !== workspaceId) {
     res.status(404).json({ error: 'Conversation not found in workspace' });
+    return null;
+  }
+  const { locked, state } = await conversationLockedNow(config, workspaceId, conv);
+  if (locked) {
+    res.status(403).json(conversationLockedBody(state));
     return null;
   }
   return conv;
@@ -264,6 +273,9 @@ conversationNotesRouter.patch('/:id/notes/:noteId', async (req, res) => {
     if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
     const auth = await authorizeMember(req, res, config, parsed.data.workspace_id);
     if (!auth) return;
+    // Editing a note is writing in the chat: refused once the plan locked it.
+    // (Deleting one stays allowed, as deleting a locked contact does.)
+    if (!(await loadConversation(config, res, conversationId, parsed.data.workspace_id))) return;
 
     const sb = getServiceClient(config);
     // Confirm the note exists, belongs to the conversation+workspace, and the

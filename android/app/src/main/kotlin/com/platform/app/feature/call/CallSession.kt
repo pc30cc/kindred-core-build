@@ -11,6 +11,7 @@ import com.platform.app.i18n.displayText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -155,15 +156,27 @@ class CallSession(
         _cameraOn.value = channel == CallChannel.VIDEO
 
         callJob = viewModelScope.launch {
-            val invitation = runCatchingUnlessCancelled {
-                // Named, because the two ids are both UUID strings and
-                // transposing them fails every call with a 403.
-                api.inviteToCall(
-                    workspaceId = workspaceId,
-                    conversationId = conversationId,
-                    channel = channel,
-                )
-            }.getOrElse { error ->
+            // On the teardown's scope, not this job's: a hang-up while the
+            // POST is on its way cancels this job, and the invitation the
+            // server made meanwhile would be left ringing the visitor's widget
+            // for its five minutes, its id never known here. Settled there
+            // instead — kept for the teardown, or withdrawn at once when the
+            // call already ended.
+            val created = teardown.async {
+                runCatchingUnlessCancelled {
+                    // Named, because the two ids are both UUID strings and
+                    // transposing them fails every call with a 403.
+                    api.inviteToCall(
+                        workspaceId = workspaceId,
+                        conversationId = conversationId,
+                        channel = channel,
+                    )
+                }.onSuccess { made ->
+                    invitationId = made.id
+                    if (!_phase.value.isLive) runCatchingUnlessCancelled { api.cancelInvitation(made.id) }
+                }
+            }
+            val invitation = created.await().getOrElse { error ->
                 // The reason, not a shrug. "Could not connect" over a 403
                 // would send the operator looking at their network while the
                 // server is telling them something specific.
@@ -245,6 +258,46 @@ class CallSession(
         _phase.value = CallPhase.Ended(CallOutcome.NoLongerWaiting)
     }
 
+    /** Answer pressed here: whatever happens to the ring now, the answer decides. */
+    private var answerAsked = false
+    private var ringWatch: Job? = null
+
+    /**
+     * Answer was pressed — the permissions may still be being asked for, with
+     * the ring already silenced: the ring's watch ([watchRing]) stands down,
+     * and the server's answer to the accept says whether the call is still
+     * there.
+     */
+    fun answerAsked() {
+        answerAsked = true
+    }
+
+    /**
+     * Ends the ring on screen when nothing else does: at its expiry
+     * ([expiresAtMillis], 0 when unknown), or once [ringGone] says this
+     * phone's ring for it is no longer up — stopped by a cancel this screen
+     * never heard (it came before the screen was there to listen, as on a
+     * cold start from the full-screen ring), declined on the notification, or
+     * run out. Only while ringing, and not once Answer was pressed.
+     * Idempotent.
+     */
+    fun watchRing(
+        expiresAtMillis: Long,
+        ringGone: () -> Boolean,
+        nowMillis: () -> Long = System::currentTimeMillis,
+    ) {
+        if (ringWatch != null) return
+        ringWatch = viewModelScope.launch {
+            while (_phase.value == CallPhase.Ringing && !answerAsked) {
+                if ((expiresAtMillis > 0 && nowMillis() >= expiresAtMillis) || ringGone()) {
+                    noLongerRinging()
+                    return@launch
+                }
+                delay(RING_WATCH_MILLIS)
+            }
+        }
+    }
+
     /**
      * Polling rather than realtime, on purpose.
      *
@@ -285,14 +338,18 @@ class CallSession(
         val credentials = runCatchingUnlessCancelled {
             api.callToken(callSessionId, displayName = null)
         }.getOrElse { error ->
-            _phase.value = CallPhase.Ended(CallOutcome.Failed(error.displayText(language)))
+            // Ended as any call ends, so the server hears: the call centre
+            // already gave this call to this operator (or the visitor is in
+            // the room), and a call left standing keeps the caller waiting
+            // for somebody who never comes, and this operator's line busy.
+            finish(CallOutcome.Failed(error.displayText(language)))
             return
         }
         _relayWarning.value = credentials.warnings?.contains("turn_missing") == true
 
         val url = credentials.signallingUrl
         if (url.isNullOrEmpty()) {
-            _phase.value = CallPhase.Ended(CallOutcome.Failed("no_server_url"))
+            finish(CallOutcome.Failed("no_server_url"))
             return
         }
 
@@ -427,6 +484,9 @@ class CallSession(
 
     private companion object {
         const val POLL_MILLIS = 2_000L
+
+        /** How often a ring on screen checks that it still rings. */
+        const val RING_WATCH_MILLIS = 1_000L
 
         /** The call centre's "not there to answer any more": gone, or no longer active. */
         val GONE_STATUSES = setOf(404, 409)

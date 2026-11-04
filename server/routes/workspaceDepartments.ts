@@ -12,7 +12,6 @@ import { getServiceClient } from '../supabase.js';
 import {
   invalidateDepartmentCache,
   resolveDepartments,
-  resolveDepartmentMembers,
   resolveGeneralPool,
   resolveWidgetVisibleDepartments,
   buildDepartmentDiagnostics,
@@ -223,13 +222,58 @@ workspaceDepartmentsRouter.get('/:workspaceId/directory', async (req, res) => {
 // Department members
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether department `id` belongs to `workspaceId`. The member routes are
+ * authorized for the workspace in the URL, so the department must be one of
+ * its own: `workspace_department_members` has no composite key tying a row's
+ * department to its workspace, and an admin of one workspace could otherwise
+ * read another's department members or attach their own users to it (rows
+ * the other workspace could not remove). Writes 404 and answers false when
+ * it does not, 500 when the lookup fails.
+ */
+async function requireOwnDepartment(
+  config: ServerConfig,
+  res: { status(code: number): { json(body: unknown): unknown } },
+  workspaceId: string,
+  id: string,
+): Promise<boolean> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    res.status(404).json({ error: 'department_not_found' });
+    return false;
+  }
+  const { data, error } = await getServiceClient(config)
+    .from('workspace_departments')
+    .select('id')
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  if (error) {
+    res.status(500).json({ error: 'department_lookup_failed' });
+    return false;
+  }
+  if (!data) {
+    res.status(404).json({ error: 'department_not_found' });
+    return false;
+  }
+  return true;
+}
+
 // GET /api/workspace-departments/:workspaceId/:id/members
 workspaceDepartmentsRouter.get('/:workspaceId/:id/members', async (req, res) => {
   const { workspaceId, id } = req.params;
   const auth = await requireWorkspaceAdmin(req, res, workspaceId);
   if (!auth) return;
   const config: ServerConfig = serverConfigOf(req);
-  const userIds = await resolveDepartmentMembers(config, id);
+  if (!(await requireOwnDepartment(config, res, workspaceId, id))) return;
+  // Only this workspace's rows: a stray row another workspace once attached
+  // to this department (before requireOwnDepartment) is not one of its members.
+  const { data, error } = await getServiceClient(config)
+    .from('workspace_department_members')
+    .select('user_id')
+    .eq('department_id', id)
+    .eq('workspace_id', workspaceId);
+  if (error) return res.status(500).json({ error: 'department_members_failed' });
+  const userIds = (data ?? []).map((r: { user_id: string | null }) => r.user_id).filter((u): u is string => Boolean(u));
   res.json({ user_ids: userIds });
 });
 
@@ -246,6 +290,7 @@ workspaceDepartmentsRouter.put('/:workspaceId/:id/members', async (req, res) => 
   try {
     const body = setMembersSchema.parse(req.body);
     const config: ServerConfig = serverConfigOf(req);
+    if (!(await requireOwnDepartment(config, res, workspaceId, id))) return;
     const sb = getServiceClient(config);
     // Validate all user_ids are workspace members.
     if (body.user_ids.length > 0) {

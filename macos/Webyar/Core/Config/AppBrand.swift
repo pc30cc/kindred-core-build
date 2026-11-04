@@ -37,4 +37,18 @@ enum AppBrand {
     static let fallbackLanguage: Language = .fa
     static let jalaliDates = true
     #endif
+
+    /// Whether this build may make `url` its API origin: what the platform answers
+    /// (`/api/platform/origins`) and what this Mac remembered of it. As the iOS and
+    /// Android apps: WebYar takes any https origin; RESPOK only `respok.app` and its
+    /// subdomains, so a RESPOK database cloned from WebYar's that still names a WebYar
+    /// host never moves the Mac onto WebYar's servers.
+    static func ownsOrigin(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased(), !host.isEmpty else { return false }
+        #if BRAND_RESPOK
+        return host == "respok.app" || host.hasSuffix(".respok.app")
+        #else
+        return true
+        #endif
+    }
 }

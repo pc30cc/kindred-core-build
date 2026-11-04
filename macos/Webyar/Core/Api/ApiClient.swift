@@ -65,7 +65,8 @@ final class ApiClient {
 
     init(store: SessionStore, origin: URL? = nil, appVersion: String = "0", session: URLSession? = nil) {
         self.store = store
-        self.origin = origin ?? Self.defaultOrigin
+        // A remembered origin this brand may not use (RESPOK: outside respok.app) is ignored.
+        self.origin = origin.flatMap(Self.normalized) ?? Self.defaultOrigin
         let os = ProcessInfo.processInfo.operatingSystemVersion
         userAgent = "Mozilla/5.0 (Macintosh; Mac OS X \(os.majorVersion)_\(os.minorVersion)) \(AppBrand.agentToken)/\(appVersion)"
         if let session {
@@ -84,12 +85,18 @@ final class ApiClient {
     var token: String? { store.read() }
 
     func setOrigin(_ url: URL) {
-        guard url.scheme == "https", let host = url.host else { return }
+        if let u = Self.normalized(url) { origin = u }
+    }
+
+    /// `https://host[:port]` of `url`, or nil when it is not https or not this brand's
+    /// (`AppBrand.ownsOrigin`).
+    static func normalized(_ url: URL) -> URL? {
+        guard AppBrand.ownsOrigin(url), let host = url.host else { return nil }
         var c = URLComponents()
         c.scheme = "https"
         c.host = host
         c.port = url.port
-        if let u = c.url { origin = u }
+        return c.url
     }
 
     // MARK: Requests
@@ -259,10 +266,50 @@ final class ApiClient {
     /// Asks the platform where it lives and moves there if the answer differs,
     /// as the other native apps do at launch.
     @discardableResult
+    ///
+    /// The fallback matters, as on iOS, Android and Windows: if the origin this Mac
+    /// remembered has gone dark (a domain typed wrong in Super Admin, a lapsed
+    /// certificate) the built-in one is asked instead, and once it answers the Mac
+    /// moves back to it. Without that, one bad edit would brick every installed
+    /// copy for good, even after Super Admin was put right.
     func refreshOrigin() async -> PlatformOrigins? {
-        guard let origins: PlatformOrigins = try? await get("/api/platform/origins") else { return nil }
-        if let api = origins.apiBaseUrl, let url = URL(string: api), url.scheme == "https" { setOrigin(url) }
+        if let origins = await askOrigins(at: origin) {
+            adopt(origins, unless: nil)
+            return origins
+        }
+        let failed = origin
+        guard failed != Self.defaultOrigin else { return nil }
+        // Left only once the built-in origin answers: offline, neither does, and
+        // the remembered origin is not the one at fault.
+        guard let origins = await askOrigins(at: Self.defaultOrigin) else { return nil }
+        Log.write("[api] \(failed.absoluteString) does not answer: back to \(Self.defaultOrigin.absoluteString)")
+        origin = Self.defaultOrigin
+        // The platform may still name the origin that just failed: stay on the one that answers.
+        adopt(origins, unless: failed)
         return origins
+    }
+
+    private func adopt(_ origins: PlatformOrigins, unless failed: URL?) {
+        guard let api = origins.apiBaseUrl.flatMap(URL.init(string:)).flatMap(Self.normalized),
+              api != origin, api != failed
+        else { return }
+        origin = api
+    }
+
+    /// Its own request rather than `get`: it carries no session (the route is public),
+    /// so a host we are about to stop trusting never sees the token, and a 401 from it
+    /// never signs the operator out.
+    private func askOrigins(at base: URL) async -> PlatformOrigins? {
+        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        components?.percentEncodedPath = "/api/platform/origins"
+        guard let url = components?.url else { return nil }
+        var request = URLRequest(url: url, timeoutInterval: 8)
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        guard let (data, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode)
+        else { return nil }
+        return try? JSON.decoder().decode(PlatformOrigins.self, from: data)
     }
 
     /// An absolute URL for a server path such as `/storage/…`.

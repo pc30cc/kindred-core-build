@@ -51,19 +51,16 @@ internal sealed class CallSurface
         core.Settings.IsStatusBarEnabled = false;
         // No browser keys: F5 or Ctrl+R would reload the page mid-call (the page's own Ctrl+Shift keys still work).
         core.Settings.AreBrowserAcceleratorKeysEnabled = false;
-        // A real https origin: getUserMedia needs a secure context.
-        core.SetVirtualHostNameToFolderMapping("webyar.app", Path.Combine(AppContext.BaseDirectory, "Assets"), CoreWebView2HostResourceAccessKind.Allow);
-        core.PermissionRequested += (_, e) =>
-        {
-            if (e.PermissionKind is CoreWebView2PermissionKind.Microphone or CoreWebView2PermissionKind.Camera or CoreWebView2PermissionKind.Autoplay)
-                e.State = CoreWebView2PermissionState.Allow;
-        };
+        // The page and LiveKit come from the install (Assets), never the network; only that
+        // page gets the microphone and camera, and nothing else can become the page.
+        AppPages.Serve(core, CoreWebView2PermissionKind.Microphone, CoreWebView2PermissionKind.Camera, CoreWebView2PermissionKind.Autoplay);
         core.WebMessageReceived += OnWebMessage;
-        core.Navigate(Docked ? "https://webyar.app/Call/call.html?docked=1" : "https://webyar.app/Call/call.html");
+        core.Navigate(Docked ? AppPages.Origin + "/Call/call.html?docked=1" : AppPages.Origin + "/Call/call.html");
     }
 
     private void OnWebMessage(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
+        if (!AppPages.FromOwnPage(e)) return;
         try
         {
             using var doc = JsonDocument.Parse(e.TryGetWebMessageAsString());

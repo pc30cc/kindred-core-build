@@ -19,7 +19,7 @@ import { readLegacyArtifact, deleteLegacyArtifact } from '../services/privacy/ar
 import { resolvePrivacyStoragePolicy } from '../services/privacy/storageResolver.js';
 import { downloadWithConfig, deleteWithConfig, logWorkspaceStorageUsage, isWorkspaceWritable, isUserWritable } from '../services/storage/index.js';
 import type { PrivacyAction, PrivacySubjectType } from '../services/privacy/types.js';
-import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
+import { requireUser as requireSessionUser, authorizeWorkspaceAccessFor } from '../lib/workspaceAuth.js';
 import { findIdentityById } from '../services/auth/identity.js';
 import { verifyPassword } from '../services/auth/password.js';
 
@@ -39,10 +39,16 @@ async function authUser(req: Request, res: Response, config: ServerConfig): Prom
   return { userId: identity.id, email: identity.email || null };
 }
 
-async function isWorkspaceAdmin(config: ServerConfig, workspaceId: string, userId: string): Promise<boolean> {
-  const sb = getServiceClient(config);
-  const { data } = await sb.rpc('get_workspace_role', { _workspace_id: workspaceId, _user_id: userId });
-  return data === 'owner' || data === 'admin';
+/**
+ * Contact and visitor jobs (export, delete, their downloads) are a workspace
+ * owner's or admin's — one who is neither suspended nor past the plan's seat
+ * limit (authorizeWorkspaceAccess). `get_workspace_role`, used here before,
+ * returns a suspended member's role unchanged, so a suspended admin could
+ * still export a customer's conversations or queue their deletion. Writes
+ * the guard's 400/403/500 and answers false on refusal.
+ */
+async function requireWorkspaceAdmin(req: Request, res: Response, userId: string, workspaceId: string): Promise<boolean> {
+  return Boolean(await authorizeWorkspaceAccessFor(req, res, userId, workspaceId, { manage: true }));
 }
 
 // ─── Ad-hoc rate limiter ───────────────────────────────────────────
@@ -65,12 +71,14 @@ function rateLimit(map: Map<string, { count: number; windowStart: number }>, key
 }
 
 // ─── POST /api/privacy/reauth ───────────────────────────────────────
+// The password is the only proof. An `oauth: true` branch used to issue a
+// token on the session alone, which made re-authentication a no-op for
+// anyone holding the session (an unlocked laptop, a same-origin script) —
+// and so let them queue an account or contact deletion. Authentication is
+// first-party only (no OAuth sign-in exists to fall back on) and the panel
+// only ever sends a password (src/lib/privacy-api.ts).
 const reauthSchema = z.object({
-  password: z.string().min(1).max(255).optional(),
-  // For OAuth-only users: a fresh access token from the active session
-  // counts as proof when password isn't available. Caller passes the same
-  // bearer token; we accept its presence only (already validated above).
-  oauth: z.boolean().optional(),
+  password: z.string().min(1).max(255),
 });
 
 privacyRouter.post('/reauth', async (req, res) => {
@@ -79,16 +87,12 @@ privacyRouter.post('/reauth', async (req, res) => {
   if (!me) return;
 
   const parsed = reauthSchema.safeParse(req.body || {});
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  if (!parsed.success) return res.status(400).json({ error: 'password required' });
 
-  if (parsed.data.password) {
-    if (!me.email) return res.status(400).json({ error: 'No email on account' });
-    const identity = await findIdentityById(config, me.userId);
-    if (!identity?.passwordHash || !(await verifyPassword(identity.passwordHash, parsed.data.password))) {
-      return res.status(401).json({ error: 'Invalid password' });
-    }
-  } else if (!parsed.data.oauth) {
-    return res.status(400).json({ error: 'password or oauth=true required' });
+  if (!me.email) return res.status(400).json({ error: 'No email on account' });
+  const identity = await findIdentityById(config, me.userId);
+  if (!identity?.passwordHash || !(await verifyPassword(identity.passwordHash, parsed.data.password))) {
+    return res.status(401).json({ error: 'Invalid password' });
   }
 
   const { token, expiresAt } = issueReauthToken(me.userId);
@@ -125,10 +129,17 @@ privacyRouter.post('/jobs', async (req, res) => {
     if (body.subject_id !== me.userId) {
       return res.status(403).json({ error: 'Cannot create user-subject jobs for another user' });
     }
+    // A job about the caller's own account belongs to no workspace: it is
+    // stored, rate-limited, listed and its export stored as the user's
+    // (ownerForJob, worker.ts). A caller-supplied workspace_id used to be
+    // kept, which let anyone spend another workspace's hourly GDPR
+    // allowance, land their ZIP in its storage and show their job in its list.
+    if (body.workspace_id) {
+      return res.status(400).json({ error: 'workspace_id is not allowed for user-subject jobs' });
+    }
   } else {
     if (!body.workspace_id) return res.status(400).json({ error: 'workspace_id required for contact/visitor jobs' });
-    const ok = await isWorkspaceAdmin(config, body.workspace_id, me.userId);
-    if (!ok) return res.status(403).json({ error: 'Workspace admin required' });
+    if (!(await requireWorkspaceAdmin(req, res, me.userId, body.workspace_id))) return;
   }
 
   // Second/third corrective pass, P0: a workspace or account already
@@ -226,8 +237,7 @@ privacyRouter.get('/jobs', async (req, res) => {
   let query = sb.from('privacy_jobs').select('*').order('requested_at', { ascending: false }).limit(100);
 
   if (workspaceId) {
-    const ok = await isWorkspaceAdmin(config, workspaceId, me.userId);
-    if (!ok) return res.status(403).json({ error: 'Workspace admin required' });
+    if (!(await requireWorkspaceAdmin(req, res, me.userId, workspaceId))) return;
     query = query.eq('workspace_id', workspaceId);
   } else {
     // No workspace filter — return only this user's user-subject jobs.
@@ -253,8 +263,7 @@ privacyRouter.get('/jobs/:id', async (req, res) => {
   if (job.subject_type === 'user') {
     if (job.actor_user_id !== me.userId) return res.status(403).json({ error: 'Forbidden' });
   } else if (job.workspace_id) {
-    const ok = await isWorkspaceAdmin(config, job.workspace_id, me.userId);
-    if (!ok) return res.status(403).json({ error: 'Forbidden' });
+    if (!(await requireWorkspaceAdmin(req, res, me.userId, job.workspace_id))) return;
   } else {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -277,8 +286,7 @@ privacyRouter.post('/jobs/:id/cancel', async (req, res) => {
   if (job.subject_type === 'user') {
     if (job.actor_user_id !== me.userId) return res.status(403).json({ error: 'Forbidden' });
   } else if (job.workspace_id) {
-    const ok = await isWorkspaceAdmin(config, job.workspace_id, me.userId);
-    if (!ok) return res.status(403).json({ error: 'Forbidden' });
+    if (!(await requireWorkspaceAdmin(req, res, me.userId, job.workspace_id))) return;
   } else {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -321,8 +329,7 @@ privacyRouter.post('/jobs/:id/download-token', async (req, res) => {
   if (job.subject_type === 'user') {
     if (job.actor_user_id !== me.userId) return res.status(403).json({ error: 'Forbidden' });
   } else if (job.workspace_id) {
-    const ok = await isWorkspaceAdmin(config, job.workspace_id, me.userId);
-    if (!ok) return res.status(403).json({ error: 'Forbidden' });
+    if (!(await requireWorkspaceAdmin(req, res, me.userId, job.workspace_id))) return;
   } else {
     return res.status(403).json({ error: 'Forbidden' });
   }

@@ -119,20 +119,23 @@ actor APIClient {
         // link too slow for either, neither does — and then the remembered
         // origin is not the one at fault.
         guard let origins = await askOrigins(at: AppBrand.apiOrigin) else { return }
+        let failed = baseURL
         PlatformOrigin.forget()
         baseURL = AppBrand.apiOrigin
-        adopt(origins)
+        // The platform may still name the origin that just failed (the typo is still
+        // in Super Admin): stay on the one that answers rather than move straight back.
+        adopt(origins, unless: failed)
     }
 
     /// What the platform answered, taken on. `PlatformOrigins` has already
     /// dropped any link that is not https or that this brand may not use
     /// (RESPOK: an API outside respok.app, `AppBrand.ownsOrigin`, or a WebYar
     /// site, `AppBrand.accepts`).
-    private func adopt(_ origins: PlatformOrigins) {
+    private func adopt(_ origins: PlatformOrigins, unless failed: URL? = nil) {
         PlatformOrigin.rememberSupport(origins.support)
         PlatformOrigin.rememberWebsite(origins.website)
         PlatformOrigin.rememberSite(origins.site)
-        guard let api = origins.api, api != baseURL else { return }
+        guard let api = origins.api, api != baseURL, api != failed else { return }
         PlatformOrigin.remember(api)
         baseURL = api
     }

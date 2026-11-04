@@ -191,7 +191,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
         // show it too.
         if (result.code === 'plan_limit_reached') {
           toast({
-            title: safeT('inbox.sidebarCall.limitConcurrent', 'Concurrent call limit reached on your plan'),
+            title: t('inbox.sidebarCall.limitConcurrent') || 'Concurrent call limit reached on your plan',
             variant: 'destructive',
           });
           void queryClient.invalidateQueries({ queryKey: ['limit-usage', workspaceId, 'calls'] });
@@ -205,7 +205,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
         description: t('inbox.callInvite.sentDesc') || 'Visitor can join from the conversation card.',
       });
     });
-  }, [dialogChannel, workspaceId, conversationId, contactName, sendInvite, t, safeT, queryClient]);
+  }, [dialogChannel, workspaceId, conversationId, contactName, sendInvite, t, queryClient]);
 
   const closeDialog = useCallback(() => {
     if (creating) return;

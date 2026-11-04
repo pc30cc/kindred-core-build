@@ -77,6 +77,8 @@ class TeamCallSessionTest {
         var micEnabled: Boolean? = null; private set
         /** Whether the camera starts when asked (no permission, another app has it). */
         var cameraStarts = true
+        /** Whether the microphone starts when asked. */
+        var micStarts = true
 
         override suspend fun connect(url: String, credentials: CallToken, wantsVideo: Boolean): CallRoom.Result {
             connected = true
@@ -84,7 +86,7 @@ class TeamCallSessionTest {
             micEnabled = true
             return CallRoom.Result.Joined(microphone = true, camera = true)
         }
-        override suspend fun setMicrophone(enabled: Boolean): Boolean { micEnabled = enabled; return true }
+        override suspend fun setMicrophone(enabled: Boolean): Boolean { micEnabled = enabled; return !enabled || micStarts }
         override suspend fun setCamera(enabled: Boolean) = !enabled || cameraStarts
         override fun setSpeaker(on: Boolean) { speaker = on }
         override suspend fun switchCamera(front: Boolean) = lensMoves
@@ -335,10 +337,57 @@ class TeamCallSessionTest {
         room.emitted.tryEmit(CallRoom.Event.VisitorPresenceChanged(present = true))
         runCurrent()
         call.toggleCamera()
+        // Shown on at once (the press), then off once the room says it would not start.
+        assertTrue(call.cameraOn.value)
         runCurrent()
         assertFalse(call.cameraOn.value)
+        assertTrue(foreground.shown.last().video.not())
+
+        // It starts after all: on, and it stays on.
+        room.cameraStarts = true
+        call.toggleCamera()
+        runCurrent()
+        assertTrue(call.cameraOn.value)
+        assertTrue(foreground.shown.last().video)
         call.hangUp()
         runCurrent()
+    }
+
+    /** Unmuting a microphone that will not start: shown muted, never live and silent. */
+    @Test
+    fun `an unmute the microphone refuses stays muted`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, role = TeamCallRole.CALLEE))
+        val call = session(api)
+        call.ringing()
+        runCurrent()
+        call.answer()
+        runCurrent()
+        room.emitted.tryEmit(CallRoom.Event.VisitorPresenceChanged(present = true))
+        runCurrent()
+
+        call.toggleMute()
+        runCurrent()
+        assertTrue(call.muted.value)
+        assertEquals(false, room.micEnabled)
+
+        room.micStarts = false
+        call.toggleMute()
+        assertFalse(call.muted.value) // the press
+        runCurrent()
+        assertTrue(call.muted.value) // the room's answer
+
+        room.micStarts = true
+        call.toggleMute()
+        runCurrent()
+        assertFalse(call.muted.value)
+        assertEquals(true, room.micEnabled)
+
+        // Over: a late press changes nothing.
+        call.hangUp()
+        runCurrent()
+        call.toggleMute()
+        runCurrent()
+        assertFalse(call.muted.value)
     }
 
     /** No event announces a participant who was there first. */

@@ -319,19 +319,21 @@ fun AppShell(
     // messages — on a locked phone for the length of the animation.
     val keyguard = remember(context) { context.getSystemService(android.app.KeyguardManager::class.java) }
     val keyguardLocked = { keyguard?.isKeyguardLocked == true }
-    // Leaving a call's screen (Done, Decline, minimised) on a locked phone:
-    // the keyguard comes back over the app first, then the screen changes,
-    // so the inbox is never drawn on the locked phone, not even for a frame.
-    val leaveCall = { then: () -> Unit ->
-        if (keyguardLocked()) activity?.showOverLockScreen(false)
-        then()
-    }
     // Answer pressed on a colleague's ring whose screen is already open: the
     // call it is for, until that screen has answered it.
     var answerHere by rememberSaveable { mutableStateOf<String?>(null) }
     // Whether the screen in front is a call ringing — or answered — on this
     // phone: what keeps the app over the lock screen as a call screen goes.
     val ringInFront = { navigator.top.let { it is IncomingCallKey || (it is TeamCallKey && it.incoming) } }
+    // Leaving a call's screen (Done, Decline, minimised) on a locked phone:
+    // the stack changes first (snapshot state, at once), then — before the
+    // next frame draws it — the keyguard comes back over the app, unless the
+    // screen now on top is another call ringing here, which stays over it.
+    // The inbox is never drawn on the locked phone, not even for a frame.
+    val leaveCall = { then: () -> Unit ->
+        then()
+        if (keyguardLocked() && !ringInFront()) activity?.showOverLockScreen(false)
+    }
     val checkingTap by appState.checkingTap.collectAsStateWithLifecycle()
     LaunchedEffect(pendingCall, workspaces, checkingTap) {
         val call = appState.resolvePendingCall()

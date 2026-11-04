@@ -9,6 +9,7 @@ import com.platform.app.ui.design.LocalReducedMotion
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -66,6 +67,27 @@ class CallPictureInPictureHostTest {
 
         assertEquals(0, window.closes)
         assertNotNull(window.specs.last())
+        // Not even the first frame said "no call".
+        assertTrue(window.specs.none { it == null })
+    }
+
+    @Test
+    fun `a call that is over, still listed, closes the window`() {
+        val calls = ActiveCalls()
+        calls.publish(
+            ActiveCall(
+                owner = Owner(),
+                screen = Screen,
+                colleague = true,
+                state = MutableStateFlow(ActiveCallState(ActiveCallStage.OVER)),
+                room = null,
+                toggleMute = {},
+                hangUp = {},
+            ),
+        )
+        val window = Window(inWindow = true)
+        host(window, calls)
+        assertEquals(1, window.closes)
     }
 
     @Test

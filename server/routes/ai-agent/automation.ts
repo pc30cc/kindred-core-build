@@ -8,12 +8,13 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import { boundedArray } from '../../lib/boundedZod.js';
-import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { detectTopics } from '../../services/ai-agent/topics/detector.js';
 import { DEFAULT_TOPICS } from '../../services/ai-agent/topics/defaults.js';
+import { serverConfigOf } from '../../lib/workspaceAuth.js';
+import type { TopicRecord } from '../../services/ai-agent/topics/types.js';
 import {
-  validateWorkflow, previewWorkflow,
+  validateWorkflow, previewWorkflow, type WorkflowDraft, type PreviewInput,
   ALLOWED_TRIGGERS, ALLOWED_CONDITION_TYPES, ALLOWED_ACTION_TYPES,
 } from '../../services/ai-agent/workflows/validate.js';
 import { DEFAULT_INTERNAL_TOOLS } from '../../services/ai-agent/overview.js';
@@ -47,7 +48,7 @@ const guidanceCreateSchema = z.object({
 const guidancePatchSchema = guidanceCreateSchema.partial().omit({ workspaceId: true });
 
 automationRouter.get('/guidance', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -64,7 +65,7 @@ automationRouter.get('/guidance', async (req: Request, res: Response) => {
 });
 
 automationRouter.post('/guidance', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = guidanceCreateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
   const { workspaceId, ...row } = parsed.data;
@@ -82,7 +83,7 @@ automationRouter.post('/guidance', async (req: Request, res: Response) => {
 });
 
 automationRouter.patch('/guidance/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_guidance_rules').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -102,7 +103,7 @@ automationRouter.patch('/guidance/:id', async (req: Request, res: Response) => {
 });
 
 automationRouter.delete('/guidance/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_guidance_rules').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -137,7 +138,7 @@ const routingCreateSchema = z.object({
 const routingPatchSchema = routingCreateSchema.partial().omit({ workspaceId: true });
 
 automationRouter.get('/routing', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -154,7 +155,7 @@ automationRouter.get('/routing', async (req: Request, res: Response) => {
 });
 
 automationRouter.post('/routing', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = routingCreateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
   const { workspaceId, ...row } = parsed.data;
@@ -172,7 +173,7 @@ automationRouter.post('/routing', async (req: Request, res: Response) => {
 });
 
 automationRouter.patch('/routing/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_routing_rules').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -192,7 +193,7 @@ automationRouter.patch('/routing/:id', async (req: Request, res: Response) => {
 });
 
 automationRouter.delete('/routing/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_routing_rules').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -210,7 +211,7 @@ automationRouter.delete('/routing/:id', async (req: Request, res: Response) => {
 
 // ─── Topics: list ───
 automationRouter.get('/topics', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -244,7 +245,7 @@ function slugify(s: string): string {
 }
 
 automationRouter.post('/topics', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = topicCreateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
@@ -263,7 +264,7 @@ automationRouter.post('/topics', async (req: Request, res: Response) => {
 
 const topicPatchSchema = topicCreateSchema.partial().omit({ workspaceId: true });
 automationRouter.patch('/topics/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_topics').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -278,7 +279,7 @@ automationRouter.patch('/topics/:id', async (req: Request, res: Response) => {
 });
 
 automationRouter.delete('/topics/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_topics').select('workspace_id, system').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -291,7 +292,7 @@ automationRouter.delete('/topics/:id', async (req: Request, res: Response) => {
 });
 
 automationRouter.post('/topics/seed-defaults', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -299,7 +300,7 @@ automationRouter.post('/topics/seed-defaults', async (req: Request, res: Respons
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_topics').select('slug').eq('workspace_id', workspaceId);
-  const have = new Set((existing || []).map((r: any) => r.slug));
+  const have = new Set((existing || []).map((r: { slug: string }) => r.slug));
   const toInsert = DEFAULT_TOPICS.filter((t) => !have.has(t.slug)).map((t) => ({
     workspace_id: workspaceId,
     name: t.name,
@@ -324,7 +325,7 @@ const topicTestSchema = z.object({
   language: z.string().max(8).optional(),
 });
 automationRouter.post('/topics/test', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = topicTestSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
@@ -335,14 +336,14 @@ automationRouter.post('/topics/test', async (req: Request, res: Response) => {
     .select('*')
     .eq('workspace_id', parsed.data.workspaceId)
     .eq('enabled', true);
-  const result = detectTopics(parsed.data.text, (topics || []) as any);
+  const result = detectTopics(parsed.data.text, (topics || []) as TopicRecord[]);
   if (parsed.data.language) result.language = parsed.data.language;
   return res.json(result);
 });
 
 // ─── Workflows ───
 automationRouter.get('/workflows', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -368,7 +369,7 @@ const workflowCreateSchema = z.object({
 });
 
 automationRouter.post('/workflows', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = workflowCreateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
@@ -388,7 +389,7 @@ automationRouter.post('/workflows', async (req: Request, res: Response) => {
 
 const workflowPatchSchema = workflowCreateSchema.partial().omit({ workspaceId: true });
 automationRouter.patch('/workflows/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_workflows').select('*').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -406,7 +407,7 @@ automationRouter.patch('/workflows/:id', async (req: Request, res: Response) => 
       trigger_json: parsed.data.trigger_json ?? existing.trigger_json,
       steps_json: parsed.data.steps_json ?? existing.steps_json,
     };
-    const v = validateWorkflow(merged as any);
+    const v = validateWorkflow(merged as WorkflowDraft);
     if (!v.valid) return res.status(400).json({ error: 'workflow_invalid', errors: v.errors });
   }
 
@@ -416,7 +417,7 @@ automationRouter.patch('/workflows/:id', async (req: Request, res: Response) => 
 });
 
 automationRouter.delete('/workflows/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_workflows').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -429,7 +430,7 @@ automationRouter.delete('/workflows/:id', async (req: Request, res: Response) =>
 });
 
 automationRouter.post('/workflows/:id/duplicate', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: src } = await sb.from('ai_agent_workflows').select('*').eq('id', req.params.id).maybeSingle();
   if (!src) return res.status(404).json({ error: 'not_found' });
@@ -451,13 +452,13 @@ automationRouter.post('/workflows/:id/duplicate', async (req: Request, res: Resp
 });
 
 automationRouter.post('/workflows/:id/validate', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: wf } = await sb.from('ai_agent_workflows').select('*').eq('id', req.params.id).maybeSingle();
   if (!wf) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, wf.workspace_id);
   if (!auth) return;
-  return res.json(validateWorkflow(wf as any));
+  return res.json(validateWorkflow(wf as WorkflowDraft));
 });
 
 const workflowPreviewSchema = z.object({
@@ -467,15 +468,15 @@ const workflowPreviewSchema = z.object({
   sampleContext: z.record(z.any()).optional(),
 });
 automationRouter.post('/workflows/preview', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = workflowPreviewSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
   if (!auth) return;
   const result = previewWorkflow({
-    workflowDraft: parsed.data.workflowDraft as any,
+    workflowDraft: parsed.data.workflowDraft as WorkflowDraft,
     sampleMessage: parsed.data.sampleMessage,
-    sampleContext: parsed.data.sampleContext as any,
+    sampleContext: parsed.data.sampleContext as PreviewInput['sampleContext'],
   });
   return res.json(result);
 });
@@ -534,7 +535,7 @@ export function classifyMessageTriggerRuntimeCapability(
 }
 
 automationRouter.get('/message-triggers', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -566,7 +567,7 @@ const messageTriggerCreateSchema = z.object({
 });
 
 automationRouter.post('/message-triggers', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = messageTriggerCreateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
@@ -583,7 +584,7 @@ automationRouter.post('/message-triggers', async (req: Request, res: Response) =
 
 const messageTriggerPatchSchema = messageTriggerCreateSchema.partial().omit({ workspaceId: true });
 automationRouter.patch('/message-triggers/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_message_triggers').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -598,7 +599,7 @@ automationRouter.patch('/message-triggers/:id', async (req: Request, res: Respon
 });
 
 automationRouter.delete('/message-triggers/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_message_triggers').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -617,7 +618,7 @@ automationRouter.delete('/message-triggers/:id', async (req: Request, res: Respo
 // previous hard-coded runtimeExecutionEnabled:false / "next pass" claim,
 // which was false for any live event+action combination.
 automationRouter.post('/message-triggers/:id/test', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: trig } = await sb.from('ai_agent_message_triggers').select('*').eq('id', req.params.id).maybeSingle();
   if (!trig) return res.status(404).json({ error: 'not_found' });
@@ -645,7 +646,7 @@ automationRouter.post('/message-triggers/:id/test', async (req: Request, res: Re
 
 // ── Tools catalog (CRUD) ──
 automationRouter.get('/tools', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace_id' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -677,7 +678,7 @@ const toolSchema = z.object({
   risk_level: z.enum(['low', 'medium', 'high']).optional().default('low'),
 });
 automationRouter.post('/tools', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = toolSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
   const { workspaceId, ...row } = parsed.data;
@@ -693,7 +694,7 @@ automationRouter.post('/tools', async (req: Request, res: Response) => {
 });
 
 automationRouter.patch('/tools/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_tools').select('workspace_id,risk_level').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -702,7 +703,7 @@ automationRouter.patch('/tools/:id', async (req: Request, res: Response) => {
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   const allowed = ['name','description','tool_type','provider','server_id','config_json','enabled','permissions_json','risk_level'];
   const patch: Record<string, unknown> = {};
-  for (const k of allowed) if (k in req.body) patch[k] = (req.body as any)[k];
+  for (const k of allowed) if (k in req.body) patch[k] = (req.body as Record<string, unknown>)[k];
   // Explicit confirmation required to enable a high-risk tool
   const finalRisk = (patch.risk_level as string | undefined) ?? existing.risk_level;
   if (patch.enabled === true && finalRisk === 'high' && req.body?.confirm_high_risk !== true) {
@@ -714,7 +715,7 @@ automationRouter.patch('/tools/:id', async (req: Request, res: Response) => {
 });
 
 automationRouter.delete('/tools/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_tools').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -727,14 +728,14 @@ automationRouter.delete('/tools/:id', async (req: Request, res: Response) => {
 });
 
 // ── Tool servers (CRUD + safe test) ──
-function sanitizeServer(row: any) {
+function sanitizeServer(row: Record<string, unknown> | null) {
   if (!row) return row;
   const { encrypted_config, ...rest } = row;
   return { ...rest, hasConfig: !!encrypted_config };
 }
 
 automationRouter.get('/tool-servers', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace_id' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -761,7 +762,7 @@ const serverSchema = z.object({
   permissions_json: z.record(z.any()).optional().default({}),
 });
 automationRouter.post('/tool-servers', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = serverSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
   const { workspaceId, ...row } = parsed.data;
@@ -777,7 +778,7 @@ automationRouter.post('/tool-servers', async (req: Request, res: Response) => {
 });
 
 automationRouter.patch('/tool-servers/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_tool_servers').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -786,7 +787,7 @@ automationRouter.patch('/tool-servers/:id', async (req: Request, res: Response) 
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   const allowed = ['name','server_type','endpoint_url','status','auth_type','encrypted_config','allowed_tools','permissions_json'];
   const patch: Record<string, unknown> = {};
-  for (const k of allowed) if (k in req.body) patch[k] = (req.body as any)[k];
+  for (const k of allowed) if (k in req.body) patch[k] = (req.body as Record<string, unknown>)[k];
   if (patch.status === 'enabled' && process.env.AI_AGENT_MCP_TEST_ENABLED !== '1') {
     patch.status = 'disabled';
   }
@@ -796,7 +797,7 @@ automationRouter.patch('/tool-servers/:id', async (req: Request, res: Response) 
 });
 
 automationRouter.delete('/tool-servers/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_tool_servers').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -811,7 +812,7 @@ automationRouter.delete('/tool-servers/:id', async (req: Request, res: Response)
 // Safe test: validate URL/config shape only; never execute external tools
 // unless AI_AGENT_MCP_TEST_ENABLED=1.
 automationRouter.post('/tool-servers/:id/test', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: srv } = await sb.from('ai_agent_tool_servers').select('*').eq('id', req.params.id).maybeSingle();
   if (!srv) return res.status(404).json({ error: 'not_found' });

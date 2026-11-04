@@ -19,7 +19,7 @@ import crypto from 'node:crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
-import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
+import { requireUser as requireSessionUser, authorizeWorkspaceAccessFor } from '../lib/workspaceAuth.js';
 import {
   createSession,
   setSessionCookie,
@@ -126,6 +126,72 @@ async function requireUser(req: Request, res: Response, next: NextFunction) {
   if (!userId) return;
   (req as InvitationRequest).authUser = { id: userId };
   next();
+}
+
+/**
+ * The management surface's gate: the caller must be able to manage
+ * `workspaceId` now — an owner or admin who is neither suspended nor past the
+ * plan's seat limit (authorizeWorkspaceAccess, server/lib/workspaceAuth.ts).
+ * The invitation RPCs read only the role, so without this a suspended admin
+ * kept inviting (a second address of their own included), reading every
+ * invitee's contact details and revoking or deleting invitations. Migration
+ * 297 puts the same rule in the RPCs themselves.
+ *
+ * Refusals keep this router's error vocabulary: 403 `FORBIDDEN`, with the
+ * guard's own code as `reason` (membership_suspended, seat_locked, …).
+ */
+async function requireInvitationManager(req: Request, res: Response, workspaceId: string): Promise<boolean> {
+  let status = 200;
+  let body: unknown = null;
+  const capture = { status(code: number) { status = code; return { json(b: unknown) { body = b; return b; } }; } };
+  const auth = await authorizeWorkspaceAccessFor(req, capture, authUserOf(req).id, workspaceId, { manage: true });
+  if (auth) return true;
+  const reason = (body as { error?: unknown } | null)?.error;
+  if (status === 403) {
+    res.status(403).json({ error: 'FORBIDDEN', ...(typeof reason === 'string' ? { reason } : {}) });
+  } else if (status === 400) {
+    res.status(400).json({ error: 'invalid_workspace' });
+  } else {
+    res.status(status >= 400 ? status : 500).json({ error: 'INTERNAL_ERROR' });
+  }
+  return false;
+}
+
+/** The workspace (and current contact) of a v2 invitation, or null. */
+async function invitationWorkspace(
+  config: ServerConfig,
+  id: string,
+  v2Only: boolean,
+): Promise<{ workspaceId: string; email: string | null; phone: string | null } | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  let query = getServiceClient(config)
+    .from('workspace_invitations')
+    .select('workspace_id, invited_email_normalized, invited_phone_e164')
+    .eq('id', id);
+  // The RPCs check the flow version themselves; only the detail read is v2-only.
+  if (v2Only) query = query.eq('invitation_flow_version', 2);
+  const { data } = await query.maybeSingle();
+  const row = data as { workspace_id?: string | null; invited_email_normalized?: string | null; invited_phone_e164?: string | null } | null;
+  if (!row?.workspace_id) return null;
+  return {
+    workspaceId: String(row.workspace_id),
+    email: row.invited_email_normalized ?? null,
+    phone: row.invited_phone_e164 ?? null,
+  };
+}
+
+/**
+ * Resolves the invitation of a `/:id` management route and applies the
+ * manager gate to its workspace. 404 INVITATION_NOT_FOUND for an unknown id
+ * (as the RPCs answer), else the gate's refusal; null when refused.
+ */
+async function requireInvitationOfManager(req: Request, res: Response, v2Only = false) {
+  const inv = await invitationWorkspace(cfg(req), String(req.params.id), v2Only);
+  if (!inv) {
+    res.status(404).json({ error: 'INVITATION_NOT_FOUND' });
+    return null;
+  }
+  return (await requireInvitationManager(req, res, inv.workspaceId)) ? inv : null;
 }
 
 function mapRpcError(message: string | undefined): { status: number; code: string } {
@@ -414,6 +480,7 @@ workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUse
 
   const body = parsed.data;
   const config = cfg(req);
+  if (!(await requireInvitationManager(req, res, body.workspaceId))) return;
   const uses = await takeInvitationMail(config, res, body.workspaceId, authUserOf(req).id);
   if (!uses) return;
 
@@ -513,15 +580,7 @@ workspaceInvitationsRouter.get('/', rejectTokenInUrl, requireUser, async (req, r
   const config = cfg(req);
   const sb = getServiceClient(config);
 
-  const { data: member } = await sb
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', authUserOf(req).id)
-    .maybeSingle();
-  if (!member || !['owner', 'admin'].includes(String(member.role))) {
-    return res.status(403).json({ error: 'FORBIDDEN' });
-  }
+  if (!(await requireInvitationManager(req, res, workspaceId))) return;
 
   await sb.rpc('expire_invitations_v2', { _limit: 200 });
 
@@ -546,23 +605,7 @@ workspaceInvitationsRouter.get('/:id', rejectTokenInUrl, requireUser, async (req
   const sb = getServiceClient(config);
   const id = String(req.params.id);
 
-  const { data: inv } = await sb
-    .from('workspace_invitations')
-    .select('id, workspace_id')
-    .eq('id', id)
-    .eq('invitation_flow_version', 2)
-    .maybeSingle();
-  if (!inv) return res.status(404).json({ error: 'INVITATION_NOT_FOUND' });
-
-  const { data: member } = await sb
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', inv.workspace_id)
-    .eq('user_id', authUserOf(req).id)
-    .maybeSingle();
-  if (!member || !['owner', 'admin'].includes(String(member.role))) {
-    return res.status(403).json({ error: 'FORBIDDEN' });
-  }
+  if (!(await requireInvitationOfManager(req, res, true))) return;
 
   const [{ data: safe }, { data: deliveries }, { data: departments }] = await Promise.all([
     sb.rpc('wi_safe_invitation', { _invitation_id: id }),
@@ -594,6 +637,24 @@ workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requir
   const email = body.email.toLowerCase();
   const nonce = body.requestId;
   const departmentIds = [...(body.departmentIds ?? [])].sort();
+
+  const inv = await requireInvitationOfManager(req, res);
+  if (!inv) return;
+  // A changed address or phone makes edit_workspace_invitation_v2 queue a new
+  // invitation mail (and SMS), so it is a send like create and resend: the
+  // same verified-account rule and the same daily/hourly allowances. An edit
+  // that keeps the contact sends nothing and takes nothing.
+  const contactChanged = inv.email !== email || (inv.phone ?? null) !== (body.phone ?? null);
+  let uses: InvitationUses = [];
+  if (contactChanged) {
+    if (!(await isEmailVerified(config, authUserOf(req).id))) {
+      return res.status(403).json({ error: 'email_verification_required' });
+    }
+    const taken = await takeInvitationMail(config, res, inv.workspaceId, authUserOf(req).id);
+    if (!taken) return;
+    uses = taken;
+  }
+
   const outcome = await runIdempotent(config, {
     operation: 'edit',
     scopeKind: 'invitation',
@@ -633,28 +694,26 @@ workspaceInvitationsRouter.patch('/:id', requireOrigin, rejectTokenInUrl, requir
   });
 
   if (outcome.error) {
+    await returnInvitationMail(config, uses);
     const mapped = mapRpcError(outcome.error.message);
     return res.status(mapped.status).json({ error: mapped.code });
   }
-  if (outcome.replayed) return res.json({ invitation: outcome.safeResult, replayed: true });
+  if (outcome.replayed) {
+    await returnInvitationMail(config, uses);
+    return res.json({ invitation: outcome.safeResult, replayed: true });
+  }
   return res.json({ invitation: outcome.result, replayed: false });
 });
 
 workspaceInvitationsRouter.post('/:id/resend', requireOrigin, rejectTokenInUrl, requireUser, async (req, res) => {
   const config = cfg(req);
-  const sb = getServiceClient(config);
   const id = String(req.params.id);
   const requestId = readRequestId(req);
   if (!requestId) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
 
-  const { data: inv } = await sb
-    .from('workspace_invitations')
-    .select('invited_email_normalized, workspace_id')
-    .eq('id', id)
-    .maybeSingle();
-  if (!inv) return res.status(404).json({ error: 'INVITATION_NOT_FOUND' });
-  const workspaceId = String(inv.workspace_id || '');
-  const uses = workspaceId ? await takeInvitationMail(config, res, workspaceId, authUserOf(req).id) : [];
+  const inv = await requireInvitationOfManager(req, res);
+  if (!inv) return;
+  const uses = await takeInvitationMail(config, res, inv.workspaceId, authUserOf(req).id);
   if (!uses) return;
 
   const outcome = await runIdempotent(config, {
@@ -666,7 +725,7 @@ workspaceInvitationsRouter.post('/:id/resend', requireOrigin, rejectTokenInUrl, 
     fingerprintInput: { invitationId: id },
     args: {
       job_idempotency_key: sha256Hex(`email|${id}|resend|${requestId}`),
-      destination_hash: destinationHash(String(inv.invited_email_normalized)),
+      destination_hash: destinationHash(String(inv.email ?? '')),
     },
   });
 
@@ -688,6 +747,7 @@ workspaceInvitationsRouter.post('/:id/rotate-link', requireOrigin, rejectTokenIn
   const manualToken = randomToken();
   const requestId = readRequestId(req);
   if (!requestId) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
+  if (!(await requireInvitationOfManager(req, res))) return;
 
   const outcome = await runIdempotent(config, {
     operation: 'rotate',
@@ -729,6 +789,7 @@ workspaceInvitationsRouter.post('/:id/revoke', requireOrigin, rejectTokenInUrl, 
   if (!reason) return res.status(400).json({ error: 'REVOKE_REASON_REQUIRED' });
   const requestId = readRequestId(req);
   if (!requestId) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
+  if (!(await requireInvitationOfManager(req, res))) return;
 
   const outcome = await runIdempotent(config, {
     operation: 'revoke',
@@ -752,6 +813,7 @@ workspaceInvitationsRouter.post('/:id/archive', requireOrigin, rejectTokenInUrl,
   const requestId = readRequestId(req);
   if (!requestId) return res.status(400).json({ error: 'REQUEST_ID_REQUIRED' });
   const config = cfg(req);
+  if (!(await requireInvitationOfManager(req, res))) return;
 
   const outcome = await runIdempotent(config, {
     operation: 'archive',
@@ -798,6 +860,7 @@ workspaceInvitationsRouter.delete('/:id', requireOrigin, rejectTokenInUrl, requi
   const config = cfg(req);
   const id = String(req.params.id);
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'INVITATION_NOT_FOUND' });
+  if (!(await requireInvitationOfManager(req, res))) return;
 
   const { error } = await getServiceClient(config).rpc('wi_delete_invitation', {
     _invitation_id: id,

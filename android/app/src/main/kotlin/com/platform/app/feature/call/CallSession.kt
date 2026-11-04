@@ -11,6 +11,7 @@ import com.platform.app.i18n.displayText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -155,15 +156,27 @@ class CallSession(
         _cameraOn.value = channel == CallChannel.VIDEO
 
         callJob = viewModelScope.launch {
-            val invitation = runCatchingUnlessCancelled {
-                // Named, because the two ids are both UUID strings and
-                // transposing them fails every call with a 403.
-                api.inviteToCall(
-                    workspaceId = workspaceId,
-                    conversationId = conversationId,
-                    channel = channel,
-                )
-            }.getOrElse { error ->
+            // On the teardown's scope, not this job's: a hang-up while the
+            // POST is on its way cancels this job, and the invitation the
+            // server made meanwhile would be left ringing the visitor's widget
+            // for its five minutes, its id never known here. Settled there
+            // instead — kept for the teardown, or withdrawn at once when the
+            // call already ended.
+            val created = teardown.async {
+                runCatchingUnlessCancelled {
+                    // Named, because the two ids are both UUID strings and
+                    // transposing them fails every call with a 403.
+                    api.inviteToCall(
+                        workspaceId = workspaceId,
+                        conversationId = conversationId,
+                        channel = channel,
+                    )
+                }.onSuccess { made ->
+                    invitationId = made.id
+                    if (!_phase.value.isLive) runCatchingUnlessCancelled { api.cancelInvitation(made.id) }
+                }
+            }
+            val invitation = created.await().getOrElse { error ->
                 // The reason, not a shrug. "Could not connect" over a 403
                 // would send the operator looking at their network while the
                 // server is telling them something specific.
@@ -325,14 +338,18 @@ class CallSession(
         val credentials = runCatchingUnlessCancelled {
             api.callToken(callSessionId, displayName = null)
         }.getOrElse { error ->
-            _phase.value = CallPhase.Ended(CallOutcome.Failed(error.displayText(language)))
+            // Ended as any call ends, so the server hears: the call centre
+            // already gave this call to this operator (or the visitor is in
+            // the room), and a call left standing keeps the caller waiting
+            // for somebody who never comes, and this operator's line busy.
+            finish(CallOutcome.Failed(error.displayText(language)))
             return
         }
         _relayWarning.value = credentials.warnings?.contains("turn_missing") == true
 
         val url = credentials.signallingUrl
         if (url.isNullOrEmpty()) {
-            _phase.value = CallPhase.Ended(CallOutcome.Failed("no_server_url"))
+            finish(CallOutcome.Failed("no_server_url"))
             return
         }
 

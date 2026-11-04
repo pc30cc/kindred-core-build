@@ -260,4 +260,29 @@ class IncomingCallSessionTest {
         dispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf("ws-1" to "call-1"), api.accepted)
     }
+
+    /**
+     * Accepted, and then the room's token could not be had: the call centre
+     * holds the call for this operator, so it is told the call is over —
+     * the caller is not left waiting, nor this operator's line busy.
+     */
+    @Test
+    fun `an accepted call whose join fails is ended with the call centre`() = runTest(dispatcher) {
+        val api = object : ServerApi by CenterApi() {
+            val ended = mutableListOf<Pair<String, String>>()
+            override suspend fun acceptCenterCall(workspaceId: String, callSessionId: String) {}
+            override suspend fun endCenterCall(workspaceId: String, callSessionId: String) {
+                ended += workspaceId to callSessionId
+            }
+            override suspend fun callToken(callSessionId: String, displayName: String?): CallToken =
+                throw IllegalStateException("no token")
+        }
+        val call = CallSession(api, Room())
+        call.ringing()
+        call.answer()
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(call.phase.value is CallPhase.Ended)
+        assertEquals(listOf("ws-1" to "call-1"), api.ended)
+    }
 }

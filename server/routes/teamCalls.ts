@@ -352,10 +352,23 @@ teamCallsRouter.post('/', callerLimiter, async (req, res) => {
       p_metadata: { team_call: meta },
       p_ring_cutoff: teamCallRingCutoff().toISOString(),
       p_live_since: liveCallCutoff().toISOString(),
+      // The plan's concurrency again, counted under the workspace's lock
+      // (migration 298): two pairs placing at limit − 1 do not both get through.
+      p_max_concurrent: typeof concurrency.limit === 'number' && concurrency.limit >= 0 ? concurrency.limit : null,
     });
-    const verdict = (placed ?? null) as { verdict?: string; call?: TeamCallRow } | null;
+    const verdict = (placed ?? null) as { verdict?: string; call?: TeamCallRow; used?: number; max?: number } | null;
     if (verdict?.verdict === 'caller_busy' || verdict?.verdict === 'callee_busy') {
       return res.status(409).json({ error: verdict.verdict });
+    }
+    if (verdict?.verdict === 'limit_reached') {
+      return res.status(422).json({
+        error: 'limit_reached',
+        limit: 'max_concurrent_calls',
+        reason: 'plan_limit_reached',
+        max: verdict.max,
+        used: verdict.used,
+        upgrade_required: true,
+      });
     }
     if (placeError || verdict?.verdict !== 'placed' || !verdict.call?.id) {
       console.error('[team-calls create] placement failed:', placeError?.message ?? `verdict ${String(verdict?.verdict)}`);

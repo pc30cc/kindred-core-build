@@ -17,12 +17,13 @@ import {
   getCallNetworkBundle,
   saveRtcEndpoints,
   invalidateRtcCache,
+  turnSecretStatus,
 } from '../services/calls/rtcResolver.js';
 import {
   resolveCallProviderOrder,
   getCallProvider,
 } from '../services/calls/providerResolver.js';
-import type { CallRtcConfig } from '../services/calls/rtcResolver.js';
+import type { RtcEndpointsPatch } from '../services/calls/rtcResolver.js';
 import { downloadFile, downloadRangeWithConfig } from '../services/storage/index.js';
 import { resolveRecordingStorageConfig, RecordingStorageNotConfigured } from '../services/calls/recordingStorageResolver.js';
 import {
@@ -111,9 +112,23 @@ adminCallsRouter.get('/control-plane', async (req, res) => {
     // admin UI cannot show a green dot for an SFU that's actually down.
     readiness['livekit'] = livekitReadiness.ready;
   } catch { /* fail-open: keep config-based flag */ }
+  // Whether the relay's shared secret is stored, and a fingerprint the owner
+  // can hold against the relay's own file. Never the secret: this answer is
+  // the Super Admin's browser's. Present means what minting goes by: the
+  // flag, with a secret actually behind it (a flag set by hand over none
+  // reads "not set", not "unreadable").
+  const secret = await turnSecretStatus(config);
+  const networkView = {
+    ...network,
+    turn: {
+      ...network.turn,
+      shared_secret_present: network.turn.static_secret_present && secret.stored,
+      shared_secret_fingerprint: secret.fingerprint,
+    },
+  };
   res.json({
     control_plane: cp,
-    network,
+    network: networkView,
     readiness,
     livekit_readiness: livekitReadiness,
     classification: CALL_PROVIDER_CLASSIFICATION,
@@ -206,20 +221,68 @@ const rtcSchema = z.object({
     username: z.string().nullable().optional(),
     credential: z.string().nullable().optional(),
     credential_type: z.enum(['password', 'oauth']).optional(),
+    // Accepted from older forms and ignored: the save works it out from
+    // whether a secret is stored.
     static_secret_present: z.boolean().optional(),
+    // Write-only: absent keeps the stored secret, '' removes it.
+    shared_secret: z.string().max(256, 'The TURN shared secret is longer than 256 characters.').optional(),
+    countries: z
+      .array(z.string().trim().regex(/^[A-Za-z]{2}$|^\*$/, 'A relay country is a two-letter code (IR) or *.'))
+      .max(60, 'At most 60 relay countries.')
+      .optional(),
+    credential_ttl_seconds: z
+      .number()
+      .int('The credential lifetime is a whole number of seconds.')
+      .min(600, 'The credential lifetime is at least 600 seconds (10 minutes).')
+      .max(86400, 'The credential lifetime is at most 86400 seconds (24 hours).')
+      .optional(),
   }).partial().optional(),
 });
 
-adminCallsRouter.put('/rtc-endpoints', async (req, res) => {
-  try {
-    const body = rtcSchema.parse(req.body);
-    const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
-    await saveRtcEndpoints(config, body as Partial<CallRtcConfig>);
-    invalidateRtcCache();
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : 'update_failed' });
+/** A refusal the Super Admin can read: each field and what is wrong with it, not zod's JSON. */
+function describeRtcRefusal(err: unknown): string {
+  if (err instanceof z.ZodError) {
+    return err.issues
+      .map((issue) => (issue.path.length ? `${issue.path.join('.')}: ${issue.message}` : issue.message))
+      .join('; ');
   }
+  return err instanceof Error ? err.message : 'update_failed';
+}
+
+adminCallsRouter.put('/rtc-endpoints', async (req, res) => {
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
+  let body: z.infer<typeof rtcSchema>;
+  try {
+    body = rtcSchema.parse(req.body);
+  } catch (err) {
+    return res.status(400).json({ error: describeRtcRefusal(err) });
+  }
+  // The client's own idea of whether a secret is stored is never written.
+  if (body.turn) delete body.turn.static_secret_present;
+  let saved: Awaited<ReturnType<typeof saveRtcEndpoints>>;
+  try {
+    saved = await saveRtcEndpoints(config, body as RtcEndpointsPatch);
+  } catch (err) {
+    return res.status(400).json({ error: describeRtcRefusal(err) });
+  }
+  invalidateRtcCache();
+  // Who changed which fields, never a value: the URLs and countries are not
+  // secret, but the secret is one of the fields, and one rule for all of
+  // them keeps it out without a special case.
+  if (saved.changed_fields.length > 0) {
+    const sb = getServiceClient(config);
+    const { error: auditError } = await insertAuditLogRows(config, sb, {
+      workspace_id: null,
+      user_id: (req as unknown as AdminRequest).adminUser?.id ?? null,
+      action: 'admin.call_rtc_endpoints.changed',
+      entity_type: 'app_runtime_config',
+      entity_id: null,
+      old_value: { key: 'call_rtc_endpoints' },
+      new_value: { key: 'call_rtc_endpoints', changed_fields: saved.changed_fields },
+    }).catch((e: unknown) => ({ error: { message: e instanceof Error ? e.message : String(e) } }));
+    if (auditError) console.warn('[calls] call_rtc_endpoints change was saved but not audited:', auditError.message);
+  }
+  res.json({ ok: true });
 });
 
 adminCallsRouter.get('/probe/:workspace_id', async (req, res) => {

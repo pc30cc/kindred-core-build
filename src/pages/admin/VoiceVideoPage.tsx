@@ -38,7 +38,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { fetchCallControlPlane, fetchPlatformCallbackSummary, fetchUpcomingCallbacks } from '@/lib/admin-calls-api';
+import {
+  fetchCallControlPlane,
+  fetchPlatformCallbackSummary,
+  fetchUpcomingCallbacks,
+  type CallControlPlane,
+} from '@/lib/admin-calls-api';
 import { CallControlPlanePanel } from '@/components/admin/calls/CallControlPlanePanel';
 import { RolePermissionsPanel } from '@/components/admin/calls/RolePermissionsPanel';
 import { AgoraExternalProviderPanel } from '@/components/admin/calls/AgoraExternalProviderPanel';
@@ -47,7 +52,7 @@ import { RecordingRetentionPanel } from '@/components/admin/calls/RecordingReten
 import { useAdminWorkspaces } from '@/hooks/useAdmin';
 import { Link } from 'react-router-dom';
 import { callbacksApi, type CallbackRow } from '@/lib/callbacks-api';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 
 function StatusBadge({ ready, label }: { ready: boolean; label: string }) {
   return (
@@ -68,6 +73,7 @@ function OverviewTab() {
   const cp = cpQuery.data?.control_plane;
   const readiness = cpQuery.data?.readiness ?? {};
   const network = cpQuery.data?.network;
+  const relayCountries = network?.turn?.countries ?? [];
 
   if (cpQuery.isLoading) {
     return (
@@ -80,7 +86,7 @@ function OverviewTab() {
   if (!cp) {
     return (
       <Card>
-        <CardContent className="py-6 text-sm text-destructive">{t('admin.voiceVideo.loadFailed' as any)}</CardContent>
+        <CardContent className="py-6 text-sm text-destructive">{t('admin.voiceVideo.loadFailed')}</CardContent>
       </Card>
     );
   }
@@ -92,8 +98,8 @@ function OverviewTab() {
           <CardContent className="py-4 flex items-start gap-3">
             <AlertTriangle className="h-5 w-5 text-warning mt-0.5" />
             <div className="text-sm">
-              <strong className="text-foreground">{t('admin.voiceVideo.overview.disabledTitle' as any)}</strong>
-              <p className="text-muted-foreground text-xs mt-1">{t('admin.voiceVideo.overview.disabledHint' as any)}</p>
+              <strong className="text-foreground">{t('admin.voiceVideo.overview.disabledTitle')}</strong>
+              <p className="text-muted-foreground text-xs mt-1">{t('admin.voiceVideo.overview.disabledHint')}</p>
             </div>
           </CardContent>
         </Card>
@@ -104,72 +110,72 @@ function OverviewTab() {
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Phone className="h-3.5 w-3.5" /> {t('admin.voiceVideo.voice' as any)}
+              <Phone className="h-3.5 w-3.5" /> {t('admin.voiceVideo.voice')}
             </div>
             <div className="mt-1 text-lg font-semibold">
               {cp.voice_calls_enabled_global
-                ? t('admin.voiceVideo.enabled' as any)
-                : t('admin.voiceVideo.disabled' as any)}
+                ? t('admin.voiceVideo.enabled')
+                : t('admin.voiceVideo.disabled')}
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Video className="h-3.5 w-3.5" /> {t('admin.voiceVideo.video' as any)}
+              <Video className="h-3.5 w-3.5" /> {t('admin.voiceVideo.video')}
             </div>
             <div className="mt-1 text-lg font-semibold">
               {cp.video_calls_enabled_global
-                ? t('admin.voiceVideo.enabled' as any)
-                : t('admin.voiceVideo.disabled' as any)}
+                ? t('admin.voiceVideo.enabled')
+                : t('admin.voiceVideo.disabled')}
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Users className="h-3.5 w-3.5" /> {t('admin.voiceVideo.queue' as any)}
+              <Users className="h-3.5 w-3.5" /> {t('admin.voiceVideo.queue')}
             </div>
             <div className="mt-1 text-lg font-semibold">
               {cp.call_queue_enabled_global
-                ? t('admin.voiceVideo.enabled' as any)
-                : t('admin.voiceVideo.disabled' as any)}
+                ? t('admin.voiceVideo.enabled')
+                : t('admin.voiceVideo.disabled')}
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Disc className="h-3.5 w-3.5" /> {t('admin.voiceVideo.overview.recordingDefault' as any)}
+              <Disc className="h-3.5 w-3.5" /> {t('admin.voiceVideo.overview.recordingDefault')}
             </div>
             <div className="mt-1 text-lg font-semibold">
-              {cp.recording_default_enabled ? t('admin.voiceVideo.on' as any) : t('admin.voiceVideo.off' as any)}
+              {cp.recording_default_enabled ? t('admin.voiceVideo.on') : t('admin.voiceVideo.off')}
             </div>
             <div className="text-[10px] text-muted-foreground mt-0.5">
-              {t('admin.voiceVideo.overview.retentionDays' as any, { count: cp.retention_default_days })}
+              {t('admin.voiceVideo.overview.retentionDays', { count: cp.retention_default_days })}
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Shield className="h-3.5 w-3.5" /> {t('admin.voiceVideo.verification' as any)}
+              <Shield className="h-3.5 w-3.5" /> {t('admin.voiceVideo.verification')}
             </div>
             <div className="mt-1 text-lg font-semibold">
               {cp.verification_required_for_visitor_calls
-                ? t('admin.voiceVideo.required' as any)
-                : t('admin.voiceVideo.optional' as any)}
+                ? t('admin.voiceVideo.required')
+                : t('admin.voiceVideo.optional')}
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Activity className="h-3.5 w-3.5" /> {t('admin.voiceVideo.overview.primaryProvider' as any)}
+              <Activity className="h-3.5 w-3.5" /> {t('admin.voiceVideo.overview.primaryProvider')}
             </div>
             <div className="mt-1 text-lg font-semibold capitalize">{cp.primary_provider}</div>
             <div className="text-[10px] text-muted-foreground mt-0.5">
-              {t('admin.voiceVideo.overview.fallback' as any)}: {cp.fallback_policy} → {cp.secondary_provider}
+              {t('admin.voiceVideo.overview.fallback')}: {cp.fallback_policy} → {cp.secondary_provider}
             </div>
           </CardContent>
         </Card>
@@ -178,15 +184,15 @@ function OverviewTab() {
       {/* Provider readiness */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm">{t('admin.voiceVideo.overview.providerReadiness' as any)}</CardTitle>
+          <CardTitle className="text-sm">{t('admin.voiceVideo.overview.providerReadiness')}</CardTitle>
           <CardDescription className="text-xs">
-            {t('admin.voiceVideo.overview.providerReadinessHint' as any)}
+            {t('admin.voiceVideo.overview.providerReadinessHint')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
             {Object.keys(readiness).length === 0 && (
-              <span className="text-xs text-muted-foreground">{t('admin.voiceVideo.overview.noProviders' as any)}</span>
+              <span className="text-xs text-muted-foreground">{t('admin.voiceVideo.overview.noProviders')}</span>
             )}
             {Object.entries(readiness).map(([name, ready]) => (
               <StatusBadge key={name} ready={!!ready} label={name} />
@@ -200,18 +206,18 @@ function OverviewTab() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
-              <Network className="h-4 w-4" /> {t('admin.voiceVideo.overview.networkSummary' as any)}
+              <Network className="h-4 w-4" /> {t('admin.voiceVideo.overview.networkSummary')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-1 text-xs">
             <div className="flex justify-between">
               <span className="text-muted-foreground">RTC URL</span>
               <span className="font-mono">
-                {network.rtc_url || <em className="text-muted-foreground">{t('admin.voiceVideo.notSet' as any)}</em>}
+                {network.rtc_url || <em className="text-muted-foreground">{t('admin.voiceVideo.notSet')}</em>}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">{t('admin.voiceVideo.overview.icePolicy' as any)}</span>
+              <span className="text-muted-foreground">{t('admin.voiceVideo.overview.icePolicy')}</span>
               <span className="font-mono">{network.ice_policy}</span>
             </div>
             <div className="flex justify-between">
@@ -219,12 +225,34 @@ function OverviewTab() {
               <span className="font-mono">{network.turn?.urls?.length ?? 0}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">{t('admin.voiceVideo.overview.turnCredentials' as any)}</span>
+              <span className="text-muted-foreground">{t('admin.voiceVideo.overview.turnCredentials')}</span>
               <span className="font-mono">
-                {network.turn?.username ? t('admin.voiceVideo.set' as any) : t('admin.voiceVideo.unset' as any)}
-                {network.turn?.static_secret_present ? ` + ${t('admin.voiceVideo.overview.staticSecret' as any)}` : ''}
+                {/* A shared secret is stored, to mint each call's credentials
+                    from (an older backend sends only static_secret_present);
+                    the static pair is the username and password typed in as
+                    they are. */}
+                {[
+                  (network.turn?.shared_secret_present ?? network.turn?.static_secret_present)
+                    ? t('admin.voiceVideo.overview.staticSecret')
+                    : null,
+                  network.turn?.username ? t('admin.voiceVideo.overview.staticPair') : null,
+                ]
+                  .filter(Boolean)
+                  .join(' + ') || t('admin.voiceVideo.unset')}
               </span>
             </div>
+            {(network.turn?.urls?.length ?? 0) > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">{t('admin.voiceVideo.overview.relayFor')}</span>
+                <span className="font-mono" data-testid="overview-relay-countries">
+                  {/* Empty or '*' is everyone; anyone outside a listed
+                      country keeps LiveKit's own relay. */}
+                  {relayCountries.length > 0 && !relayCountries.includes('*')
+                    ? relayCountries.join(', ')
+                    : t('admin.voiceVideo.overview.relayEveryone')}
+                </span>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -250,8 +278,8 @@ function WorkspaceOverridesTab() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm">{t('admin.voiceVideo.overrides.title' as any)}</CardTitle>
-        <CardDescription className="text-xs">{t('admin.voiceVideo.overrides.description' as any)}</CardDescription>
+        <CardTitle className="text-sm">{t('admin.voiceVideo.overrides.title')}</CardTitle>
+        <CardDescription className="text-xs">{t('admin.voiceVideo.overrides.description')}</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-1">
@@ -266,18 +294,18 @@ function WorkspaceOverridesTab() {
                 <div className="truncate">
                   <div className="text-sm font-medium truncate">{w.name}</div>
                   <div className="text-[10px] text-muted-foreground truncate">
-                    {w.slug} · {t('admin.voiceVideo.overrides.members' as any, { count: w.member_count })}
+                    {w.slug} · {t('admin.voiceVideo.overrides.members', { count: w.member_count })}
                   </div>
                 </div>
               </div>
               <Badge variant="outline" className="text-[10px]">
-                {t('admin.voiceVideo.open' as any)}
+                {t('admin.voiceVideo.open')}
               </Badge>
             </Link>
           ))}
           {(workspaces ?? []).length === 0 && (
             <div className="text-xs text-muted-foreground text-center py-6">
-              {t('admin.voiceVideo.noWorkspaces' as any)}
+              {t('admin.voiceVideo.noWorkspaces')}
             </div>
           )}
         </div>
@@ -295,9 +323,9 @@ function LiveOperationsTab() {
     <Card>
       <CardHeader>
         <CardTitle className="text-sm flex items-center gap-2">
-          <Radio className="h-4 w-4" /> {t('admin.voiceVideo.live.title' as any)}
+          <Radio className="h-4 w-4" /> {t('admin.voiceVideo.live.title')}
         </CardTitle>
-        <CardDescription className="text-xs">{t('admin.voiceVideo.live.description' as any)}</CardDescription>
+        <CardDescription className="text-xs">{t('admin.voiceVideo.live.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
         {(workspaces ?? []).slice(0, 10).map((w) => (
@@ -308,13 +336,13 @@ function LiveOperationsTab() {
           >
             <div className="text-sm">{w.name}</div>
             <Badge variant="outline" className="text-[10px]">
-              {t('admin.voiceVideo.live.openInbox' as any)}
+              {t('admin.voiceVideo.live.openInbox')}
             </Badge>
           </Link>
         ))}
         {(workspaces ?? []).length === 0 && (
           <div className="text-xs text-muted-foreground text-center py-6">
-            {t('admin.voiceVideo.noWorkspaces' as any)}
+            {t('admin.voiceVideo.noWorkspaces')}
           </div>
         )}
       </CardContent>
@@ -328,13 +356,13 @@ function AuditTab() {
     <Card>
       <CardHeader>
         <CardTitle className="text-sm flex items-center gap-2">
-          <FileText className="h-4 w-4" /> {t('admin.voiceVideo.audit.title' as any)}
+          <FileText className="h-4 w-4" /> {t('admin.voiceVideo.audit.title')}
         </CardTitle>
-        <CardDescription className="text-xs">{t('admin.voiceVideo.audit.description' as any)}</CardDescription>
+        <CardDescription className="text-xs">{t('admin.voiceVideo.audit.description')}</CardDescription>
       </CardHeader>
       <CardContent>
         <Button asChild variant="outline" size="sm">
-          <Link to="/admin/audit-logs">{t('admin.voiceVideo.audit.openLogs' as any)}</Link>
+          <Link to="/admin/audit-logs">{t('admin.voiceVideo.audit.openLogs')}</Link>
         </Button>
       </CardContent>
     </Card>
@@ -353,65 +381,65 @@ function RoutingTab() {
     <Card>
       <CardHeader>
         <CardTitle className="text-sm flex items-center gap-2">
-          <GitBranch className="h-4 w-4" /> {t('admin.voiceVideo.routing.title' as any)}
+          <GitBranch className="h-4 w-4" /> {t('admin.voiceVideo.routing.title')}
         </CardTitle>
-        <CardDescription className="text-xs">{t('admin.voiceVideo.routing.description' as any)}</CardDescription>
+        <CardDescription className="text-xs">{t('admin.voiceVideo.routing.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 text-xs">
         <div className="rounded-md border border-border p-3 space-y-1">
-          <div className="font-semibold text-foreground">{t('admin.voiceVideo.routing.eligibility' as any)}</div>
+          <div className="font-semibold text-foreground">{t('admin.voiceVideo.routing.eligibility')}</div>
           <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
-            <li>{t('admin.voiceVideo.routing.memberRule' as any)}</li>
+            <li>{t('admin.voiceVideo.routing.memberRule')}</li>
             <li>
-              {t('admin.voiceVideo.routing.audioRule' as any)} → <code>can_receive_audio_call</code>
+              {t('admin.voiceVideo.routing.audioRule')} → <code>can_receive_audio_call</code>
             </li>
             <li>
-              {t('admin.voiceVideo.routing.videoRule' as any)} → <code>can_receive_video_call</code>
+              {t('admin.voiceVideo.routing.videoRule')} → <code>can_receive_video_call</code>
             </li>
             <li>
-              {t('admin.voiceVideo.routing.queueRule' as any)} → <code>can_join_queue_calls</code>
+              {t('admin.voiceVideo.routing.queueRule')} → <code>can_join_queue_calls</code>
             </li>
             <li>
-              {t('admin.voiceVideo.routing.notInCall' as any)} (<code>in_call=false</code>)
+              {t('admin.voiceVideo.routing.notInCall')} (<code>in_call=false</code>)
             </li>
-            <li>{t('admin.voiceVideo.routing.readinessRule' as any)}</li>
+            <li>{t('admin.voiceVideo.routing.readinessRule')}</li>
           </ul>
         </div>
         <div className="rounded-md border border-border p-3 space-y-1">
-          <div className="font-semibold text-foreground">{t('admin.voiceVideo.routing.decisionOrder' as any)}</div>
+          <div className="font-semibold text-foreground">{t('admin.voiceVideo.routing.decisionOrder')}</div>
           <ol className="list-decimal list-inside text-muted-foreground space-y-0.5">
-            <li>{t('admin.voiceVideo.routing.direct' as any)}</li>
-            <li>{t('admin.voiceVideo.routing.enqueue' as any)}</li>
-            <li>{t('admin.voiceVideo.routing.callback' as any)}</li>
-            <li>{t('admin.voiceVideo.routing.unavailable' as any)}</li>
+            <li>{t('admin.voiceVideo.routing.direct')}</li>
+            <li>{t('admin.voiceVideo.routing.enqueue')}</li>
+            <li>{t('admin.voiceVideo.routing.callback')}</li>
+            <li>{t('admin.voiceVideo.routing.unavailable')}</li>
           </ol>
         </div>
         {cp && (
           <div className="rounded-md border border-border p-3 grid grid-cols-2 gap-2">
             <div>
-              {t('admin.voiceVideo.routing.queueGlobal' as any)}:{' '}
+              {t('admin.voiceVideo.routing.queueGlobal')}:{' '}
               <strong>
-                {cp.call_queue_enabled_global ? t('admin.voiceVideo.yes' as any) : t('admin.voiceVideo.no' as any)}
+                {cp.call_queue_enabled_global ? t('admin.voiceVideo.yes') : t('admin.voiceVideo.no')}
               </strong>
             </div>
             <div>
-              {t('admin.voiceVideo.routing.voiceEnabled' as any)}:{' '}
+              {t('admin.voiceVideo.routing.voiceEnabled')}:{' '}
               <strong>
-                {cp.voice_calls_enabled_global ? t('admin.voiceVideo.yes' as any) : t('admin.voiceVideo.no' as any)}
+                {cp.voice_calls_enabled_global ? t('admin.voiceVideo.yes') : t('admin.voiceVideo.no')}
               </strong>
             </div>
             <div>
-              {t('admin.voiceVideo.routing.videoEnabled' as any)}:{' '}
+              {t('admin.voiceVideo.routing.videoEnabled')}:{' '}
               <strong>
-                {cp.video_calls_enabled_global ? t('admin.voiceVideo.yes' as any) : t('admin.voiceVideo.no' as any)}
+                {cp.video_calls_enabled_global ? t('admin.voiceVideo.yes') : t('admin.voiceVideo.no')}
               </strong>
             </div>
             <div>
-              {t('admin.voiceVideo.verification' as any)}:{' '}
+              {t('admin.voiceVideo.verification')}:{' '}
               <strong>
                 {cp.verification_required_for_visitor_calls
-                  ? t('admin.voiceVideo.required' as any)
-                  : t('admin.voiceVideo.optional' as any)}
+                  ? t('admin.voiceVideo.required')
+                  : t('admin.voiceVideo.optional')}
               </strong>
             </div>
           </div>
@@ -421,6 +449,18 @@ function RoutingTab() {
   );
 }
 
+/**
+ * The queue's timings, which the server's control plane carries
+ * (server/services/calls/controlPlane.ts) beside the fields the client type
+ * names. Partial: the tab shows the server's defaults when one is missing.
+ */
+interface QueueSlaFields {
+  queue_offer_timeout_seconds: number;
+  queue_max_wait_seconds: number;
+  auto_expire_queue_after_seconds: number;
+  callback_offer_after_timeout: boolean;
+}
+
 function QueueSlaTab() {
   const { t, locale } = useTranslation();
   const cpQuery = useQuery({
@@ -428,14 +468,14 @@ function QueueSlaTab() {
     queryFn: fetchCallControlPlane,
     refetchInterval: 60_000,
   });
-  const cp = cpQuery.data?.control_plane as any;
+  const cp = cpQuery.data?.control_plane as (CallControlPlane & Partial<QueueSlaFields>) | undefined;
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-sm flex items-center gap-2">
-          <Timer className="h-4 w-4" /> {t('admin.voiceVideo.queueSla.title' as any)}
+          <Timer className="h-4 w-4" /> {t('admin.voiceVideo.queueSla.title')}
         </CardTitle>
-        <CardDescription className="text-xs">{t('admin.voiceVideo.queueSla.description' as any)}</CardDescription>
+        <CardDescription className="text-xs">{t('admin.voiceVideo.queueSla.description')}</CardDescription>
       </CardHeader>
       <CardContent>
         {!cp ? (
@@ -445,40 +485,40 @@ function QueueSlaTab() {
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
             <div className="rounded-md border border-border p-3">
-              <div className="text-muted-foreground">{t('admin.voiceVideo.queueSla.offerTimeout' as any)}</div>
+              <div className="text-muted-foreground">{t('admin.voiceVideo.queueSla.offerTimeout')}</div>
               <div className="text-lg font-semibold mt-1">
-                {(cp.queue_offer_timeout_seconds ?? 25).toLocaleString(locale)} {t('admin.voiceVideo.seconds' as any)}
+                {(cp.queue_offer_timeout_seconds ?? 25).toLocaleString(locale)} {t('admin.voiceVideo.seconds')}
               </div>
-              <div className="text-[10px] text-muted-foreground">{t('admin.voiceVideo.queueSla.offerHint' as any)}</div>
+              <div className="text-[10px] text-muted-foreground">{t('admin.voiceVideo.queueSla.offerHint')}</div>
             </div>
             <div className="rounded-md border border-border p-3">
-              <div className="text-muted-foreground">{t('admin.voiceVideo.queueSla.maxWait' as any)}</div>
+              <div className="text-muted-foreground">{t('admin.voiceVideo.queueSla.maxWait')}</div>
               <div className="text-lg font-semibold mt-1">
-                {(cp.queue_max_wait_seconds ?? 180).toLocaleString(locale)} {t('admin.voiceVideo.seconds' as any)}
+                {(cp.queue_max_wait_seconds ?? 180).toLocaleString(locale)} {t('admin.voiceVideo.seconds')}
               </div>
               <div className="text-[10px] text-muted-foreground">
-                {t('admin.voiceVideo.queueSla.maxWaitHint' as any)}
+                {t('admin.voiceVideo.queueSla.maxWaitHint')}
               </div>
             </div>
             <div className="rounded-md border border-border p-3">
-              <div className="text-muted-foreground">{t('admin.voiceVideo.queueSla.autoExpire' as any)}</div>
+              <div className="text-muted-foreground">{t('admin.voiceVideo.queueSla.autoExpire')}</div>
               <div className="text-lg font-semibold mt-1">
                 {(cp.auto_expire_queue_after_seconds ?? 600).toLocaleString(locale)}{' '}
-                {t('admin.voiceVideo.seconds' as any)}
+                {t('admin.voiceVideo.seconds')}
               </div>
               <div className="text-[10px] text-muted-foreground">
-                {t('admin.voiceVideo.queueSla.autoExpireHint' as any)}
+                {t('admin.voiceVideo.queueSla.autoExpireHint')}
               </div>
             </div>
             <div className="rounded-md border border-border p-3">
-              <div className="text-muted-foreground">{t('admin.voiceVideo.queueSla.callbackFallback' as any)}</div>
+              <div className="text-muted-foreground">{t('admin.voiceVideo.queueSla.callbackFallback')}</div>
               <div className="text-lg font-semibold mt-1">
                 {cp.callback_offer_after_timeout
-                  ? t('admin.voiceVideo.enabled' as any)
-                  : t('admin.voiceVideo.disabled' as any)}
+                  ? t('admin.voiceVideo.enabled')
+                  : t('admin.voiceVideo.disabled')}
               </div>
               <div className="text-[10px] text-muted-foreground">
-                {t('admin.voiceVideo.queueSla.callbackHint' as any)}
+                {t('admin.voiceVideo.queueSla.callbackHint')}
               </div>
             </div>
           </div>
@@ -543,48 +583,48 @@ function CallbacksTab() {
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Voicemail className="h-3.5 w-3.5" /> {t('admin.voiceVideo.callbacks.open' as any)}
+              <Voicemail className="h-3.5 w-3.5" /> {t('admin.voiceVideo.callbacks.open')}
             </div>
             <div className="mt-1 text-2xl font-semibold">{summary?.open ?? '—'}</div>
             <div className="text-[10px] text-muted-foreground mt-0.5">
-              {t('admin.voiceVideo.callbacks.acrossWorkspaces' as any)}
+              {t('admin.voiceVideo.callbacks.acrossWorkspaces')}
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <CheckCircle2 className="h-3.5 w-3.5" /> {t('admin.voiceVideo.callbacks.completed' as any)}
+              <CheckCircle2 className="h-3.5 w-3.5" /> {t('admin.voiceVideo.callbacks.completed')}
             </div>
             <div className="mt-1 text-2xl font-semibold">{summary?.counts?.completed ?? '—'}</div>
             <div className="text-[10px] text-muted-foreground mt-0.5">
-              {t('admin.voiceVideo.callbacks.last30Days' as any)}
+              {t('admin.voiceVideo.callbacks.last30Days')}
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <AlertTriangle className="h-3.5 w-3.5" /> {t('admin.voiceVideo.callbacks.cancelled' as any)}
+              <AlertTriangle className="h-3.5 w-3.5" /> {t('admin.voiceVideo.callbacks.cancelled')}
             </div>
             <div className="mt-1 text-2xl font-semibold">{summary?.counts?.cancelled ?? '—'}</div>
             <div className="text-[10px] text-muted-foreground mt-0.5">
-              {t('admin.voiceVideo.callbacks.last30Days' as any)}
+              {t('admin.voiceVideo.callbacks.last30Days')}
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Activity className="h-3.5 w-3.5" /> {t('admin.voiceVideo.callbacks.completionRate' as any)}
+              <Activity className="h-3.5 w-3.5" /> {t('admin.voiceVideo.callbacks.completionRate')}
             </div>
             <div className="mt-1 text-2xl font-semibold">
               {summary && summary.total > 0 ? `${completionPct}%` : '—'}
             </div>
             <div className="text-[10px] text-muted-foreground mt-0.5">
               {summary
-                ? t('admin.voiceVideo.callbacks.total' as any, { count: summary.total })
-                : t('admin.voiceVideo.callbacks.last30Days' as any)}
+                ? t('admin.voiceVideo.callbacks.total', { count: summary.total })
+                : t('admin.voiceVideo.callbacks.last30Days')}
             </div>
           </CardContent>
         </Card>
@@ -595,12 +635,12 @@ function CallbacksTab() {
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
             <CalendarClock className="h-4 w-4 text-info" />
-            {t('admin.voiceVideo.callbacks.upcoming' as any)}
+            {t('admin.voiceVideo.callbacks.upcoming')}
             <Badge variant="secondary" className="ms-auto text-[10px]">
               {scheduledCount.toLocaleString(locale)}
             </Badge>
           </CardTitle>
-          <CardDescription className="text-xs">{t('admin.voiceVideo.callbacks.upcomingHint' as any)}</CardDescription>
+          <CardDescription className="text-xs">{t('admin.voiceVideo.callbacks.upcomingHint')}</CardDescription>
         </CardHeader>
         <CardContent>
           {upcomingQuery.isLoading ? (
@@ -609,7 +649,7 @@ function CallbacksTab() {
             </div>
           ) : upcoming.length === 0 ? (
             <div className="text-xs text-muted-foreground text-center py-4">
-              {t('admin.voiceVideo.callbacks.noUpcoming' as any)}
+              {t('admin.voiceVideo.callbacks.noUpcoming')}
             </div>
           ) : (
             <div className="space-y-1">
@@ -624,12 +664,12 @@ function CallbacksTab() {
                       <div className="font-medium truncate">{new Date(u.scheduled_for).toLocaleString(locale)}</div>
                       <div className="text-[10px] text-muted-foreground truncate">
                         {u.channel} ·{' '}
-                        {u.contact_phone || u.contact_email || t('admin.voiceVideo.callbacks.noContact' as any)}
+                        {u.contact_phone || u.contact_email || t('admin.voiceVideo.callbacks.noContact')}
                       </div>
                     </div>
                   </div>
                   <Badge variant="outline" className="text-[10px] capitalize">
-                    {t(`admin.voiceVideo.callbacks.status.${u.status}` as any)}
+                    {t(`admin.voiceVideo.callbacks.status.${u.status}` as TranslationKey)}
                   </Badge>
                 </div>
               ))}
@@ -641,9 +681,9 @@ function CallbacksTab() {
       <Card>
         <CardHeader>
           <CardTitle className="text-sm flex items-center gap-2">
-            <Voicemail className="h-4 w-4" /> {t('admin.voiceVideo.callbacks.requests' as any)}
+            <Voicemail className="h-4 w-4" /> {t('admin.voiceVideo.callbacks.requests')}
           </CardTitle>
-          <CardDescription className="text-xs">{t('admin.voiceVideo.callbacks.requestsHint' as any)}</CardDescription>
+          <CardDescription className="text-xs">{t('admin.voiceVideo.callbacks.requestsHint')}</CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -666,10 +706,10 @@ function CallbacksTab() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant={c && c.open > 0 ? 'default' : 'secondary'} className="text-[10px]">
-                        {c ? t('admin.voiceVideo.callbacks.openCount' as any, { count: c.open }) : '—'}
+                        {c ? t('admin.voiceVideo.callbacks.openCount', { count: c.open }) : '—'}
                       </Badge>
                       <Badge variant="outline" className="text-[10px]">
-                        {c ? t('admin.voiceVideo.callbacks.total30' as any, { count: c.total }) : '—'}
+                        {c ? t('admin.voiceVideo.callbacks.total30', { count: c.total }) : '—'}
                       </Badge>
                     </div>
                   </Link>
@@ -677,7 +717,7 @@ function CallbacksTab() {
               })}
               {(workspaces ?? []).length === 0 && (
                 <div className="text-xs text-muted-foreground text-center py-6">
-                  {t('admin.voiceVideo.noWorkspaces' as any)}
+                  {t('admin.voiceVideo.noWorkspaces')}
                 </div>
               )}
             </div>
@@ -690,61 +730,64 @@ function CallbacksTab() {
 
 export default function VoiceVideoPage() {
   const { t } = useTranslation();
+  // Controlled, so "Open RTC, TURN and network settings" on the Providers tab
+  // can move to the Channels tab, where those settings live.
+  const [tab, setTab] = useState('overview');
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
           <Video className="h-6 w-6 text-primary" />
-          {t('admin.voiceVideo.title' as any)}
+          {t('admin.voiceVideo.title')}
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">{t('admin.voiceVideo.subtitle' as any)}</p>
+        <p className="text-sm text-muted-foreground mt-1">{t('admin.voiceVideo.subtitle')}</p>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4">
         <TabsList className="bg-secondary/50 border border-border flex-wrap h-auto">
           <TabsTrigger value="overview" className="gap-1.5 text-xs">
             <Activity className="h-3.5 w-3.5" />
-            {t('admin.voiceVideo.tabs.overview' as any)}
+            {t('admin.voiceVideo.tabs.overview')}
           </TabsTrigger>
           <TabsTrigger value="channels" className="gap-1.5 text-xs">
             <Phone className="h-3.5 w-3.5" />
-            {t('admin.voiceVideo.tabs.channels' as any)}
+            {t('admin.voiceVideo.tabs.channels')}
           </TabsTrigger>
           <TabsTrigger value="providers" className="gap-1.5 text-xs">
             <Network className="h-3.5 w-3.5" />
-            {t('admin.voiceVideo.tabs.providers' as any)}
+            {t('admin.voiceVideo.tabs.providers')}
           </TabsTrigger>
           <TabsTrigger value="routing" className="gap-1.5 text-xs">
             <GitBranch className="h-3.5 w-3.5" />
-            {t('admin.voiceVideo.tabs.routing' as any)}
+            {t('admin.voiceVideo.tabs.routing')}
           </TabsTrigger>
           <TabsTrigger value="queue-sla" className="gap-1.5 text-xs">
             <Timer className="h-3.5 w-3.5" />
-            {t('admin.voiceVideo.tabs.queueSla' as any)}
+            {t('admin.voiceVideo.tabs.queueSla')}
           </TabsTrigger>
           <TabsTrigger value="callbacks" className="gap-1.5 text-xs">
             <Voicemail className="h-3.5 w-3.5" />
-            {t('admin.voiceVideo.tabs.callbacks' as any)}
+            {t('admin.voiceVideo.tabs.callbacks')}
           </TabsTrigger>
           <TabsTrigger value="permissions" className="gap-1.5 text-xs">
             <Shield className="h-3.5 w-3.5" />
-            {t('admin.voiceVideo.tabs.permissions' as any)}
+            {t('admin.voiceVideo.tabs.permissions')}
           </TabsTrigger>
           <TabsTrigger value="overrides" className="gap-1.5 text-xs">
             <Building2 className="h-3.5 w-3.5" />
-            {t('admin.voiceVideo.tabs.overrides' as any)}
+            {t('admin.voiceVideo.tabs.overrides')}
           </TabsTrigger>
           <TabsTrigger value="recordings" className="gap-1.5 text-xs">
             <Archive className="h-3.5 w-3.5" />
-            {t('admin.voiceVideo.tabs.recordings' as any)}
+            {t('admin.voiceVideo.tabs.recordings')}
           </TabsTrigger>
           <TabsTrigger value="live" className="gap-1.5 text-xs">
             <Radio className="h-3.5 w-3.5" />
-            {t('admin.voiceVideo.tabs.live' as any)}
+            {t('admin.voiceVideo.tabs.live')}
           </TabsTrigger>
           <TabsTrigger value="audit" className="gap-1.5 text-xs">
             <FileText className="h-3.5 w-3.5" />
-            {t('admin.voiceVideo.tabs.audit' as any)}
+            {t('admin.voiceVideo.tabs.audit')}
           </TabsTrigger>
         </TabsList>
 
@@ -766,22 +809,16 @@ export default function VoiceVideoPage() {
         <TabsContent value="providers" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">{t('admin.voiceVideo.providers.title' as any)}</CardTitle>
+              <CardTitle className="text-sm">{t('admin.voiceVideo.providers.title')}</CardTitle>
               <CardDescription className="text-xs">
-                {t('admin.voiceVideo.providers.description' as any)}
+                {t('admin.voiceVideo.providers.description')}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button asChild variant="outline" size="sm">
-                <Link
-                  to="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    document.querySelector<HTMLButtonElement>('[data-state][value="channels"]')?.click();
-                  }}
-                >
-                  {t('admin.voiceVideo.providers.openNetwork' as any)}
-                </Link>
+              {/* It used to click a tab found by a `value` attribute, which
+                  the tab buttons do not have, so it did nothing. */}
+              <Button type="button" variant="outline" size="sm" onClick={() => setTab('channels')}>
+                {t('admin.voiceVideo.providers.openNetwork')}
               </Button>
             </CardContent>
           </Card>

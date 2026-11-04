@@ -6,12 +6,12 @@ made of things that fail late.
 
 ## Before the next release: what is already out (read first)
 
-Published copies, as of 2026-11-03:
+Published copies, as of 2026-11-04:
 
 | App | Where | Version | Signed with |
 |-----|-------|---------|-------------|
 | WebYar `com.webyar.ai` | `app.webyar.ai/downloads/Webyar-Android.apk` (since the merge of #387, 2026-11-03) | 1.8, `versionCode` 29 | `webyar-release.jks` (cert SHA-256 `f1ed448f…b2160142`) |
-| WebYar `com.webyar.ai` | Cafe Bazaar (the owner uploaded it on 2026-10-15; the owner uploads the current file himself) | 1.6, `versionCode` 27 | the same key |
+| WebYar `com.webyar.ai` | Cafe Bazaar (the owner published the site's file there on 2026-11-04; the owner uploads each new file) | 1.8, `versionCode` 29 | the same key |
 | RESPOK `com.respok.app` | `app.respok.app/downloads/RESPOK-Android.apk` only (not on Google Play yet; since the merge of #387) | 1.0.4, `versionCode` 5 | `respok-release.jks` (cert SHA-256 `c71c4665…8b8ee500`) |
 
 1.8 and 1.0.4 were built on the owner's Mac from the PR branch at `2cd96b1`,
@@ -35,9 +35,9 @@ all of these hold:
    change it).
 2. Signed with **`webyar-release.jks`**, the same certificate as every earlier
    WebYar version. Bazaar and phones refuse an update signed with any other key.
-3. `versionCode` **above the one on Bazaar** (27 for 1.6; check Bazaar's
-   developer panel before building), e.g. `-Pwebyar.versionCode=28
-   -Pwebyar.versionName=1.7`.
+3. `versionCode` **above the one on Bazaar** (29 for 1.8; check Bazaar's
+   developer panel before building), e.g. `-Pwebyar.versionCode=30
+   -Pwebyar.versionName=1.9`.
 4. The same APK goes to Bazaar and to `public/downloads/Webyar-Android.apk`
    (with its `.json` sidecar), so the site and the store never offer
    different builds under one version.

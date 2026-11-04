@@ -144,7 +144,9 @@ or video. LiveKit drops it after 15 s (`NEGOTIATE_FAILED`, or
 `SIGNAL_SOURCE_CLOSE` when the other side's camera was on before it joined),
 and the call ends. The API and realtime already went through Cloudflare;
 LiveKit's signalling was the only direct connection. Media is not affected:
-UDP, TCP 7881 and TURN still go straight to the server.
+UDP, TCP 7881 and TURN still go straight to the server (callers in Iran,
+whose mobile data passes no media to it at all, go through WebYar's relay
+there since 2026-11-04: `deploy/iran-relay/README.md`).
 
 How it is wired:
 
@@ -206,7 +208,7 @@ If signaling works but no media:
 - **`LIVEKIT_LOG_LEVEL`** defaults to `info` if unset. The bootstrap log line echoes the resolved value (e.g. `log_level=info`) so a misconfigured env var is obvious from container logs.
 - **Egress / recording** is a separate LiveKit service. Add later when needed.
 - **Scaling**: set `LIVEKIT_REDIS_ADDRESS`, add a Redis service, replicate this compose service.
-- **TURN/TLS**: deferred. Extend the rendered YAML with a `turn:` block and open UDP 3478 / TCP 5349 when you need it.
+- **TURN**: LiveKit's own is on when `LIVEKIT_TURN_DOMAIN` is set: the startup wrapper renders the `turn:` block (UDP `LIVEKIT_TURN_UDP_PORT`, 3478; TLS `LIVEKIT_TURN_TLS_PORT`) and LiveKit hands each participant its credentials over signalling (`docs/call-center-livekit.md` §7). It never goes in Super Admin's RTC endpoints; a TURN server elsewhere does, like WebYar's relay in Iran (`deploy/iran-relay/README.md`).
 - **Restart semantics**: a LiveKit restart drops in-flight rooms. The backend treats `CallProviderNotReadyError` as "fall through", so a brief outage during deploy surfaces as an error to clients but does not poison subsequent calls.
 
 ---

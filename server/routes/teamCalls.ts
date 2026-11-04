@@ -533,6 +533,7 @@ teamCallsRouter.post('/:id/token', async (req, res) => {
       participantType: 'internal',
       participantId: ctx.userId,
       displayName: await publicMemberName(ctx.config, ctx.userId),
+      req,
     });
     res.status(answer.status).json(answer.body);
   } catch (err) {

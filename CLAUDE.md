@@ -22,8 +22,8 @@ Why each of those holds, with measurements: `docs/ANDROID_LOCAL_DEV.md`.
 ## Before building an Android release
 
 WebYar 1.8 (`versionCode` 29) is on the site since the merge of #387
-(2026-11-03; Cafe Bazaar still has 1.6, `versionCode` 27, until the owner
-uploads the current file); RESPOK 1.0.4 (`versionCode` 5) is on the site only.
+(2026-11-03) and on Cafe Bazaar since 2026-11-04 (the owner uploads each new
+file there); RESPOK 1.0.4 (`versionCode` 5) is on the site only.
 Read `docs/ANDROID_RELEASE.md` → "Before the next release" first: every WebYar
 build must keep `com.webyar.ai`, be signed with `~/dev/webyar-release.jks`
 and use a `versionCode` above the last one published (29).
@@ -194,6 +194,26 @@ that calls back. The contract between the server
 and both apps (API, payloads, states, ring and stop, webhook and ticker
 rules, rollout) is `docs/operations/TEAM_CALLS.md`: change it with the code.
 
+## Iran relay (owner, 2026-11-04)
+
+Iranian mobile data passes no call media to LiveKit abroad (its own TURN
+included), so WebYar's calls from Iran go through a coturn relay inside Iran:
+`185.213.167.216:3478` (Desktop Commander device `webyar`, which also runs the
+owner's other services), relaying only to LiveKit (`5.39.70.213`). WebYar
+only: RESPOK's `call_rtc_endpoints` lists no relay. Super Admin → Voice &
+Video → Channels and recording → RTC and TURN endpoints is the only place to
+change its address, its shared secret (saved encrypted under
+`PLUGIN_SECRETS_MASTER_KEY`, shown only as a fingerprint) and the relay
+countries; never write `call_rtc_endpoints` by hand. The countries are `IR`
+(empty or `*` is everyone, but the call-centre widget and its console then
+carry none), so callers elsewhere keep LiveKit's own TURN: a client handed
+TURN URLs uses them instead of LiveKit's ICE servers. Never list
+LiveKit's own TURN (`turn.webyar.ai`) in those URLs, and `ws_url` stays
+`wss://rt.webyar.ai`. Each token gets its own credential (a random username,
+valid 6 h, the page's lifetime). Rotate the secret on the relay and in Super
+Admin together, at a quiet hour. Runbook (server, firewall, probe, changes):
+`deploy/iran-relay/README.md`.
+
 ## The mobile apps as a plan feature (owner, 2026-11-02)
 
 The Super Admin turns the iPhone and Android apps on or off per plan (plan
@@ -250,9 +270,13 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
   needs it.
 - 16 LiveKit: auto-deploy on every push to `main` since 2026-11-03 (owner),
   so a merge restarts it and drops the calls in progress at that moment.
+- 21 AI Runtime (`ai.webyar.ai`): auto-deploy on every push to `main`
+  (found on 2026-11-04, when it deployed with the merge of #387). RESPOK's
+  AI Runtime (30) is off: queue it by hand when `ai-runtime/`, `runtime/` or
+  what it imports from `shared/` changes.
 - 15 Centrifugo, 17 Intelligence Worker, 18 Source Sync
   Worker, 19 Plugins Channels (`channels.webyar.ai`), 20 Channels-Worker,
-  21 AI Runtime (`ai.webyar.ai`), 22 Regression AI Worker, 23 Seo-Crawler:
+  22 Regression AI Worker, 23 Seo-Crawler:
   auto-deploy off, so a push does not update them; queue them by hand when a
   change needs them.
 - 42 Widget Bridge Worker (RESPOK's 43, `Dockerfile.widget-bridge`):
@@ -273,7 +297,8 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
   `/data/coolify/proxy/dynamic/livekit-signal-cf.yaml`. The backend keeps
   `rtc_url` `wss://livekit.webyar.ai`. A direct WebSocket from an Iranian
   mobile network dies after its first few KB, so calls failed there. Media
-  still goes direct. Do not point `ws_url` back at `livekit.webyar.ai`
+  still goes direct (callers in Iran: through the Iran relay, above). Do not
+  point `ws_url` back at `livekit.webyar.ai`
   (`deploy/livekit/README.md` §4.1).
 - Coolify builds two apps at a time, so after a merge the whole set (with
   RESPOK's) takes about 15 minutes. A deploy that has not appeared yet is

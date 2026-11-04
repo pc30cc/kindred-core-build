@@ -41,6 +41,32 @@ export interface OperatorConnectInfo {
   room_id?: string | null;
   identity?: string | null;
   reason?: string;
+  /**
+   * The relay the accept answered with for this operator (it may be gated
+   * by country), and the ICE policy. Absent from an older server.
+   */
+  turn?: { urls?: string[]; username?: string | null; credential?: string | null } | null;
+  ice_policy?: 'all' | 'relay' | string | null;
+}
+
+/**
+ * The connect options for the relay, or undefined when there is none. Only a
+ * non-empty list goes to LiveKit: ICE servers given at connect REPLACE the
+ * ones LiveKit sends (its own TURN among them), so an empty list would leave
+ * the operator with no relay at all. The server answers that empty list to an
+ * operator outside the relay's countries, who keeps LiveKit's TURN this way.
+ */
+function relayConnectOptions(connect: OperatorConnectInfo | null | undefined):
+  { rtcConfig: RTCConfiguration } | undefined {
+  const turn = connect?.turn;
+  const urls = Array.isArray(turn?.urls) ? turn.urls.filter((u) => typeof u === 'string' && u.length > 0) : [];
+  if (urls.length === 0) return undefined;
+  return {
+    rtcConfig: {
+      iceServers: [{ urls, username: turn?.username || undefined, credential: turn?.credential || undefined }],
+      iceTransportPolicy: connect?.ice_policy === 'relay' ? 'relay' : 'all',
+    },
+  };
 }
 
 export interface OperatorMediaConsoleProps {
@@ -432,7 +458,7 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
 
       setPhase('connecting');
       try {
-        await room.connect(activeConnect.server_url!, activeToken!);
+        await room.connect(activeConnect.server_url!, activeToken!, relayConnectOptions(activeConnect));
       } catch (e: unknown) {
         precaptured.dispose();
         if (cancelled) return;

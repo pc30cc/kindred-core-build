@@ -19,7 +19,10 @@
  *    team chat's list and open thread read again at once, not at their poll;
  *  - the session: placing, ringing, answering, the call, its end;
  *  - the sounds (the ringtone and the caller's ringback, Web Audio, no
- *    files) and the system notification while the tab is hidden;
+ *    files) and the system notification while the tab is hidden; the
+ *    caller's ringback plays only once a phone or tab of the callee said it
+ *    rang (`rang_at`), and this tab says so for its own ring (`rang`) when
+ *    its ringing card shows;
  *  - this tab's device id (deviceId.ts), sent on accept. The first answer
  *    wins on every surface; a tab whose own answer did not win stops.
  *
@@ -59,7 +62,7 @@ import {
 } from '@/lib/team-calls-api';
 // The colleague call's own ringback switch: a visitor call's surface never
 // stops it, and this call never stops the visitor's (callSound.ts).
-import { startRingtone, startTeamRingback, stopRingtone, stopTeamRingback } from '@/features/calls/callSound';
+import { primeCallAudio, startRingtone, startTeamRingback, stopRingtone, stopTeamRingback } from '@/features/calls/callSound';
 import { teamCallDeviceId } from './deviceId';
 import {
   peerDisplayName,
@@ -76,6 +79,12 @@ export const TEAM_CALL_LIVE_POLL_MS = 10_000;
 /** A ring's confirming read that failed is tried again this many times, this far apart. */
 const TEAM_CALL_CONFIRM_RETRIES = 2;
 const TEAM_CALL_CONFIRM_RETRY_MS = 1_500;
+/**
+ * `rang` (this tab shows the ring) is sent once per call; a failed one is
+ * tried again this many times, this far apart, then dropped.
+ */
+export const TEAM_CALL_RANG_RETRIES = 2;
+export const TEAM_CALL_RANG_RETRY_MS = 3_000;
 /** How long the "call ended" line stays before the window closes. */
 const ENDED_LINGER_MS = 2_500;
 
@@ -138,6 +147,8 @@ export function TeamCallProvider({
   const doneRef = useRef<Set<string>>(new Set());
   /** Missed calls already told, so two events never make two toasts. */
   const toldRef = useRef<Set<string>>(new Set());
+  /** Calls this tab has said `rang` for (once per call per tab). */
+  const rangSentRef = useRef<Set<string>>(new Set());
   /** A hang-up asked for while this tab's answer was in flight. */
   const hangUpAfterAnswerRef = useRef(false);
   const tRef = useRef(t);
@@ -476,7 +487,42 @@ export function TeamCallProvider({
     stopTeamRingback('unmount');
   }, []);
 
+  // ─── The caller's ringback: only once the callee's phone or tab rang ───
+  // Until a phone or a tab of the callee says it rang (`rang_at`), the
+  // caller's window says "Calling…" and plays nothing (owner, 2026-11-04).
+  const callerRinging = session?.role === 'caller' && phase === 'outgoing' && !!session.call?.rang_at;
+  useEffect(() => {
+    if (!callerRinging) return;
+    startTeamRingback();
+    return () => stopTeamRingback('ring_over');
+  }, [callerRinging]);
+
   // ─── Actions ───
+  /**
+   * The ringing card is on screen: tell the server this tab rang, once per
+   * call. A failure is tried again TEAM_CALL_RANG_RETRIES times, then
+   * dropped; a refusal (the call moved on, not this member's) is final.
+   */
+  const ringShown = useCallback((callId: string) => {
+    if (rangSentRef.current.has(callId)) return;
+    rangSentRef.current.add(callId);
+    const deviceId = teamCallDeviceId();
+    void (async () => {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          await teamCallsApi.rang(callId, deviceId);
+          return;
+        } catch (err) {
+          const final = err instanceof TeamCallApiError && [400, 401, 403, 404, 409].includes(err.status);
+          if (final || attempt >= TEAM_CALL_RANG_RETRIES) return;
+          await new Promise((resolve) => setTimeout(resolve, TEAM_CALL_RANG_RETRY_MS));
+          const s = sessionRef.current;
+          if (!s || s.call?.id !== callId || s.phase !== 'incoming') return;
+        }
+      }
+    })();
+  }, []);
+
   const placeCall = useCallback(async (input: { workspaceId: string; peer: TeamCallPeer; channel: TeamCallChannel }) => {
     const current = sessionRef.current;
     if (current && current.phase !== 'ended') return;
@@ -493,8 +539,9 @@ export function TeamCallProvider({
       withCamera: input.channel === 'video',
       notice: null,
     });
-    // In the click's own turn, so the browser lets the page play it.
-    startTeamRingback();
+    // In the click's own turn, so the browser lets the page play the
+    // ringback later, once the callee's phone or tab rang (rang_at).
+    primeCallAudio();
     try {
       const call = await teamCallsApi.place({
         workspace_id: input.workspaceId,
@@ -655,7 +702,8 @@ export function TeamCallProvider({
     markJoined,
     failJoin,
     dismiss,
-  }), [session, placeCall, answer, decline, hangUp, markJoined, failJoin, dismiss]);
+    ringShown,
+  }), [session, placeCall, answer, decline, hangUp, markJoined, failJoin, dismiss, ringShown]);
 
   return (
     <TeamCallContext.Provider value={value}>

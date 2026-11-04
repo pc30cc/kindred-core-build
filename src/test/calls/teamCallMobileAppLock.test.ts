@@ -179,7 +179,7 @@ describe('a workspace whose plan has the mobile app off', () => {
     // The callee's own user channel (and the caller's): what rings the web panel.
     expect(h.published).toEqual([{
       users: [CALLER, CALLEE],
-      payload: { kind: 'team_call', workspace_id: WS, call_id: id, state: 'ringing', outcome: null },
+      payload: { kind: 'team_call', workspace_id: WS, call_id: id, state: 'ringing', outcome: null, rang_at: null },
     }]);
   });
 
@@ -229,7 +229,7 @@ describe('a web panel tab answers like a phone (the app on)', () => {
     expect(h.voip).toHaveLength(0);
     expect(h.published.at(-1)).toEqual({
       users: [CALLER, CALLEE],
-      payload: { kind: 'team_call', workspace_id: WS, call_id: id, state: 'connecting', outcome: null },
+      payload: { kind: 'team_call', workspace_id: WS, call_id: id, state: 'connecting', outcome: null, rang_at: null },
     });
     const read = await request(app).get(`/api/team-calls/${id}`).set(as(CALLEE));
     expect(read.body.call).toMatchObject({ state: 'connecting', answered_device_id: WEB_TAB });

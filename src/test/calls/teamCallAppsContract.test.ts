@@ -246,11 +246,18 @@ describe('TeamCall, the answer of every /api/team-calls route', () => {
   const androidPeerKeys = kotlinFields(between(ANDROID_MODEL, 'data class Peer(', '\n    )'));
   const androidKeys = kotlinFields(androidCall);
 
+  // `rang_at` (owner, 2026-11-04) reaches the apps in their own changes, made
+  // alongside the server's: an app model may still lack it, never carry
+  // anything the server does not write. Once both apps read it, drop this.
+  const ADDED_BEFORE_THE_APPS = ['rang_at'];
+  const withAdded = (keys: string[]) => sorted([...keys, ...ADDED_BEFORE_THE_APPS]);
+
   it('has the same fields on the server, in the doc and in both apps', () => {
     const serverKeys = Object.keys(serverCall);
     expect(sorted(serverKeys)).toEqual(sorted(docKeys));
-    expect(sorted(iosKeys)).toEqual(sorted(serverKeys));
-    expect(sorted(androidKeys)).toEqual(sorted(serverKeys));
+    expect(serverKeys).toEqual(expect.arrayContaining(ADDED_BEFORE_THE_APPS));
+    expect(withAdded(iosKeys)).toEqual(sorted(serverKeys));
+    expect(withAdded(androidKeys)).toEqual(sorted(serverKeys));
   });
 
   it('names the colleague with the same three fields everywhere', () => {
@@ -456,7 +463,7 @@ describe('the realtime nudge on the member\'s own channel', () => {
   const docKeys = docShape(docRow('Both apps in the foreground'), '{kind:"team_call"');
 
   it('carries the doc\'s keys (server: teamCallsRoute.test.ts), and both apps read its kind and call id', () => {
-    expect(docKeys).toEqual(['kind', 'workspace_id', 'call_id', 'state', 'outcome']);
+    expect(docKeys).toEqual(['kind', 'workspace_id', 'call_id', 'state', 'outcome', 'rang_at']);
     expect(docRow('Both apps in the foreground')).toContain('`ws:<workspace>:user:<uid>`');
 
     const iosSignal = between(IOS_MODEL, 'struct TeamCallSignal', 'enum TeamCallEnd');

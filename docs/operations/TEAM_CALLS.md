@@ -75,8 +75,16 @@ together with the code.
 - `state`: `ringing` → `connecting` (answered) → `active` (both in the room) →
   `ended`; or `ringing` → `missed` | `cancelled` | `ended` (declined/busy).
 - `metadata.team_call`: `{ caller_user_id, callee_user_id, channel, outcome,
-  answered_device_id, answered_at, rung_android_device_ids: [], rung_ios_device_ids: [] }`.
+  answered_device_id, answered_at, rung_android_device_ids: [], rung_ios_device_ids: [],
+  rang_at, rang_device_id, rang_platform }`.
   `outcome` ∈ `completed | declined | cancelled | missed | failed`.
+- `rang_at` (ISO 8601, server time), `rang_device_id` and `rang_platform`
+  (`ios | android | web`) are null until a phone or a tab of the callee says
+  the call rang there (`POST /:id/rang`); the first such word while the call
+  rings stamps them, and nothing else ever writes them. It is the only write
+  to `metadata.team_call` that does not move the state, so every move also
+  compares the `rang_at` it read and, having lost to the stamp alone, tries
+  again from the stamped row (`teamCallLifecycle.ts`): a move never wipes it.
 - `connected_at` is stamped at the answer (billing).
 - No user id, e-mail or name goes into LiveKit room metadata; members join as
   `internal:<opaque ref>` with their profile name only
@@ -95,15 +103,20 @@ together with the code.
   "outcome": null, "role": "caller|callee",
   "peer": { "user_id": "uuid", "name": "Daniel Carter", "avatar_url": null },
   "answered_device_id": null,
-  "created_at": "…", "answered_at": null, "ended_at": null, "expires_at": "…"
+  "created_at": "…", "answered_at": null, "ended_at": null, "expires_at": "…",
+  "rang_at": null
 }
 ```
+
+`rang_at` (string, ISO 8601, or null): null until some phone or tab of the
+callee has rung (`POST /:id/rang`); then the server time of the first one.
 
 | Method and path | Who | Does |
 |---|---|---|
 | `POST /` `{workspace_id, callee_id, channel}` | a member | Checks membership, plan, limits, busy; creates the row and the room; rings the callee; `201 {call}`. Errors: `400 invalid_params`, `403 upgrade_required` (`feature: 'team_calls'`), `403 not_a_member` (also when a pair hides the two from each other: `server/services/teamVisibility.ts`, migration 295), `409 callee_busy`, `409 caller_busy`, `429 too_many_calls`, `422 limit_reached` (`limit: 'max_concurrent_calls' | 'max_call_minutes_per_month'`). Rate limit: a caller rings at most 10 times a minute, a callee is rung at most 6 times a minute (by everyone together; an attempt that does not ring — busy, a failure — gives its ring back). The concurrency ceiling is read before the placement, as `/api/calls/create` reads it, and again inside it under the workspace's lock (migration 298): a placement that finds the limit met answers the same `422 limit_reached` (`limit: 'max_concurrent_calls'`, `reason: 'plan_limit_reached'`, `max`, `used`) with nothing written. |
 | `GET /:id` | caller or callee | `{call}`; `404` for anyone else. |
 | `POST /:id/accept` `{device_id?}` | callee | `ringing` → `connecting` with a compare-and-set (first answer wins); stamps `connected_at`, `answered_at`, `answered_device_id`; stops the callee's other phones; `{call}`. `409 not_ringing` with `{call}` when it is no longer ringing. |
+| `POST /:id/rang` `{device_id?, platform}` | callee | This phone or tab of the callee shows the ring. `platform` ∈ `ios | android | web`, `device_id` at most 128 characters. While the call is `ringing`, the first `rang` stamps `rang_at` (server time), `rang_device_id` and `rang_platform` and publishes the `team_call` event with `rang_at` to both; later ones change nothing. Either way `200 {call}`. No longer `ringing` (a ring past its end is marked missed first): `409 not_ringing` with `{call}`, nothing written. `403 forbidden` for the caller, `404 not_found` for anyone else, `400 invalid_params` for a bad body. Never changes the state, `expires_at`, billing or the ring timers. Rate limit: 60 a minute per member (`429 too_many_requests`). |
 | `POST /:id/decline` | callee | `ringing` → ended, outcome `declined`. Idempotent. |
 | `POST /:id/cancel` | caller | `ringing` → `cancelled`, outcome `cancelled`; missed-call notification to the callee. Idempotent. |
 | `POST /:id/hangup` | either | ends the call (outcome `completed` once answered); idempotent. |
@@ -133,8 +146,26 @@ won, so it never ends a call its other phone answered.
 |---|---|---|
 | iOS | VoIP push (PushKit), `apns-push-type voip`, topic `<APNS_BUNDLE_ID>.voip`, priority 10, expiry 45 s, to every enabled `mobile_push_devices` row of the callee with a `voip_token`: `{"kind":"team_call","event":"incoming","call_id","workspace_id","workspace_name","channel","caller_name","caller_avatar_url","caller_user_id","expires_at"}`; `expires_at` is Unix seconds as a JSON number (the app also reads a numeric or ISO string), `workspace_name` and `caller_avatar_url` may be null | **Never a VoIP push** (each one must become a CallKit call). The ringing app polls `GET /api/team-calls/:id` every 2 s and listens on its user channel; it ends the CallKit call on any state but `ringing`, or at `expires_at`. |
 | Android | data-only FCM, priority HIGH, ttl 45 s, collapse key = call id: `{type:"team_call_incoming", callId, workspaceId, workspaceName, channel, callerName, callerAvatarUrl, callerUserId, expiresAt}`; `expiresAt` is Unix seconds as a string; `workspaceName` and `callerAvatarUrl` are left out when there is none (FCM data values are strings) | `{type:"team_call_cancel", callId, reason}` with reason `answered_elsewhere | declined | cancelled | missed | ended`, only to the Android devices that were rung (`rung_android_device_ids`), never to the one that answered. |
-| Both apps in the foreground | realtime `{type:"event", payload:{kind:"team_call", workspace_id, call_id, state, outcome}}` on `ws:<workspace>:user:<uid>` for the caller and the callee, on every change | |
+| Both apps in the foreground | realtime `{type:"event", payload:{kind:"team_call", workspace_id, call_id, state, outcome, rang_at}}` on `ws:<workspace>:user:<uid>` for the caller and the callee, on every change, and once more when `rang_at` is first stamped (the state still `ringing`); `rang_at` is null until then | |
 | Missed | alert push `team_call_missed` to the callee (data `{type:"team_call_missed", workspaceId, peerId, callId, channel}`, localized "Missed voice call" / "Missed video call" with the caller's name), opening the thread | |
+
+### "Calling…" and "Ringing…" (owner, 2026-11-04)
+
+The caller hears no ringing until a phone of the other side really rings.
+On every surface (iPhone, Android, web panel):
+
+- while `state` is `ringing` and `rang_at` is null, the caller's screen says
+  "Calling…" (fa «در حال تماس…», tr «Aranıyor…») and plays **no** ringback;
+- once `rang_at` is set (from `rang`'s realtime event, or a read of the call),
+  it says "Ringing…" (fa «در حال زنگ خوردن…», tr «Çalıyor…») and plays the
+  ringback;
+- answered, declined, missed and the rest are as before.
+
+Each callee surface sends `POST /:id/rang` once per call per device, at its
+moment (iOS, Android and Web panel below). A failed `rang` is retried twice,
+a few seconds apart, then dropped; a `409`, `403` or `404` is final. Older
+app versions never send it: their callers stay at "Calling…" until the
+answer or the ring's end (accepted: no users yet).
 
 Call-centre rings on iOS are off (`server/services/push/callRing.ts`): an
 iPhone that registers a VoIP token for colleague calls is never rung, and
@@ -186,6 +217,10 @@ uncounted time.
 - Entry: phone and video buttons in the colleague thread's toolbar, shown when
   the plan allows that kind of call.
 - The missed-call notification (`team_call_missed`) opens the thread.
+- `rang` (`platform: "ios"`, `device_id` the install's): once CallKit accepted
+  the report of the incoming call (its completion without an error), or when
+  the in-app ring shows. As the caller: "Calling…" without ringback until
+  `rang_at`, then "Ringing…" with it.
 
 ## Android
 
@@ -202,6 +237,9 @@ uncounted time.
 - Without the notification permission (Android 13+) a ring cannot show:
   the thread's call button explains it and opens the setting.
 - The missed-call notification opens the thread.
+- `rang` (`platform: "android"`, `device_id` the install's): when the ring
+  notification is posted, or the ring screen shows. As the caller: "Calling…"
+  without ringback until `rang_at`, then "Ringing…" with it.
 
 ## Web panel (owner, 2026-11-02)
 
@@ -227,8 +265,13 @@ uncounted time.
 - The call: `POST /:id/token`, then LiveKit through the panel's existing
   call stack (`src/hooks/useLiveKitCall.ts`, `src/features/calls/CallStage.tsx`),
   microphone (and camera for video, answerable with it off), mute, camera,
-  speaker selection where the browser has it, hang up. Ringback for the
-  caller until the answer. A tab's call screen stays above the panel as the
+  speaker selection where the browser has it, hang up. The caller's window
+  says "Calling…" with no sound until `rang_at` is set, then "Ringing…" with
+  the ringback until the answer (the call button's click only unlocks the
+  page's audio: `primeCallAudio`).
+- `rang` (`platform: "web"`, `device_id` the tab's): when the tab's ringing
+  card shows (`IncomingCard`, once per call per tab; retried twice 3 s apart
+  on a failure, then dropped). A tab's call screen stays above the panel as the
   member moves around in it; closing the tab ends the call through the
   webhook.
 - Ending follows the apps' rule: the caller hangs up (`/hangup`); the callee
@@ -447,3 +490,8 @@ list no relay. Server, firewall, probe and changes:
    `team_call_place()` the API now calls (293's stays for the backend that
    runs until the merge) and the trigger that keeps an over call over. No app
    change: the answers are the ones this table lists.
+9. "Ringing" only once it rings (owner, 2026-11-04): no migration (the stamp
+   is in `metadata`). The backends and the panel with the merge; the apps
+   with their next builds, which send `rang` and read `rang_at`. Until then a
+   caller on any surface sees "Calling…" for the whole ring of a callee whose
+   app does not send `rang`.

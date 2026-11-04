@@ -269,7 +269,7 @@ export function startTeamRingback(): void {
   if (teamRingbackActive) return;
   teamRingbackActive = true;
   callDebug('call-sound', 'team ringback start');
-  // Called in the call button's own click: usually a running context.
+  // The call button's click primed the context (primeCallAudio): usually running.
   const ctx = ensureAudioCtx();
   if (ctx && ctx.state === 'running') {
     userInteracted = true;
@@ -284,6 +284,18 @@ export function startTeamRingback(): void {
       }
     }).catch(() => { /* swallow — unlock handler will retry */ });
   }
+}
+
+/**
+ * Unlocks the page's audio in a click without playing anything: the colleague
+ * call's button calls it, so the ringback can start later, when the callee's
+ * phone or tab says it rang (`rang_at`), outside any user gesture. Idempotent.
+ */
+export function primeCallAudio(): void {
+  if (typeof window === 'undefined') return;
+  installUnlockHandlers();
+  const ctx = ensureAudioCtx();
+  if (ctx && ctx.state === 'running') userInteracted = true;
 }
 
 /** Stop a colleague call's ringback. Idempotent. `reason` is diagnostic only. */

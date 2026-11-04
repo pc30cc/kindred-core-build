@@ -19,6 +19,10 @@
  *    must not answer), the caller's ringback is the colleague call's own
  *    (a visitor call never silences it, nor it a visitor's), and a channel
  *    join that failed on its way is tried again;
+ *  - the ringing card says `rang` once per call (platform web, this tab's
+ *    device id), retried twice on a failure, never after a refusal; the
+ *    caller says "Calling…" with no ringback until `rang_at`, then
+ *    "Ringing…" with it;
  *  - a `team_message` on the same channel (a message, or a call's line in
  *    the team chat) makes the team chat read again at once.
  *
@@ -39,7 +43,7 @@ const h = vi.hoisted(() => ({
 }));
 const sound = vi.hoisted(() => ({
   startRingtone: vi.fn(), stopRingtone: vi.fn(), startRingback: vi.fn(), stopRingback: vi.fn(),
-  startTeamRingback: vi.fn(), stopTeamRingback: vi.fn(),
+  startTeamRingback: vi.fn(), stopTeamRingback: vi.fn(), primeCallAudio: vi.fn(),
 }));
 const toastSpy = vi.hoisted(() => ({ info: vi.fn(), error: vi.fn() }));
 const live = vi.hoisted(() => ({
@@ -103,7 +107,7 @@ function call(over: Record<string, unknown> = {}) {
   return {
     id: 'c1', workspace_id: 'ws-1', channel: 'audio', state: 'ringing', outcome: null, role: 'callee',
     peer: PEER, answered_device_id: null, created_at: new Date(now).toISOString(), answered_at: null,
-    ended_at: null, expires_at: new Date(now + 45_000).toISOString(), ...over,
+    ended_at: null, expires_at: new Date(now + 45_000).toISOString(), rang_at: null, ...over,
   };
 }
 
@@ -317,6 +321,62 @@ describe('the ringback', () => {
   });
 });
 
+describe('rang: this tab shows the ring', () => {
+  it('says so once per call, as the web, with this tab\'s device id', async () => {
+    h.route = (r) => {
+      if (r.method === 'GET' && r.path === '/api/team-calls/c1') return { status: 200, body: { call: call() } };
+      if (r.method === 'POST' && r.path === '/api/team-calls/c1/rang') return { status: 200, body: { call: call({ rang_at: new Date().toISOString() }) } };
+      return { status: 404, body: {} };
+    };
+    mount();
+    await emit('ringing');
+    await screen.findByRole('alertdialog');
+    await waitFor(() => expect(sent('POST', '/api/team-calls/c1/rang')).toHaveLength(1));
+    expect(sent('POST', '/api/team-calls/c1/rang')[0].body).toEqual({ device_id: teamCallDeviceId(), platform: 'web' });
+    // Further events and reads of the same ring do not say it again.
+    await emit('ringing');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(sent('POST', '/api/team-calls/c1/rang')).toHaveLength(1);
+  });
+
+  it('tries a failed rang twice more, a few seconds apart, then drops it', async () => {
+    h.route = (r) => {
+      if (r.method === 'GET' && r.path === '/api/team-calls/c1') return { status: 200, body: { call: call() } };
+      if (r.method === 'POST' && r.path === '/api/team-calls/c1/rang') return { status: 503, body: { error: 'unavailable' } };
+      return { status: 404, body: {} };
+    };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+    try {
+      mount();
+      await emit('ringing');
+      await screen.findByRole('alertdialog');
+      await waitFor(() => expect(sent('POST', '/api/team-calls/c1/rang')).toHaveLength(1));
+      await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+      expect(sent('POST', '/api/team-calls/c1/rang')).toHaveLength(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+      expect(sent('POST', '/api/team-calls/c1/rang')).toHaveLength(3);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(sent('POST', '/api/team-calls/c1/rang')).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never tries again after a refusal (409 not_ringing)', async () => {
+    h.route = (r) => {
+      if (r.method === 'GET' && r.path === '/api/team-calls/c1') return { status: 200, body: { call: call() } };
+      if (r.method === 'POST' && r.path === '/api/team-calls/c1/rang') return { status: 409, body: { error: 'not_ringing', call: call({ state: 'missed', outcome: 'missed' }) } };
+      return { status: 404, body: {} };
+    };
+    mount();
+    await emit('ringing');
+    await screen.findByRole('alertdialog');
+    await waitFor(() => expect(sent('POST', '/api/team-calls/c1/rang')).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 3_500));
+    expect(sent('POST', '/api/team-calls/c1/rang')).toHaveLength(1);
+  }, 10_000);
+});
+
 describe('answer and decline', () => {
   it('Answer sends this tab\'s device id, then joins with the call\'s own token', async () => {
     let answeredBy = '';
@@ -409,19 +469,32 @@ describe('the first answer wins', () => {
 });
 
 describe('placing a call', () => {
-  it('rings the colleague with ringback and joins once answered', async () => {
+  it('says "Calling…" without ringback until the colleague\'s phone rang, then "Ringing…" with it, and joins once answered', async () => {
+    let rang = false;
     let answered = false;
     h.route = (r) => {
       if (r.method === 'POST' && r.path === '/api/team-calls') return { status: 201, body: { call: call({ role: 'caller' }) } };
       if (r.path === '/api/team-calls/c1/token') return { status: 200, body: TOKEN };
-      return { status: 200, body: { call: call({ role: 'caller', ...(answered ? { state: 'connecting', answered_device_id: 'ios-1' } : {}) }) } };
+      return { status: 200, body: { call: call({
+        role: 'caller',
+        ...(rang ? { rang_at: new Date().toISOString() } : {}),
+        ...(answered ? { state: 'connecting', answered_device_id: 'ios-1' } : {}),
+      }) } };
     };
     mount();
     fireEvent.click(screen.getByTestId('place'));
-    expect(sound.startTeamRingback).toHaveBeenCalled();
+    // The click only unlocks the page's audio: nothing plays yet.
+    expect(sound.primeCallAudio).toHaveBeenCalled();
     await waitFor(() => expect(screen.getByTestId('place')).toHaveTextContent('outgoing'));
     expect(sent('POST', '/api/team-calls')[0].body).toEqual({ workspace_id: 'ws-1', callee_id: 'peer-1', channel: 'audio' });
+    expect(await screen.findByText('Calling…')).toBeInTheDocument();
+    expect(screen.queryByText('Ringing…')).toBeNull();
+    expect(sound.startTeamRingback).not.toHaveBeenCalled();
+    // A phone of the colleague rang: the server's event, then its read.
+    rang = true;
+    await emit('ringing');
     expect(await screen.findByText('Ringing…')).toBeInTheDocument();
+    expect(sound.startTeamRingback).toHaveBeenCalledTimes(1);
     answered = true;
     await emit('connecting');
     await waitFor(() => expect(live.connect).toHaveBeenCalledTimes(1));
@@ -437,7 +510,7 @@ describe('placing a call', () => {
     fireEvent.click(screen.getByTestId('place'));
     await waitFor(() => expect(toastSpy.error).toHaveBeenCalledWith('Daniel Carter is on another call right now.'));
     expect(screen.getByTestId('place')).toHaveTextContent('none');
-    expect(sound.stopTeamRingback).toHaveBeenCalled();
+    expect(sound.startTeamRingback).not.toHaveBeenCalled();
     expect(sound.stopRingback).not.toHaveBeenCalled();
   });
 

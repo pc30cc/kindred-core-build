@@ -432,6 +432,8 @@ export interface TeamEventPayload {
   call_id?: string;
   state?: string;
   outcome?: string | null;
+  /** `team_call`: when the callee's phone or tab first rang (`POST /api/team-calls/:id/rang`); null until then. */
+  rang_at?: string | null;
 }
 
 /**

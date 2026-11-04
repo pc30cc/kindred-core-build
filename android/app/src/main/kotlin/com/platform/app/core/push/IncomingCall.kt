@@ -155,7 +155,16 @@ data class IncomingCallLink(
     val colleagueId: String? = null,
     /** The colleague's photo, when their ring carried one. */
     val callerAvatarUrl: String? = null,
+    /**
+     * When the ring runs out, in epoch seconds on this phone's clock (what the
+     * ring was posted with); 0 when unknown. Past it the call is no longer
+     * on offer, whatever cancel did or did not reach this phone.
+     */
+    val expiresAt: Long = 0,
 ) {
+    /** Whether the ring ran out by [nowEpochSeconds]; never when its expiry is unknown. */
+    fun expired(nowEpochSeconds: Long): Boolean = expiresAt in 1..nowEpochSeconds
+
     /** A colleague's call, not a visitor's. */
     val isColleague: Boolean get() = colleagueId != null
 

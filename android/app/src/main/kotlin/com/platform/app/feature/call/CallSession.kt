@@ -245,6 +245,46 @@ class CallSession(
         _phase.value = CallPhase.Ended(CallOutcome.NoLongerWaiting)
     }
 
+    /** Answer pressed here: whatever happens to the ring now, the answer decides. */
+    private var answerAsked = false
+    private var ringWatch: Job? = null
+
+    /**
+     * Answer was pressed — the permissions may still be being asked for, with
+     * the ring already silenced: the ring's watch ([watchRing]) stands down,
+     * and the server's answer to the accept says whether the call is still
+     * there.
+     */
+    fun answerAsked() {
+        answerAsked = true
+    }
+
+    /**
+     * Ends the ring on screen when nothing else does: at its expiry
+     * ([expiresAtMillis], 0 when unknown), or once [ringGone] says this
+     * phone's ring for it is no longer up — stopped by a cancel this screen
+     * never heard (it came before the screen was there to listen, as on a
+     * cold start from the full-screen ring), declined on the notification, or
+     * run out. Only while ringing, and not once Answer was pressed.
+     * Idempotent.
+     */
+    fun watchRing(
+        expiresAtMillis: Long,
+        ringGone: () -> Boolean,
+        nowMillis: () -> Long = System::currentTimeMillis,
+    ) {
+        if (ringWatch != null) return
+        ringWatch = viewModelScope.launch {
+            while (_phase.value == CallPhase.Ringing && !answerAsked) {
+                if ((expiresAtMillis > 0 && nowMillis() >= expiresAtMillis) || ringGone()) {
+                    noLongerRinging()
+                    return@launch
+                }
+                delay(RING_WATCH_MILLIS)
+            }
+        }
+    }
+
     /**
      * Polling rather than realtime, on purpose.
      *
@@ -427,6 +467,9 @@ class CallSession(
 
     private companion object {
         const val POLL_MILLIS = 2_000L
+
+        /** How often a ring on screen checks that it still rings. */
+        const val RING_WATCH_MILLIS = 1_000L
 
         /** The call centre's "not there to answer any more": gone, or no longer active. */
         val GONE_STATUSES = setOf(404, 409)

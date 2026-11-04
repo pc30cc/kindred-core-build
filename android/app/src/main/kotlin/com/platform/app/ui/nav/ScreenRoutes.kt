@@ -1867,6 +1867,19 @@ fun IncomingCallRoute(
     // that came with the key (the effect below) finds a ringing call.
     LaunchedEffect(key.callId) {
         session.ring(workspaceId = key.workspaceId, callSessionId = key.callId, channel = channel, language = language)
+        // The ring ran out, or is no longer up on this phone — stopped by a
+        // cancel this screen was not there to hear (a cold start from the
+        // full-screen ring), declined on the notification: the screen does
+        // not go on offering a call that is gone. Not for an Answer that came
+        // with the key, which already silenced the ring.
+        if (!key.answer) {
+            session.watchRing(
+                expiresAtMillis = key.expiresAt * 1000,
+                // The application's context: the session outlives this activity
+                // across a rotation, and must not hold on to it.
+                ringGone = { !com.platform.app.core.push.CallNotifications.isRinging(context.applicationContext, key.callId) },
+            )
+        }
     }
 
     val wanted = remember(channel) {
@@ -1886,6 +1899,7 @@ fun IncomingCallRoute(
         com.platform.app.core.push.CallNotifications.forget(key.callId)
     }
     val answer = {
+        session.answerAsked()
         silence()
         val missing = wanted.any {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED

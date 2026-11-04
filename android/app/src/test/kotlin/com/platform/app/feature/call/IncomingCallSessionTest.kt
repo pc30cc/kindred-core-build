@@ -209,4 +209,55 @@ class IncomingCallSessionTest {
         answered.noLongerRinging()
         assertEquals(CallPhase.Connected, answered.phase.value)
     }
+
+    /**
+     * Nothing stops the ring on screen — its cancel came before the screen
+     * was there to hear it, or never came: it ends once its ring is no longer
+     * up on this phone, and at its expiry whatever the notification says.
+     */
+    @Test
+    fun `a ring on screen ends once its ring is gone, or at its expiry`() = runTest(dispatcher) {
+        val gone = CallSession(CenterApi(), Room())
+        gone.ringing()
+        var ringUp = true
+        gone.watchRing(expiresAtMillis = 0, ringGone = { !ringUp })
+        dispatcher.scheduler.advanceTimeBy(5_000)
+        dispatcher.scheduler.runCurrent()
+        assertEquals(CallPhase.Ringing, gone.phase.value)
+        ringUp = false
+        dispatcher.scheduler.advanceTimeBy(1_500)
+        dispatcher.scheduler.runCurrent()
+        assertEquals(CallPhase.Ended(CallOutcome.NoLongerWaiting), gone.phase.value)
+
+        var clock = 1_000_000L
+        val expiring = CallSession(CenterApi(), Room())
+        expiring.ringing()
+        expiring.watchRing(expiresAtMillis = clock + 30_000, ringGone = { false }, nowMillis = { clock })
+        dispatcher.scheduler.advanceTimeBy(2_000)
+        dispatcher.scheduler.runCurrent()
+        assertEquals(CallPhase.Ringing, expiring.phase.value)
+        clock += 30_000
+        dispatcher.scheduler.advanceTimeBy(1_500)
+        dispatcher.scheduler.runCurrent()
+        assertEquals(CallPhase.Ended(CallOutcome.NoLongerWaiting), expiring.phase.value)
+    }
+
+    /**
+     * Answer pressed, the permissions still being asked for: the ring is
+     * already silenced, and that is not the call gone — the accept decides.
+     */
+    @Test
+    fun `a ring answered here is not ended by its silenced notification`() = runTest(dispatcher) {
+        val api = CenterApi()
+        val call = CallSession(api, Room())
+        call.ringing()
+        call.answerAsked()
+        call.watchRing(expiresAtMillis = 0, ringGone = { true })
+        dispatcher.scheduler.advanceTimeBy(3_000)
+        dispatcher.scheduler.runCurrent()
+        assertEquals(CallPhase.Ringing, call.phase.value)
+        call.answer()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("ws-1" to "call-1"), api.accepted)
+    }
 }

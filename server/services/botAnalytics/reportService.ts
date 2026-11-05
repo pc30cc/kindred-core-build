@@ -11,6 +11,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { readRows } from '../../lib/pagedRows.js';
 import { BOT_CATEGORY_LABELS, type BotCategory } from './signatures.js';
 import { hasAnyImport } from './importService.js';
 
@@ -37,17 +38,19 @@ interface BotVisitRow {
 async function loadBotVisits(config: ServerConfig, workspaceId: string, range: DateRange): Promise<{ visits: BotVisitRow[]; truncated: boolean }> {
   const sb = getServiceClient(config);
   const { startIso, endIso } = rangeToTimestamps(range);
-  const { data, error } = await sb
+  // Up to ROW_CAP visits (+1 to know the cap was hit), page by page: the
+  // data layer caps a single read at DATABASE_MAX_ROWS (1000).
+  const { data, error } = await readRows<BotVisitRow>((from, to) => sb
     .from('bot_visits')
     .select('bot_name, bot_category, path, visited_at')
     .eq('workspace_id', workspaceId)
     .gte('visited_at', startIso)
     .lte('visited_at', endIso)
     .order('visited_at', { ascending: true })
-    .limit(ROW_CAP);
+    .order('id', { ascending: true })
+    .range(from, to), ROW_CAP + 1);
   if (error) throw new Error(`bot_visits_query_failed: ${error.message}`);
-  const visits = (data || []) as BotVisitRow[];
-  return { visits, truncated: visits.length >= ROW_CAP };
+  return { visits: data.slice(0, ROW_CAP), truncated: data.length > ROW_CAP };
 }
 
 export interface BreakdownRow {

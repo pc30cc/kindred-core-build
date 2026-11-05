@@ -45,6 +45,8 @@ vi.mock('../../../server/supabase.js', () => {
     select: () => FakeBuilder;
     eq: () => FakeBuilder;
     gte: () => FakeBuilder;
+    order: () => FakeBuilder;
+    range: () => FakeBuilder;
     limit: () => Promise<{ data: unknown[]; error: null }>;
     then: (resolve: (v: { count: number; data: unknown[]; error: null }) => unknown) => unknown;
   }
@@ -52,6 +54,8 @@ vi.mock('../../../server/supabase.js', () => {
     select: () => builder,
     eq: () => builder,
     gte: () => builder,
+    order: () => builder,
+    range: () => builder,
     limit: async () => ({ data: [], error: null }),
     then: (resolve) => resolve({ count: 0, data: [], error: null }),
   };

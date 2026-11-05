@@ -80,8 +80,8 @@ export async function checkPlanConcurrencyCeiling(
       workspaceId,
       'max_concurrent_calls',
     );
-  } catch (err: any) {
-    return { allowed: false, reason: 'usage_unavailable', detail: `entitlement_lookup_failed:${err?.message || 'unknown'}` };
+  } catch (err) {
+    return { allowed: false, reason: 'usage_unavailable', detail: `entitlement_lookup_failed:${(err as Error | null)?.message || 'unknown'}` };
   }
 
   if (!ent.allowed) {
@@ -118,4 +118,47 @@ export function planConcurrencyDenialBody(decision: PlanConcurrencyDecision) {
     plan: decision.plan,
     upgrade_required: decision.reason === 'plan_limit_reached' || decision.reason === 'plan_forbidden',
   };
+}
+/** The call_sessions row call_session_create wrote (every column). */
+export interface CreatedCallSession {
+  id: string;
+  state: string;
+  [column: string]: unknown;
+}
+
+export type GuardedCallInsert =
+  | { verdict: 'created'; call: CreatedCallSession }
+  | { verdict: 'limit_reached'; used: number; max: number }
+  | { verdict: 'error'; message: string };
+
+/**
+ * Insert a call_sessions row within the plan's `max_concurrent_calls`,
+ * race-free (migration 302, `call_session_create`): the workspace's live
+ * calls are counted and the row is written under the per-workspace lock that
+ * colleague calls take too (298), so two requests at limit − 1 can no longer
+ * both pass the check above. `limit` is the decision's limit: negative or
+ * missing is no limit.
+ */
+export async function insertCallSessionWithinCeiling(
+  sb: { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message?: string } | null }> },
+  row: Record<string, unknown>,
+  limit: number | undefined,
+): Promise<GuardedCallInsert> {
+  const { data, error } = await sb.rpc('call_session_create', {
+    p_row: row,
+    p_max_concurrent: typeof limit === 'number' && limit >= 0 ? limit : null,
+  });
+  if (error) return { verdict: 'error', message: error.message || 'call_session_create_failed' };
+  const out = (data ?? {}) as { verdict?: string; call?: CreatedCallSession; used?: number; max?: number };
+  if (out.verdict === 'limit_reached') return { verdict: 'limit_reached', used: Number(out.used ?? 0), max: Number(out.max ?? 0) };
+  if (out.verdict === 'created' && out.call) return { verdict: 'created', call: out.call };
+  return { verdict: 'error', message: 'insert_returned_no_row' };
+}
+
+/** The plan denial for a guarded insert that met the limit. */
+export function planConcurrencyLimitReached(
+  decision: PlanConcurrencyDecision,
+  hit: { used: number; max: number },
+): PlanConcurrencyDecision {
+  return { allowed: false, reason: 'plan_limit_reached', limit: hit.max, used: hit.used, plan: decision.plan };
 }

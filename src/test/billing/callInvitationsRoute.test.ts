@@ -105,6 +105,14 @@ vi.mock("../../../server/services/calls/invitations.js", () => ({
   INVITE_TTL_MAX_SECONDS: 300,
 }));
 
+const { concurrency } = vi.hoisted(() => ({
+  concurrency: { decision: { allowed: true, limit: -1 } as Record<string, unknown> },
+}));
+vi.mock("../../../server/services/calls/concurrencyLimit.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../server/services/calls/concurrencyLimit.js")>()),
+  checkPlanConcurrencyCeiling: async () => concurrency.decision,
+}));
+
 import { callInvitationsRouter } from "../../../server/routes/callInvitations";
 
 function getHandler(method: string, path: string) {
@@ -157,6 +165,7 @@ describe("callInvitations POST / — composed plan+runtime gate", () => {
     memberRow = { role: "agent", suspended_at: null };
     state.effective = { ...allEffective };
     state.createCalled = false;
+    concurrency.decision = { allowed: true, limit: -1 };
     createInvitationMock.mockReset();
     createInvitationMock.mockImplementation(async () => {
       state.createCalled = true;
@@ -220,6 +229,18 @@ describe("callInvitations POST / — composed plan+runtime gate", () => {
     });
     await handler(req, res, () => {});
     expect(get().statusCode).toBe(403);
+    expect(createInvitationMock).not.toHaveBeenCalled();
+  });
+
+  it("at the plan's max_concurrent_calls the invitation is refused up front (429), as /api/calls/create refuses", async () => {
+    concurrency.decision = { allowed: false, reason: "plan_limit_reached", limit: 2, used: 2, plan: "small" };
+    const handler = getHandler("post", "/");
+    const { req, res, get } = makeReqRes({
+      workspace_id: WS, conversation_id: CONV, channel: "audio",
+    });
+    await handler(req, res, () => {});
+    expect(get().statusCode).toBe(429);
+    expect(get().jsonBody).toMatchObject({ error: "plan_limit_reached", capability: "max_concurrent_calls", limit: 2, used: 2 });
     expect(createInvitationMock).not.toHaveBeenCalled();
   });
 

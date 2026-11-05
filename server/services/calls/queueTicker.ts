@@ -120,7 +120,8 @@ let passCount = 0;
 /**
  * Every SWEEP_EVERY passes (a minute), the call-centre calls abandoned in
  * `pending` are missed (queue.ts sweepStalePendingCalls, audit calls-2),
- * whether or not anything is in the line now.
+ * whether or not anything is in the line now. (Calls left `connecting` have
+ * their own timer and lease: staleConnectingSweep.ts.)
  */
 const SWEEP_EVERY = 6;
 

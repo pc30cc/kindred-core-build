@@ -29,7 +29,6 @@ import {
   publishOperatorEvent,
   publishConversationEvent,
   buildMessageEnvelope,
-  type OperatorEventPayload,
 } from '../realtime/publish.js';
 import { recordConversationEvent } from '../conversationEvents.js';
 import { clearInCall } from './availability.js';
@@ -330,7 +329,7 @@ export async function endCallSession(
       reason: input.reason,
       duration_seconds: finalRow.duration_seconds ?? duration,
       ended_at: finalRow.ended_at,
-    } as unknown as OperatorEventPayload).catch(() => { /* publish never throws */ });
+    }).catch(() => { /* publish never throws */ });
   }
 
   return {

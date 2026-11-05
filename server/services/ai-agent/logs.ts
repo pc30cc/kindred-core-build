@@ -3,6 +3,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { readRows } from '../../lib/pagedRows.js';
 import { redactSecrets } from '../../lib/redactSecrets.js';
 
 export interface LogRunInput {
@@ -216,12 +217,15 @@ export async function summarize(config: ServerConfig, workspaceId: string) {
   const sb = getServiceClient(config);
   // Last 30 days
   const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-  const { data } = await sb
+  // Every run of the window, page by page: the data layer caps a read at
+  // DATABASE_MAX_ROWS, which would cut the totals (credits included) short.
+  const { data } = await readRows<{ id: string; run_type: string | null; status: string | null; credits_used: number | null; confidence: number | null }>((from, to) => sb
     .from('ai_agent_runs')
-    .select('run_type,status,credits_used,confidence')
+    .select('id,run_type,status,credits_used,confidence')
     .eq('workspace_id', workspaceId)
     .gte('created_at', since)
-    .limit(5000);
+    .order('id', { ascending: true })
+    .range(from, to));
   const rows = data || [];
   const total = rows.length;
   let replies = 0, suggestions = 0, handoffs = 0, noAnswer = 0, failed = 0;

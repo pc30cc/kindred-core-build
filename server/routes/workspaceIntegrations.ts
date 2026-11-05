@@ -19,6 +19,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { readRows } from '../lib/pagedRows.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { checkWorkspaceProviderBaseUrl } from '../../shared/ai/endpointPolicy.js';
@@ -76,11 +77,15 @@ workspaceIntegrationsRouter.get('/:workspaceId/contact-channels', async (req, re
   if (!(await authorizeWorkspaceAccess(req, res, req.params.workspaceId))) return;
   const sb = getServiceClient(config);
 
-  const { data: convs, error } = await sb
+  // Every conversation with a contact, page by page (the data layer caps a
+  // read at DATABASE_MAX_ROWS).
+  const { data: convs, error } = await readRows<{ id: string; contact_id: string }>((from, to) => sb
     .from('conversations')
     .select('id, contact_id')
     .eq('workspace_id', req.params.workspaceId)
-    .not('contact_id', 'is', null);
+    .not('contact_id', 'is', null)
+    .order('id', { ascending: true })
+    .range(from, to));
   if (error) return res.status(500).json({ error: error.message });
 
   const convToContact = new Map<string, string>();

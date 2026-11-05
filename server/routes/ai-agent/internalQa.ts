@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { boundedArray } from '../../lib/boundedZod.js';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { readRows } from '../../lib/pagedRows.js';
 import { recordAiAgentDebugEvent } from '../../services/ai-agent/debugEvents.js';
 import { requireModule } from '../../middleware/featureGating.js';
 import { getOrCreateSettings } from '../../services/ai-agent/settings.js';
@@ -778,8 +779,11 @@ internalQaRouter.get('/test-summary', async (req: Request, res: Response) => {
   const sb = getServiceClient(config);
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const [casesRes, recentRes] = await Promise.all([
-    sb.from('ai_agent_test_cases').select('id,enabled,expected_source_type').eq('workspace_id', workspaceId),
-    sb.from('ai_agent_test_runs').select('status,failure_reasons,selected_sources').eq('workspace_id', workspaceId).gte('created_at', since).limit(2000),
+    // Paged: the data layer caps a single read at DATABASE_MAX_ROWS.
+    readRows<{ id: string; enabled: boolean; expected_source_type: string | null }>((from, to) => sb.from('ai_agent_test_cases').select('id,enabled,expected_source_type')
+      .eq('workspace_id', workspaceId).order('id', { ascending: true }).range(from, to)),
+    readRows<{ id: string; status: string; failure_reasons: string[] | null; selected_sources: unknown }>((from, to) => sb.from('ai_agent_test_runs').select('id,status,failure_reasons,selected_sources')
+      .eq('workspace_id', workspaceId).gte('created_at', since).order('id', { ascending: true }).range(from, to), 2000),
   ]);
   const cases = casesRes.data || [];
   const recent = recentRes.data || [];

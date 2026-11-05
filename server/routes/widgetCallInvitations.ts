@@ -54,7 +54,27 @@ import {
   callErrorFromUnknown,
 } from '../services/calls/errorCodes.js';
 import { endCallSession } from '../services/calls/endSession.js';
+import {
+  checkPlanConcurrencyCeiling,
+  insertCallSessionWithinCeiling,
+  planConcurrencyLimitReached,
+  type PlanConcurrencyDecision,
+} from '../services/calls/concurrencyLimit.js';
 import { readVisitorCookie } from '../services/widget/visitorIdentity.js';
+
+/**
+ * The plan refuses one more call (max_concurrent_calls, or a plan without
+ * it): the widget's "calls are not available" answer, with what was hit.
+ */
+function planLimitBody(decision: PlanConcurrencyDecision) {
+  return callErrorBody(
+    CALL_ERROR_CODES.PROVIDER_NOT_READY,
+    decision.reason === 'plan_limit_reached'
+      ? 'The plan\'s concurrent call limit is reached.'
+      : 'Calls are not available on this plan right now.',
+    { details: { kind: decision.reason, limit: decision.limit, used: decision.used } },
+  );
+}
 
 export const widgetCallInvitationsRouter = Router();
 
@@ -260,6 +280,13 @@ widgetCallInvitationsRouter.post(
         );
       }
 
+      // The plan's max_concurrent_calls, as every way of starting a call
+      // checks it (calls.ts, callWidget.ts, team calls): first here, for a
+      // clear answer, then again under the workspace's lock when the row is
+      // written (migration 302, call_session_create).
+      const conc = await checkPlanConcurrencyCeiling(config, invitation.workspace_id);
+      if (!conc.allowed) return res.status(CALL_ERROR_HTTP_STATUS.provider_not_ready).json(planLimitBody(conc));
+
       // Resolve the configured call provider for this workspace.
       const { id: providerId, provider } = await resolveEffectiveCallProvider(
         config,
@@ -277,28 +304,31 @@ widgetCallInvitationsRouter.post(
           invitation.workspace_id,
           invitation.conversation_id,
         ));
-      // Insert the active call_session. Provider remains the resolved one.
-      const { data: inserted, error: insErr } = await sb
-        .from('call_sessions')
-        .insert({
-          workspace_id: invitation.workspace_id,
-          provider: providerId,
-          call_type: invitation.channel,
-          context_type: 'conversation',
-          context_id: invitation.conversation_id,
-          visitor_session_id: visitorSessionId,
-          state: 'connecting',
-          initiated_by: invitation.created_by_user_id,
-          initiated_by_type: 'operator',
-          recording_enabled: false,
-          recording_state: 'disabled',
-          metadata: { invitation_id: invitation.id },
-          started_at: new Date().toISOString(),
-        })
-        .select('*')
-        .single();
-      if (insErr || !inserted) {
-        console.warn('[widget-invitations/join] insert call_session failed:', insErr?.message);
+      // Insert the call_session within the plan's concurrency, under the
+      // workspace's lock (migration 302). Provider remains the resolved one.
+      const created = await insertCallSessionWithinCeiling(sb, {
+        workspace_id: invitation.workspace_id,
+        provider: providerId,
+        call_type: invitation.channel,
+        context_type: 'conversation',
+        context_id: invitation.conversation_id,
+        visitor_session_id: visitorSessionId,
+        state: 'connecting',
+        initiated_by: invitation.created_by_user_id,
+        initiated_by_type: 'operator',
+        recording_enabled: false,
+        recording_state: 'disabled',
+        metadata: { invitation_id: invitation.id },
+        started_at: new Date().toISOString(),
+      }, conc.limit);
+      if (created.verdict === 'limit_reached') {
+        return res.status(CALL_ERROR_HTTP_STATUS.provider_not_ready).json(
+          planLimitBody(planConcurrencyLimitReached(conc, created)),
+        );
+      }
+      const inserted = created.verdict === 'created' ? created.call : null;
+      if (!inserted) {
+        console.warn('[widget-invitations/join] insert call_session failed:', created.verdict === 'error' ? created.message : 'no_row');
         return res.status(CALL_ERROR_HTTP_STATUS.room_create_failed).json(
           callErrorBody(
             CALL_ERROR_CODES.ROOM_CREATE_FAILED,

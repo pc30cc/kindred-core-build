@@ -27,6 +27,7 @@
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { billingRecipient, sendBillingEmail } from './notify.js';
+import { readRows, readRowsByKey, keyPage } from '../../../lib/pagedRows.js';
 
 const RECEIPT_SLUG = 'billing_payment_receipt';
 /** A window holds at most this many failed billing mails; anything past it is reported, not read. */
@@ -96,13 +97,15 @@ async function readLedger(config: ServerConfig, receiptNumber: string): Promise<
 
 /** The receipt numbers whose mail went out for this workspace, at any time. */
 async function sentReceiptNumbers(config: ServerConfig, workspaceId: string): Promise<Set<string>> {
-  const { data, error } = await getServiceClient(config)
+  // Every sent receipt, page by page (the data layer caps a read at
+  // DATABASE_MAX_ROWS): one missing here would be mailed a second time.
+  const sb = getServiceClient(config);
+  const { data, error } = await readRowsByKey<{ id: string; metadata: unknown }>('id', (after, size) => keyPage(sb
     .from('email_logs')
-    .select('metadata')
+    .select('id, metadata')
     .eq('workspace_id', workspaceId)
     .eq('template_slug', RECEIPT_SLUG)
-    .eq('status', 'sent')
-    .limit(MAX_ROWS);
+    .eq('status', 'sent'), 'id', after, size));
   if (error) throw new Error(`email_logs: ${error.message}`);
   const out = new Set<string>();
   for (const row of (data ?? []) as Array<{ metadata: unknown }>) {
@@ -119,7 +122,11 @@ export async function planReceiptResend(
 ): Promise<ReceiptResendPlan> {
   const since = window.since.toISOString();
   const until = window.until.toISOString();
-  const { data, error } = await getServiceClient(config)
+  // Paged up to MAX_ROWS + 1: the data layer caps a single read at
+  // DATABASE_MAX_ROWS (1000), so `.limit(MAX_ROWS + 1)` alone never saw the
+  // extra row that sets `truncated`.
+  const sb = getServiceClient(config);
+  const { data, error } = await readRows<LogRow>((from, to) => sb
     .from('email_logs')
     .select('id, workspace_id, template_slug, metadata, created_at')
     .eq('status', 'failed')
@@ -127,7 +134,8 @@ export async function planReceiptResend(
     .gte('created_at', since)
     .lt('created_at', until)
     .order('created_at', { ascending: true })
-    .limit(MAX_ROWS + 1);
+    .order('id', { ascending: true })
+    .range(from, to), MAX_ROWS + 1);
   if (error) throw new Error(`email_logs: ${error.message}`);
   const rows = (data ?? []) as LogRow[];
   const truncated = rows.length > MAX_ROWS;

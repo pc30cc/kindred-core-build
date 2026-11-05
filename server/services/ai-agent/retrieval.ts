@@ -3,6 +3,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { readRows } from '../../lib/pagedRows.js';
 import { applyKbUnlockedFilter, resolveKbLock } from '../knowledge-base/locks.js';
 
 export interface RetrievedSource {
@@ -134,10 +135,13 @@ export async function getKnowledgeStatus(
   has_any: boolean;
 }> {
   const sb = getServiceClient(config);
-  const { data: rows } = await sb
+  // Page by page: the data layer caps a read at DATABASE_MAX_ROWS.
+  const { data: rows } = await readRows<{ id: string; status: string | null; locale: string | null }>((from, to) => sb
     .from('knowledge_base_articles')
     .select('id,status,locale')
-    .eq('workspace_id', workspaceId);
+    .eq('workspace_id', workspaceId)
+    .order('id', { ascending: true })
+    .range(from, to));
   let published = 0, drafts = 0;
   const by_locale: Record<string, number> = {};
   for (const r of rows || []) {

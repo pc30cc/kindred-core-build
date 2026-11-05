@@ -182,17 +182,7 @@ export async function getCallbackCounts(
   workspaceId: string,
 ): Promise<{ requested: number; scheduled: number; in_progress: number; completed: number; cancelled: number }> {
   const sb = getServiceClient(config);
-  const { data } = await sb
-    .from('callback_requests')
-    .select('status')
-    .eq('workspace_id', workspaceId)
-    .gte('requested_at', new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString());
-  const out = { requested: 0, scheduled: 0, in_progress: 0, completed: 0, cancelled: 0 };
-  for (const r of data ?? []) {
-    const s = (r as { status?: string }).status as CallbackStatus;
-    if (s in out) out[s as keyof typeof out]++;
-  }
-  return out;
+  return countCallbacksByStatus(sb, workspaceId);
 }
 
 /**
@@ -203,14 +193,29 @@ export async function getPlatformCallbackCounts(
   config: ServerConfig,
 ): Promise<{ requested: number; scheduled: number; in_progress: number; completed: number; cancelled: number }> {
   const sb = getServiceClient(config);
-  const { data } = await sb
-    .from('callback_requests')
-    .select('status')
-    .gte('requested_at', new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString());
+  return countCallbacksByStatus(sb, null);
+}
+
+const COUNTED_CALLBACK_STATUSES = ['requested', 'scheduled', 'in_progress', 'completed', 'cancelled'] as const;
+
+/**
+ * The last 30 days' callback requests by status, as exact counts (a listed
+ * read is capped at DATABASE_MAX_ROWS by the data layer). `workspaceId`
+ * null counts every workspace.
+ */
+async function countCallbacksByStatus(
+  sb: ReturnType<typeof getServiceClient>,
+  workspaceId: string | null,
+): Promise<Record<(typeof COUNTED_CALLBACK_STATUSES)[number], number>> {
+  const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+  const counts = await Promise.all(COUNTED_CALLBACK_STATUSES.map(async (status) => {
+    let q = sb.from('callback_requests').select('id', { count: 'exact', head: true })
+      .eq('status', status satisfies CallbackStatus)
+      .gte('requested_at', since);
+    if (workspaceId) q = q.eq('workspace_id', workspaceId);
+    return (await q).count || 0;
+  }));
   const out = { requested: 0, scheduled: 0, in_progress: 0, completed: 0, cancelled: 0 };
-  for (const r of data ?? []) {
-    const s = (r as { status?: string }).status as CallbackStatus;
-    if (s in out) out[s as keyof typeof out]++;
-  }
+  COUNTED_CALLBACK_STATUSES.forEach((status, i) => { out[status] = counts[i]; });
   return out;
 }

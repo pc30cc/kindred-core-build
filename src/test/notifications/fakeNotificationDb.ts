@@ -52,6 +52,7 @@ export function fakeClient() {
       type Result = { data: Row[] | null; error: { code?: string; message: string } | null; count: number | null };
       let order: { col: string; asc: boolean } | null = null;
       let limit: number | null = null;
+      let offset = 0;
       let countMode = false;
       let head = false;
 
@@ -61,7 +62,7 @@ export function fakeClient() {
           const { col, asc } = order;
           out = [...out].sort((a, b) => (asc ? cmp(a[col], b[col]) : cmp(b[col], a[col])));
         }
-        return limit === null ? out : out.slice(0, limit);
+        return limit === null ? out.slice(offset) : out.slice(offset, offset + limit);
       };
 
       const apply = (): Row[] => {
@@ -130,6 +131,7 @@ export function fakeClient() {
         },
         order(col: string, opts?: { ascending?: boolean }) { order = { col, asc: opts?.ascending !== false }; return builder; },
         limit(n: number) { limit = n; return builder; },
+        range(from: number, to: number) { offset = from; limit = to - from + 1; return builder; },
         update(patch: Row) { pending = 'update'; payload = patch; return builder; },
         insert(values: Row | Row[]) { pending = 'insert'; payload = values; return builder; },
         upsert(values: Row | Row[]) { pending = 'upsert'; payload = values; return builder; },

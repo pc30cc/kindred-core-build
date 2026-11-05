@@ -10,6 +10,7 @@
 import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient, type ServiceClient } from '../supabase.js';
+import { readRows } from '../lib/pagedRows.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import {
@@ -150,12 +151,15 @@ workspaceSmartRulesRouter.get('/:workspaceId/smart-rules/stats', async (req, res
   try {
     const sb = getServiceClient(serverConfigOf(req));
     const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-    const { data, error } = await sb
+    // Up to 5000 events, page by page: the data layer caps a single read at
+    // DATABASE_MAX_ROWS (1000).
+    const { data, error } = await readRows<{ id: string; rule_id: string; event_type: string }>((from, to) => sb
       .from('widget_smart_events')
-      .select('rule_id, event_type')
+      .select('id, rule_id, event_type')
       .eq('workspace_id', workspaceId)
       .gte('created_at', since)
-      .limit(5000);
+      .order('id', { ascending: true })
+      .range(from, to), 5000);
     if (error) return res.status(500).json({ error: error.message });
     const map: Record<string, { shown: number; opened: number; dismissed: number; cta: number; conversations: number }> = {};
     for (const row of (data || []) as Array<{ rule_id: string; event_type: string }>) {
@@ -327,9 +331,17 @@ workspaceSmartRulesRouter.get('/:workspaceId/ai-nudge-settings/stats', async (re
     const sb = getServiceClient(config);
     const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
     const [{ data: events }, { data: nudges }, { data: runs }] = await Promise.all([
-      sb.from('widget_smart_events').select('event_type, ai_nudge_id').eq('workspace_id', workspaceId).eq('source', 'ai_proactive').gte('created_at', since).limit(5000),
-      sb.from('widget_ai_nudges').select('id, topic, page_path, status').eq('workspace_id', workspaceId).gte('created_at', since).limit(2000),
-      sb.from('ai_runs').select('customer_charge_irr, provider_cost_usd').eq('workspace_id', workspaceId).eq('entry_point', 'proactive_nudge').gte('created_at', since).limit(5000),
+      // Up to the same bounds as before, page by page: the data layer caps a
+      // single read at DATABASE_MAX_ROWS (1000).
+      readRows<{ id: string; event_type: string }>((from, to) => sb.from('widget_smart_events').select('id, event_type, ai_nudge_id')
+        .eq('workspace_id', workspaceId).eq('source', 'ai_proactive').gte('created_at', since)
+        .order('id', { ascending: true }).range(from, to), 5000),
+      readRows<{ id: string; topic?: string | null; page_path?: string | null }>((from, to) => sb.from('widget_ai_nudges').select('id, topic, page_path, status')
+        .eq('workspace_id', workspaceId).gte('created_at', since)
+        .order('id', { ascending: true }).range(from, to), 2000),
+      readRows<{ id: string; provider_cost_usd?: unknown; customer_charge_irr?: unknown }>((from, to) => sb.from('ai_runs').select('id, customer_charge_irr, provider_cost_usd')
+        .eq('workspace_id', workspaceId).eq('entry_point', 'proactive_nudge').gte('created_at', since)
+        .order('id', { ascending: true }).range(from, to), 5000),
     ]);
     const counters = { shown: 0, dismissed: 0, cta_clicked: 0, widget_opened: 0, conversation_started: 0 };
     for (const row of (events || []) as Array<{ event_type: string }>) {

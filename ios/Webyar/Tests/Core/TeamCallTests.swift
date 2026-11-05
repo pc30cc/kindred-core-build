@@ -414,6 +414,18 @@ final class TeamCallTests: XCTestCase {
         XCTAssertFalse(call(state: .connecting, role: .caller, answeredDeviceID: me).isAnswered(on: me), "the caller answers nothing")
     }
 
+    /// A ring here that ended unanswered shows one signal: cancelled and
+    /// missed leave the missed-call notification alone, a decline here
+    /// nothing; what only the screen can say stays on it a moment.
+    func testARingEndedUnansweredClosesItsScreenWhenSomethingElseSaysIt() {
+        XCTAssertTrue(TeamCallEnd.cancelled.closesRingAtOnce)
+        XCTAssertTrue(TeamCallEnd.missed.closesRingAtOnce)
+        XCTAssertTrue(TeamCallEnd.hungUp.closesRingAtOnce)
+        XCTAssertFalse(TeamCallEnd.answeredElsewhere.closesRingAtOnce)
+        XCTAssertFalse(TeamCallEnd.declinedElsewhere.closesRingAtOnce)
+        XCTAssertFalse(TeamCallEnd.failed.closesRingAtOnce)
+    }
+
     func testEveryEndHasItsOwnLine() {
         XCTAssertEqual(TeamCallEnd.missed.title(.en, channel: .audio), "Missed voice call")
         XCTAssertEqual(TeamCallEnd.missed.title(.en, channel: .video), "Missed video call")

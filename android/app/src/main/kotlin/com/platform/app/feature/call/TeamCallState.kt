@@ -35,13 +35,31 @@ sealed interface TeamCallPhase {
      * Over, for [end]. [detail] is the server's own words for a call that
      * failed, which the screen puts under the title: "Call failed" over a
      * refusal this build has no sentence for says nothing anyone can act on.
+     *
+     * [silent]: a ring on this phone that stopped before it was answered
+     * here, with nothing for its screen to say ([TeamCallEnd.closesRingAtOnce]).
+     * The screen closes at once rather than saying it and waiting.
      */
-    data class Ended(val end: TeamCallEnd, val detail: String? = null) : TeamCallPhase
+    data class Ended(val end: TeamCallEnd, val detail: String? = null, val silent: Boolean = false) : TeamCallPhase
 
     val isOver: Boolean get() = this is Ended
 
     /** Not answered yet, on either side. */
     val isRinging: Boolean get() = this == Calling || this == Ringing
+
+    /**
+     * How long the screen of a call that is over stays before it closes on
+     * its own, in milliseconds; null while the call is on. A silent end
+     * ([Ended.silent]) closes at once; any other stays [ENDED_LINGER_MS],
+     * long enough to read how it ended — as the iOS app (2 s) and the web
+     * panel (2.5 s) do. Done closes it sooner.
+     */
+    val closesAfterMs: Long?
+        get() = (this as? Ended)?.let { if (it.silent) 0L else ENDED_LINGER_MS }
+
+    companion object {
+        const val ENDED_LINGER_MS = 2_000L
+    }
 }
 
 /**
@@ -108,6 +126,20 @@ enum class TeamCallEnd {
     }
 
     companion object {
+        /**
+         * Whether a ring on this phone that ended with [end] before it was
+         * answered here closes its screen at once: one visible signal for
+         * the member, never the screen and a notification saying the same
+         * (owner, 2026-11-05: "two end screens"). Cancelled and missed are
+         * said by the missed-call notification; a decline — on the screen,
+         * or on the ring's notification while the screen was open — was the
+         * member's own move, with nothing to tell them. Anything else
+         * (answered or declined on another phone) is said on the screen,
+         * which closes on its own a moment later. The same rule as the iOS
+         * app's `TeamCallEnd.closesRingAtOnce`.
+         */
+        fun closesRingAtOnce(end: TeamCallEnd): Boolean = end == CANCELLED || end == MISSED || end == HUNG_UP
+
         /**
          * What a call the server reports means for this phone, or null while
          * it is still ringing — or answered here, and so going on.

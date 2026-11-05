@@ -1170,10 +1170,11 @@ final class CallManager {
         // - with the app not in front, CallKit's own screen said it (a call
         //   answered on the lock screen shows CallKit's "Call ended"), so the
         //   app does not show its end screen again when it is opened.
-        // Anything else lingers a moment so the outcome can be read.
-        let unansweredHere = wasRingingHere && (end == .missed || end == .cancelled)
+        // Anything else lingers a moment so the outcome can be read. The
+        // first two are `TeamCallEnd.closesRingAtOnce`, Android's rule too.
+        let closesAtOnce = wasRingingHere && end.closesRingAtOnce
         let notInFront = UIApplication.shared.applicationState != .active
-        if wasRingingHere && end == .hungUp || unansweredHere || notInFront {
+        if closesAtOnce || notInFront {
             self.call = nil
         } else {
             clearTimer = Task { [weak self] in

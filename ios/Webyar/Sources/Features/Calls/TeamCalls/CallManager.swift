@@ -899,9 +899,11 @@ final class CallManager {
         }
         teardown()
 
-        // A ring declined here has nothing to say; anything else lingers a
-        // moment so the outcome can be read.
-        if wasRingingHere, end == .hungUp {
+        // A ring declined here has nothing to say, and one cancelled or
+        // missed is said by the missed-call notification alone
+        // (`closesRingAtOnce`); anything else lingers a moment so the outcome
+        // can be read.
+        if wasRingingHere, end.closesRingAtOnce {
             self.call = nil
         } else {
             clearTimer = Task { [weak self] in

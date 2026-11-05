@@ -386,6 +386,16 @@ enum TeamCallEnd: Equatable, Sendable {
         }
     }
 
+    /// Whether a ring on this phone that ended with this before it was
+    /// answered here closes its screen at once: one visible signal for the
+    /// member, never the screen and a notification saying the same (owner,
+    /// 2026-11-05: "two end screens"). Cancelled and missed are said by the
+    /// missed-call notification; a decline here was the member's own move,
+    /// with nothing to tell them. Anything else (answered or declined on
+    /// another phone) is said on the screen, which lingers a moment. The same
+    /// rule as the Android app's `TeamCallEnd.closesRingAtOnce`.
+    var closesRingAtOnce: Bool { self == .hungUp || self == .cancelled || self == .missed }
+
     /// Why `POST /api/team-calls` refused to ring, from its status and the
     /// `error` code in its body.
     static func refusal(status: Int, code: String?) -> TeamCallEnd {

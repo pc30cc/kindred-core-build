@@ -648,9 +648,21 @@ export async function endTeamCallsOfMember(config: ServerConfig, userId: string)
   }
   let ended = 0;
   for (const row of rows.values()) {
-    const move = await hangUpTeamCall(config, row, userId);
-    await move.effects;
-    if (move.moved) ended += 1;
+    try {
+      let move = await hangUpTeamCall(config, row, userId);
+      // A cancel or decline that lost to an answer at the same instant
+      // leaves the call live (now connecting): hang that one up too, from
+      // the row as it now is, a couple of times at most.
+      for (let i = 0; i < 2 && !move.moved && (TEAM_CALL_LIVE_STATES as readonly string[]).includes(move.row.state); i++) {
+        await move.effects;
+        move = await hangUpTeamCall(config, move.row, userId);
+      }
+      await move.effects;
+      if (move.moved) ended += 1;
+    } catch (err) {
+      // One call that cannot be moved never keeps the others live.
+      console.warn('[team-calls] ending a call of a deleted account failed', row.id, err instanceof Error ? err.message : err);
+    }
   }
   return ended;
 }

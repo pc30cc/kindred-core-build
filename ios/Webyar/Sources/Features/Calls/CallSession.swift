@@ -116,14 +116,21 @@ final class CallSession {
     private var callSessionID: String?
     private var pollTask: Task<Void, Never>?
     private var roomDelegate: RoomObserver?
+    /// Whether a colleague call holds this phone's audio. A visitor who
+    /// answered while the app was suspended is never joined beside one: the
+    /// two rooms would share LiveKit's engine, which CallKit owns for the
+    /// colleague call (`CallManager.isOnCall`).
+    private let colleagueCallOn: @MainActor () -> Bool
 
     init(
         invitation: CallInvitation,
         contactName: String,
         contactAvatarURL: String?,
         visitor: VisitorProfile? = nil,
-        api: any WebyarAPI = Backend.current
+        api: any WebyarAPI = Backend.current,
+        colleagueCallOn: @escaping @MainActor () -> Bool = { CallManager.shared.isOnCall }
     ) {
+        self.colleagueCallOn = colleagueCallOn
         self.invitationID = invitation.id
         self.channel = invitation.kind
         self.isCameraOn = invitation.kind == .video
@@ -154,6 +161,14 @@ final class CallSession {
                 let invitation = try await api.invitation(id: invitationID)
                 if let sessionID = invitation.callSessionId, invitation.isJoined {
                     callSessionID = sessionID
+                    // A colleague call started meanwhile (the app was asleep
+                    // while the visitor answered): this call ends, failed,
+                    // and the server is told — never a second room on the
+                    // colleague call's audio.
+                    guard !colleagueCallOn() else {
+                        await finish(.failed("colleague_call"))
+                        return
+                    }
                     await join(callSessionID: sessionID)
                     return
                 }
@@ -194,6 +209,12 @@ final class CallSession {
             // otherwise a hang-up during "connecting" is followed a second
             // later by the microphone going live in a call nobody is on.
             guard phase == .connecting else { return }
+            // The same, should a colleague call have begun while the token
+            // was on its way.
+            guard !colleagueCallOn() else {
+                await finish(.failed("colleague_call"))
+                return
+            }
             relayWarning = credentials.warnings?.contains("turn_missing") == true
 
             // RESPOK never joins a call on a WebYar server, whatever its own names (`AppBrand`).

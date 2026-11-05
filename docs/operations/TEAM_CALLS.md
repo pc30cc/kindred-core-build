@@ -230,10 +230,12 @@ uncounted time.
   phone is in a visitor call. In the visitor's room (connecting or connected)
   it is also declined on the server (`POST /decline`), so the call ends
   `declined` for the caller and the member's other phones. While only
-  inviting a visitor (the request, or an invitation not yet expired) it ends
-  on this phone alone, and the other phones may still answer. A visitor
-  screen left behind by suspension (an expired invitation, an ended call) is
-  not busy (`VisitorCallScreens.busy`).
+  inviting a visitor (the request, or a screen still waiting, even past the
+  invitation's expiry, as the visitor may have answered while the app slept)
+  it ends on this phone alone, and the other phones may still answer. An
+  ended visitor screen left behind is not busy (`VisitorCallScreens.busy`).
+  And a visitor call whose invitation turns out joined while a colleague
+  call holds the audio is never joined: it ends failed, the server told.
 - Signing out with a colleague call on (reachable once it is minimised) ends
   it with the server told first, within 5 s, a call still being placed
   included. Deleting the account ends it on the server

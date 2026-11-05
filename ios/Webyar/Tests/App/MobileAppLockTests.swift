@@ -343,7 +343,10 @@ final class MobileAppLockTests: XCTestCase {
         XCTAssertEqual(screens.busy(now: now), .inviting, "handed over, no gap")
         screens.opened(live, phase: .waiting)
         XCTAssertEqual(screens.busy(now: now), .inviting)
-        XCTAssertEqual(screens.busy(now: now.addingTimeInterval(120)), .none, "an invitation that ran out is not a call")
+        XCTAssertEqual(
+            screens.busy(now: now.addingTimeInterval(120)), .inviting,
+            "past its expiry, still a call: the visitor may have answered while the app slept"
+        )
 
         screens.changed(live.id, phase: .connecting)
         XCTAssertEqual(screens.busy(now: now.addingTimeInterval(120)), .live)

@@ -769,9 +769,11 @@ final class VisitorCallScreens {
     enum Busy: Equatable {
         /// No visitor call this phone is in: the ring rings.
         case none
-        /// The visitor is being invited (the request, or an unexpired
-        /// invitation): the ring is ended on this phone only — no room, no
-        /// audio yet, and the member's other phones may still answer.
+        /// The visitor is being invited (the request, or a screen still
+        /// waiting, even past the invitation's expiry: the visitor may have
+        /// answered while the app was suspended, and the screen learns it at
+        /// its next poll): the ring is ended on this phone only — no room,
+        /// no audio yet, and the member's other phones may still answer.
         case inviting
         /// Joining or in the visitor's room: the ring is declined.
         case live
@@ -783,9 +785,11 @@ final class VisitorCallScreens {
     /// waits on (`SignedInRoot`).
     var isOn: Bool { !calls.isEmpty }
 
-    /// Busy, for a colleague's ring arriving `now`. A screen left behind by
-    /// suspension — a waiting invitation that has run out, an ended call —
-    /// is not a call.
+    /// Busy, for a colleague's ring arriving `now`. An ended screen left
+    /// behind is not a call. A waiting one is, whatever its expiry says: an
+    /// invitation answered before it ran out never expires, and a suspended
+    /// app has not polled to find out — at worst one ring on this phone is
+    /// lost while the screen clears itself at its next poll.
     func busy(now: Date) -> Busy {
         var result = Busy.none
         for entry in calls.values {
@@ -793,7 +797,7 @@ final class VisitorCallScreens {
             case .connecting, .connected:
                 return .live
             case .waiting:
-                if entry.expiresAt.map({ now < $0 }) ?? true { result = .inviting }
+                result = .inviting
             case .ended:
                 break
             }

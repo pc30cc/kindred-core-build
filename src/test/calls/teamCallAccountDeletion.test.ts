@@ -107,6 +107,32 @@ describe('deleting an account ends its colleague calls', () => {
     expect(byId('visitor').state).toBe('active');
   });
 
+  it('hangs up again a ring that was answered at the same instant as its decline', async () => {
+    call('rung', 'ringing', COLLEAGUE, LEAVER);
+    // The callee's other phone answers just as the deletion declines: the
+    // first compare-and-set finds the call already connecting.
+    const from = h.db.from.bind(h.db) as (table: string) => Record<string, (...args: unknown[]) => unknown>;
+    let raced = false;
+    (h.db as unknown as { from: unknown }).from = (table: string) => {
+      const query = from(table);
+      if (table === 'call_sessions' && !raced) {
+        const update = query.update.bind(query);
+        query.update = (...args: unknown[]) => {
+          raced = true;
+          Object.assign(byId('rung'), { state: 'connecting', connected_at: new Date().toISOString() });
+          return update(...args);
+        };
+      }
+      return query;
+    };
+
+    expect(await endTeamCallsOfMember(config, LEAVER)).toBe(1);
+
+    expect(raced).toBe(true);
+    expect(byId('rung').state).toBe('ended');
+    expect(outcome('rung')).toBe('completed');
+  });
+
   it('runs in DELETE /api/account after the password and owner checks, before the sessions go', () => {
     const route = readFileSync(join(process.cwd(), 'server/routes/account.ts'), 'utf8');
     const handler = route.slice(route.indexOf("accountRouter.delete('/'"));

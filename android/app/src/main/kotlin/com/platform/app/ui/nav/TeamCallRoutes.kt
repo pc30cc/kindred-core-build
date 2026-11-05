@@ -32,6 +32,7 @@ import com.platform.app.feature.call.TeamCallSession
 import com.platform.app.feature.call.ToneRingback
 import com.platform.app.i18n.Language
 import com.platform.app.i18n.Str
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -91,7 +92,7 @@ fun TeamCallRoute(
                 room = LiveKitRoom(app),
                 deviceId = { graph?.push?.deviceId() },
                 nudges = graph?.teamCallNudges ?: emptyFlow(),
-                ringback = ToneRingback(video = channel == CallChannel.VIDEO),
+                ringback = ToneRingback(),
                 foreground = ServiceCallForeground(app),
                 rang = { id -> graph?.teamCallRang?.report(id) },
             )
@@ -175,7 +176,10 @@ fun TeamCallRoute(
         // A ring that ended under this screen — answered on another phone,
         // the colleague gave up — stops here too, in case its cancel never
         // came. Missed when it was: the server's missed call for the same
-        // call takes the same place in the tray.
+        // call takes the same place in the tray. A ring that was never
+        // answered here and ended cancelled or missed then leaves only that
+        // notification: its screen closes at once (below), so the member
+        // sees one end, not two.
         LaunchedEffect(phase) {
             val end = (phase as? TeamCallPhase.Ended)?.end ?: return@LaunchedEffect
             CallNotifications.stopTeam(
@@ -214,6 +218,18 @@ fun TeamCallRoute(
     val ringingHere = ringId != null && phase == TeamCallPhase.Ringing
     BackHandler(enabled = !ringingHere && !phase.isOver, onBack = onMinimise)
     BackHandler(enabled = phase.isOver, onBack = onDone)
+
+    // A call that is over closes its screen on its own: at once when there
+    // is nothing for it to say (a ring here cancelled, missed or declined —
+    // the notification's Decline included), else a moment after it says how
+    // the call ended. After the ring's own effect above, which posts the
+    // missed call first. Not while minimised or in its bubble, where this
+    // screen is not composed: AppShell drops that call as it ends.
+    LaunchedEffect(phase) {
+        val after = phase.closesAfterMs ?: return@LaunchedEffect
+        if (after > 0) delay(after)
+        onDone()
+    }
 
     // The small views of this call — the picture-in-picture window, the
     // bubble — read it from here, for as long as the session lives.
@@ -274,6 +290,7 @@ fun TeamCallRoute(
         onToggleCamera = rememberCameraToggle({ session.cameraOn.value }, session::toggleCamera),
         onSwitchCamera = session::switchCamera,
         onToggleSpeaker = session::toggleSpeaker,
+        onAtEar = session::setAtEar,
         onDone = onDone,
         onMinimise = onMinimise,
     )

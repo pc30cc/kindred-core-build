@@ -231,7 +231,21 @@ uncounted time.
 - Answer → `POST accept` → `POST token` → LiveKit. Decline → `POST decline`
   from the notification, without opening the app.
 - Outgoing from the thread's top bar (phone and video), with a ringback tone
-  until the answer.
+  until the answer (`feature/call/Ringback.kt`). It plays on the
+  loudspeaker (the media stream, so a headset carries it) while the phone is
+  in front of the face, Speaker is on, or the call is video, and on the
+  earpiece only once the proximity sensor says the phone is at the ear;
+  Speaker and the sensor move it while it plays (owner, 2026-11-05: on the
+  earpiece in front of the face it was not heard).
+- One end signal for a ring nobody answered here (owner, 2026-11-05, both
+  apps): a ring screen whose call ends cancelled or missed closes at once and
+  leaves only the missed-call notification; one declined here (on the screen
+  or on the ring's notification while the screen was open) closes at once
+  too. Answered or declined on another phone is said on the screen
+  (`TeamCallEnd.closesRingAtOnce`, the iOS app's the same).
+- Any other ended call screen closes on its own after 2 s, as on iOS (2 s)
+  and the web panel (2.5 s); Done closes it at once. A call minimised to its
+  bubble or in picture-in-picture is dropped as it ends, with no end screen.
 - A foreground service (microphone, and camera for video) with an ongoing
   call notification keeps the call alive with the screen off.
 - Without the notification permission (Android 13+) a ring cannot show:

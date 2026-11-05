@@ -140,6 +140,9 @@ class TeamCallSession(
     /** In the room, ready for the colleague to be there. */
     private var joined = false
 
+    /** The proximity sensor says the phone is at the ear ([setAtEar]); far until it says so. */
+    private var atEar = false
+
     /** When this phone started ringing or being rung, for its own deadline. */
     private var ringStartedAt: Instant? = null
     private var expiresAt: Instant? = null
@@ -245,6 +248,7 @@ class TeamCallSession(
         _peer.value = peer
         _cameraOn.value = channel == CallChannel.VIDEO
         _speakerOn.value = channel == CallChannel.VIDEO
+        routeRingback()
         return true
     }
 
@@ -581,10 +585,32 @@ class TeamCallSession(
         }
     }
 
+    /**
+     * Speaker, in every phase: while the call is placed or rings, before
+     * there is a room, it moves the ringback; the room starts where it says.
+     */
     fun toggleSpeaker() {
         val next = !_speakerOn.value
         _speakerOn.value = next
         room.setSpeaker(next)
+        routeRingback()
+    }
+
+    /**
+     * The proximity sensor, while the screen listens to it: [near] is the
+     * phone at the ear. The ringback follows it — the earpiece at the ear,
+     * the loudspeaker in front of the face.
+     */
+    fun setAtEar(near: Boolean) {
+        if (atEar == near) return
+        atEar = near
+        routeRingback()
+    }
+
+    private fun routeRingback() {
+        ringback.route(
+            RingbackOutput.of(video = channel == CallChannel.VIDEO, speakerOn = _speakerOn.value, atEar = atEar),
+        )
     }
 
     // MARK: - The end
@@ -598,7 +624,8 @@ class TeamCallSession(
      */
     private fun finish(end: TeamCallEnd, detail: String? = null, tell: Boolean) {
         if (_phase.value.isOver) return
-        _phase.value = TeamCallPhase.Ended(end, detail)
+        val ringingHere = direction == Direction.INCOMING && _phase.value == TeamCallPhase.Ringing
+        _phase.value = TeamCallPhase.Ended(end, detail, silent = ringingHere && TeamCallEnd.closesRingAtOnce(end))
         ringback.stop()
         foreground.stop()
         // Nothing may join the room, or say it failed, after this.

@@ -1,6 +1,10 @@
 package com.platform.app.feature.call
 
 import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.PowerManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.material.icons.Icons
@@ -36,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -100,6 +105,12 @@ fun TeamCallScreen(
     onToggleCamera: () -> Unit = {},
     onSwitchCamera: () -> Unit = {},
     onToggleSpeaker: () -> Unit = {},
+    /**
+     * The proximity sensor while a call placed here is calling or ringing
+     * the colleague: true at the ear, false away from it. Where the ringback
+     * plays follows it.
+     */
+    onAtEar: (Boolean) -> Unit = {},
     onDone: () -> Unit = {},
     /** Keeps the call going in a small window over the rest of the app. Null: not offered. */
     onMinimise: (() -> Unit)? = null,
@@ -117,6 +128,10 @@ fun TeamCallScreen(
         onDispose { if (awake) view.keepScreenOn = false }
     }
     ProximityScreenOff(active = !video && !speakerOn && !phase.isOver && !(incoming && phase == TeamCallPhase.Ringing))
+    // The same sensor, read: whether the phone is at the ear while the
+    // ringback may play, so it plays on the earpiece there and on the
+    // loudspeaker in front of the face.
+    ProximityNear(active = !video && !incoming && phase.isRinging, onChange = onAtEar)
 
     Box(
         // Opaque from edge to edge, on the lock screen too: the call's own
@@ -390,7 +405,8 @@ private fun TeamCallControls(
             }
         }
         // Red and round, ending the call; a quiet "Done" closing a finished
-        // one: the only way off this screen either way.
+        // one at once, which also closes on its own a moment later
+        // (TeamCallPhase.closesAfterMs).
         CallToggle(
             icon = if (phase.isOver) Icons.Filled.Check else Glyph.CallEnd,
             label = if (phase.isOver) Str.done(language) else Str.teamCallHangUp(language),
@@ -420,6 +436,45 @@ private fun ProximityScreenOff(active: Boolean) {
         }
     }
 }
+
+/**
+ * The proximity sensor's near and far, told to [onChange] while [active] —
+ * once as it starts, then at each change. A phone without the sensor says
+ * nothing, and is taken for one away from the ear.
+ */
+@Composable
+private fun ProximityNear(active: Boolean, onChange: (Boolean) -> Unit) {
+    val context = LocalContext.current
+    val report by rememberUpdatedState(onChange)
+    DisposableEffect(context, active) {
+        val sensors = if (active) ContextCompat.getSystemService(context, SensorManager::class.java) else null
+        val sensor = sensors?.getDefaultSensor(Sensor.TYPE_PROXIMITY)
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                val distance = event.values.firstOrNull() ?: return
+                report(isNear(distance, event.sensor.maximumRange))
+            }
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+        }
+        if (sensors != null && sensor != null) {
+            runCatching { sensors.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_NORMAL) }
+        }
+        onDispose {
+            if (sensors != null && sensor != null) runCatching { sensors.unregisterListener(listener) }
+        }
+    }
+}
+
+/**
+ * A proximity reading as near or far. Most sensors only say "near" (0) or
+ * "far" (their maximum range); the rest give centimetres, of which a few
+ * mean the ear.
+ */
+internal fun isNear(distance: Float, maximumRange: Float): Boolean =
+    distance < minOf(maximumRange, NEAR_CM)
+
+/** Closer than this is at the ear. */
+private const val NEAR_CM = 5f
 
 private fun proximityLock(context: Context): PowerManager.WakeLock? {
     val power = ContextCompat.getSystemService(context, PowerManager::class.java) ?: return null

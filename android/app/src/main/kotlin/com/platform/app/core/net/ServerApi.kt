@@ -637,6 +637,15 @@ interface ServerApi {
     suspend fun declineTeamCall(callId: String)
 
     /**
+     * This phone is ringing for [callId] (`POST /api/team-calls/:id/rang`,
+     * `{device_id, platform: "android"}`): what moves the caller's screen
+     * from "Calling…" to "Ringing…" and starts their ringback. Sent once per
+     * call per phone ([com.platform.app.core.push.TeamCallRangReporter]). A
+     * `409 not_ringing` is too late, and is thrown like any refusal.
+     */
+    suspend fun teamCallRang(callId: String, deviceId: String?) {}
+
+    /**
      * The caller gives up before an answer. Idempotent. The call as it now
      * stands: a cancel that crossed the colleague's answer finds it answered,
      * and that call is then the caller's to hang up.

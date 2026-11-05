@@ -109,6 +109,12 @@
           `resizeableActivity` is the default at this target, but it is said
           out loud because a tablet in split screen and a foldable opening are
           the two cases most likely to be forgotten.
+
+          `supportsPictureInPicture`: a call on (and only a call) goes on in
+          the system's small window when the member leaves for another app
+          (feature/call/CallPictureInPicture.kt). Entering and leaving it are
+          size changes this activity already handles itself, above, so the
+          call's view models and its video are never rebuilt for it.
         -->
         <!--
           `singleTop`: a notification tapped while the app is open reaches
@@ -129,6 +135,7 @@
             android:theme="@style/Theme.App"
             android:windowSoftInputMode="adjustResize"
             android:resizeableActivity="true"
+            android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|uiMode|density|fontScale|layoutDirection|navigation">
         </activity>
 

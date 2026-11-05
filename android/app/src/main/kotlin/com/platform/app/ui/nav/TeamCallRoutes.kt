@@ -33,6 +33,16 @@ import com.platform.app.feature.call.ToneRingback
 import com.platform.app.i18n.Language
 import com.platform.app.i18n.Str
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.platform.app.feature.call.ActiveCall
+import com.platform.app.feature.call.ActiveCallIdentity
+import com.platform.app.feature.call.ActiveCallStage
+import com.platform.app.feature.call.ActiveCallState
+import com.platform.app.feature.call.activeStage
 
 /**
  * A colleague call: placed from their thread, or rung on this phone — the
@@ -42,7 +52,9 @@ import kotlinx.coroutines.flow.emptyFlow
  * The session is the screen's view model, so it lives as long as the call
  * screen is on the stack and survives the phone turning; the foreground
  * service it starts keeps the process — and the microphone — when the screen
- * goes off. Back, like the red button, ends the call.
+ * goes off. Back minimises the call into its bubble (the red button ends
+ * it); the screen leaving the stack for good ends it (the session's
+ * onCleared).
  */
 @Composable
 fun TeamCallRoute(
@@ -59,6 +71,12 @@ fun TeamCallRoute(
     /** Whether the screen now in front is a call ringing, or answered, on this phone. */
     ringInFront: () -> Boolean,
     onDone: () -> Unit,
+    /**
+     * Takes this screen off the display with the call still on: the rest of
+     * the app comes back, the call in a small bubble over it
+     * ([com.platform.app.feature.call.FloatingCallBubble]).
+     */
+    onMinimise: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val graph = LocalAppGraph.current
@@ -75,6 +93,7 @@ fun TeamCallRoute(
                 nudges = graph?.teamCallNudges ?: emptyFlow(),
                 ringback = ToneRingback(video = channel == CallChannel.VIDEO),
                 foreground = ServiceCallForeground(app),
+                rang = { id -> graph?.teamCallRang?.report(id) },
             )
         },
     )
@@ -118,17 +137,23 @@ fun TeamCallRoute(
     // session says which half of the call is missing — the colleague is
     // already waiting.
     var outgoingAsked by remember { mutableStateOf(false) }
+    // Answer, or "Audio only" on a video call: the camera is asked for only
+    // when it will be used.
+    var answerWithVideo by remember { mutableStateOf(true) }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        if (ringId != null) session.answer() else outgoingAsked = true
+        if (ringId != null) session.answer(withVideo = answerWithVideo) else outgoingAsked = true
     }
     // Only a ring is answered: the key's own Answer, run again as the screen
     // comes back from under another, asks for nothing twice.
-    val answer = {
+    val answerAs = { withVideo: Boolean ->
         if (session.phase.value == TeamCallPhase.Ringing) {
             silence()
-            if (wanted.all(::granted)) session.answer() else permissions.launch(wanted)
+            answerWithVideo = withVideo
+            val needed = if (withVideo) wanted else arrayOf(Manifest.permission.RECORD_AUDIO)
+            if (needed.all(::granted)) session.answer(withVideo = withVideo) else permissions.launch(needed)
         }
     }
+    val answer = { answerAs(true) }
     // Declined here: the ring stops, the server is told, and the screen goes
     // — there is nothing on it to read.
     val decline = {
@@ -162,7 +187,9 @@ fun TeamCallRoute(
         }
     } else {
         LaunchedEffect(Unit) {
-            if (wanted.all(::granted)) outgoingAsked = true else permissions.launch(wanted)
+            // Asked once, before the call: a screen brought back from its
+            // bubble composes this again, and must not ask over a live call.
+            if (session.started || wanted.all(::granted)) outgoingAsked = true else permissions.launch(wanted)
         }
         // Asks the session to call; `place` is idempotent, so a
         // recomposition never rings twice. See CallRoute.
@@ -178,9 +205,36 @@ fun TeamCallRoute(
 
     // Back on the ring is Decline, as the red button is: the ring stops here
     // at once, not when the server's word that it was declined comes back —
-    // or, with no network, never, and then as a missed call. Back on anything
-    // else leaves the screen, which ends the call (the session's onCleared).
+    // or, with no network, never, and then as a missed call.
     BackHandler(enabled = ringId != null && phase == TeamCallPhase.Ringing, onBack = decline)
+    // Back on a call placed or answered keeps it going, small, over the rest
+    // of the app (the red button is how it ends) — and, being a plain Back
+    // handler, it shows no preview of the screen underneath: nothing behind
+    // the call shows through it, even for the length of a gesture.
+    val ringingHere = ringId != null && phase == TeamCallPhase.Ringing
+    BackHandler(enabled = !ringingHere && !phase.isOver, onBack = onMinimise)
+    BackHandler(enabled = phase.isOver, onBack = onDone)
+
+    // The small views of this call — the picture-in-picture window, the
+    // bubble — read it from here, for as long as the session lives.
+    val active = rememberActiveCall(session) {
+        ActiveCall(
+            owner = session,
+            screen = key,
+            colleague = true,
+            state = combine(session.phase, session.muted, session.cameraOn) { p, m, _ ->
+                ActiveCallState(
+                    stage = p.activeStage(incoming = ringId != null),
+                    since = (p as? TeamCallPhase.Live)?.since,
+                    muted = m,
+                    video = channel == CallChannel.VIDEO,
+                )
+            }.stateIn(session.viewModelScope, SharingStarted.Eagerly, ActiveCallState(ActiveCallStage.OUTGOING)),
+            room = room,
+            toggleMute = session::toggleMute,
+            hangUp = session::hangUp,
+        )
+    }
 
     // Over the lock screen for the call, and only for the call — unless the
     // screen that took its place is a ring of its own, which the tap that
@@ -190,13 +244,18 @@ fun TeamCallRoute(
         onDispose { if (!inFront()) (context as? MainActivity)?.showOverLockScreen(false) }
     }
 
+    // Their profile name — never an e-mail, which the call's notification
+    // would show on the lock screen — else "Colleague".
+    val peerName = peer.name?.takeIf { it.isNotBlank() } ?: Str.teamCallColleague(language)
+    LaunchedEffect(active, peerName, peer.avatarUrl) {
+        active?.identity?.value = ActiveCallIdentity(name = peerName, avatarUrl = peer.avatarUrl)
+    }
+
     TeamCallScreen(
         phase = phase,
         incoming = ringId != null,
         channel = channel,
-        // Their profile name — never an e-mail, which the call's
-        // notification would show on the lock screen — else "Colleague".
-        peerName = peer.name?.takeIf { it.isNotBlank() } ?: Str.teamCallColleague(language),
+        peerName = peerName,
         peerAvatarUrl = peer.avatarUrl,
         language = language,
         muted = muted,
@@ -209,11 +268,65 @@ fun TeamCallRoute(
         localVideo = localVideo,
         room = room,
         onAnswer = answer,
+        onAnswerVoiceOnly = if (channel == CallChannel.VIDEO) ({ answerAs(false) }) else null,
         onHangUp = { if (ringId != null && phase == TeamCallPhase.Ringing) decline() else session.hangUp() },
-        onToggleMute = session::toggleMute,
-        onToggleCamera = session::toggleCamera,
+        onToggleMute = rememberMicToggle({ session.muted.value }, session::toggleMute),
+        onToggleCamera = rememberCameraToggle({ session.cameraOn.value }, session::toggleCamera),
         onSwitchCamera = session::switchCamera,
         onToggleSpeaker = session::toggleSpeaker,
         onDone = onDone,
+        onMinimise = onMinimise,
     )
+}
+
+/**
+ * The camera button: turning the camera on asks for it first when it was
+ * never granted (a video call answered "Audio only", or a refusal at the
+ * start), and turns it on only once allowed. Turning it off asks nothing.
+ */
+@Composable
+internal fun rememberCameraToggle(cameraOn: () -> Boolean, toggle: () -> Unit): () -> Unit =
+    rememberPermissionToggle(Manifest.permission.CAMERA, asksWhen = { !cameraOn() }, toggle)
+
+/**
+ * The mute button: unmuting a call whose microphone was never granted asks
+ * for it first, and unmutes only once allowed. Muting asks nothing.
+ */
+@Composable
+internal fun rememberMicToggle(muted: () -> Boolean, toggle: () -> Unit): () -> Unit =
+    rememberPermissionToggle(Manifest.permission.RECORD_AUDIO, asksWhen = muted, toggle)
+
+/**
+ * A call control that needs [permission] in one direction ([asksWhen]): asked
+ * for first when missing. The call is not sent into its picture-in-picture
+ * window by the dialog (which Android 8 to 11 count as leaving the app).
+ */
+@Composable
+private fun rememberPermissionToggle(permission: String, asksWhen: () -> Boolean, toggle: () -> Unit): () -> Unit {
+    val context = LocalContext.current
+    val currentToggle by rememberUpdatedState(toggle)
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) currentToggle()
+    }
+    return {
+        val granted = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        if (asksWhen() && !granted) {
+            (context as? MainActivity)?.pictureInPicture?.holdForPermission()
+            ask.launch(permission)
+        } else {
+            toggle()
+        }
+    }
+}
+
+/**
+ * The call [owner] publishes for the views of it that are not its screen
+ * ([ActiveCalls]): made once per session, whatever the screen does — it
+ * leaves the display when minimised and comes back — and withdrawn when the
+ * session is cleared. Null without the app's graph (a preview, a test).
+ */
+@Composable
+internal fun rememberActiveCall(owner: ViewModel, build: () -> ActiveCall): ActiveCall? {
+    val graph = LocalAppGraph.current ?: return null
+    return remember(owner) { graph.activeCalls.of(owner) ?: graph.activeCalls.publish(build()) }
 }

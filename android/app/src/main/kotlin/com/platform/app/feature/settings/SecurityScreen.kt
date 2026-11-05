@@ -26,7 +26,12 @@ import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.platform.app.ui.components.PasswordEye
+import com.platform.app.ui.components.passwordTransformation
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.platform.app.core.model.AccountSession
 import com.platform.app.i18n.Format
 import com.platform.app.i18n.Language
@@ -73,6 +78,9 @@ fun SecurityScreen(
     onRevokeOthers: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // The two password fields' eyes, each its own, hidden to begin with.
+    var currentVisible by rememberSaveable { mutableStateOf(false) }
+    var newVisible by rememberSaveable { mutableStateOf(false) }
     // `imePadding` for the two password fields: the Scaffold above passes the
     // system bars down in `modifier` but never the keyboard. Shortening the
     // list's viewport is what lets a focused field scroll clear of it.
@@ -150,7 +158,8 @@ fun SecurityScreen(
                         onValueChange = onCurrentPasswordChange,
                         label = Str.currentPassword(language),
                         enabled = !busy,
-                        visualTransformation = PasswordVisualTransformation(),
+                        trailingIcon = { PasswordEye(currentVisible, { currentVisible = !currentVisible }, language) },
+                        visualTransformation = passwordTransformation(currentVisible),
                         keyboardOptions = PasswordKeyboard.copy(imeAction = ImeAction.Next),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -161,7 +170,8 @@ fun SecurityScreen(
                         onValueChange = onNewPasswordChange,
                         label = Str.newPassword(language),
                         enabled = !busy,
-                        visualTransformation = PasswordVisualTransformation(),
+                        trailingIcon = { PasswordEye(newVisible, { newVisible = !newVisible }, language) },
+                        visualTransformation = passwordTransformation(newVisible),
                         keyboardOptions = PasswordKeyboard.copy(imeAction = ImeAction.Done),
                         modifier = Modifier
                             .fillMaxWidth()

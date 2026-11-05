@@ -173,4 +173,19 @@ class LoginScreenTest {
         compose.onNodeWithText(StrAndroid.restoringSession(Language.EN)).assertDoesNotExist()
         compose.onNodeWithTag(A11y.BRAND_FOOTER).assertIsDisplayed()
     }
+
+    /**
+     * The eye at the end of the password field: tapped, it shows the
+     * password, and tapped again hides it — said to a screen reader as what
+     * the tap will do, in the reader's language.
+     */
+    @Test
+    fun `the password eye shows and hides the password`() {
+        show(Language.FA)
+        compose.onNodeWithTag(A11y.LOGIN_PASSWORD).performTextInput("secret42")
+        compose.onNodeWithTag(A11y.LOGIN_PASSWORD_EYE).assertIsDisplayed()
+        compose.onNodeWithContentDescription(StrAndroid.showPassword(Language.FA)).performClick()
+        compose.onNodeWithContentDescription(StrAndroid.hidePassword(Language.FA)).assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription(StrAndroid.showPassword(Language.FA)).assertIsDisplayed()
+    }
 }

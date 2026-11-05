@@ -1489,6 +1489,18 @@ class ApiClient(
         build(HttpMethod.Post, "/api/team-calls/${callId.urlPath()}/decline").orThrow()
     }
 
+    @Serializable
+    // No default on `platform`: defaults are not encoded (see LoginBody).
+    private data class TeamCallRangBody(val device_id: String?, val platform: String)
+
+    override suspend fun teamCallRang(callId: String, deviceId: String?) {
+        build(
+            HttpMethod.Post,
+            "/api/team-calls/${callId.urlPath()}/rang",
+            body = TeamCallRangBody(deviceId, platform = "android"),
+        ).orThrow()
+    }
+
     override suspend fun cancelTeamCall(callId: String): TeamCall =
         build(HttpMethod.Post, "/api/team-calls/${callId.urlPath()}/cancel").decode<TeamCallResponse>().call
 

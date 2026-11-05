@@ -73,13 +73,21 @@ class TeamCallSessionTest {
         /** Whether a switch of lens ends on the lens asked for. */
         var lensMoves = true
 
+        /** The microphone as the room has it: on from the join, as LiveKit does. */
+        var micEnabled: Boolean? = null; private set
+        /** Whether the camera starts when asked (no permission, another app has it). */
+        var cameraStarts = true
+        /** Whether the microphone starts when asked. */
+        var micStarts = true
+
         override suspend fun connect(url: String, credentials: CallToken, wantsVideo: Boolean): CallRoom.Result {
             connected = true
             speakerAtConnect = speaker
+            micEnabled = true
             return CallRoom.Result.Joined(microphone = true, camera = true)
         }
-        override suspend fun setMicrophone(enabled: Boolean) = true
-        override suspend fun setCamera(enabled: Boolean) = true
+        override suspend fun setMicrophone(enabled: Boolean): Boolean { micEnabled = enabled; return !enabled || micStarts }
+        override suspend fun setCamera(enabled: Boolean) = !enabled || cameraStarts
         override fun setSpeaker(on: Boolean) { speaker = on }
         override suspend fun switchCamera(front: Boolean) = lensMoves
         override val hasRemoteParticipant: Boolean get() = remote
@@ -171,8 +179,11 @@ class TeamCallSessionTest {
         nudges = nudges,
         ringback = ringback,
         foreground = foreground,
+        rang = { rangs += it },
         clock = { now },
     )
+
+    private val rangs = mutableListOf<String>()
 
     private fun serverCall(
         state: TeamCallState,
@@ -180,6 +191,8 @@ class TeamCallSessionTest {
         outcome: TeamCallOutcome? = null,
         answeredDeviceId: String? = null,
         channel: CallChannel = CallChannel.AUDIO,
+        /** A phone of the colleague's said it rings; most tests start past that. */
+        rangAt: Instant? = START,
     ) = TeamCall(
         id = CALL,
         workspaceId = "ws-1",
@@ -190,6 +203,7 @@ class TeamCallSessionTest {
         peer = TeamCall.Peer(userId = "u-2", name = "Daniel Carter"),
         answeredDeviceId = answeredDeviceId,
         expiresAt = START.plusSeconds(45),
+        rangAt = rangAt,
     )
 
     private val colleague = TeamCall.Peer(userId = "u-2", name = "Daniel Carter")
@@ -245,6 +259,135 @@ class TeamCallSessionTest {
         assertTrue(api.cancelled.isEmpty())
         assertTrue(room.disconnected)
         assertEquals(1, foreground.stopped)
+    }
+
+    /** "Calling…" with no ringback until a phone of the colleague's says it rings. */
+    @Test
+    fun `the caller stays on Calling, silent, until the colleague's phone rang`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, rangAt = null))
+        val call = session(api)
+
+        call.placing()
+        runCurrent()
+        assertEquals(TeamCallPhase.Calling, call.phase.value)
+        assertEquals(0, ringback.starts)
+
+        api.reads += serverCall(TeamCallState.RINGING, rangAt = null)
+        poll()
+        assertEquals(TeamCallPhase.Calling, call.phase.value)
+        assertFalse(ringback.playing)
+
+        api.reads += serverCall(TeamCallState.RINGING, rangAt = START.plusSeconds(3))
+        poll()
+        assertEquals(TeamCallPhase.Ringing, call.phase.value)
+        assertTrue(ringback.playing)
+
+        call.hangUp()
+        runCurrent()
+        assertFalse(ringback.playing)
+        assertEquals(listOf(CALL), api.cancelled)
+    }
+
+    @Test
+    fun `an answer straight from Calling joins without a ringback`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, rangAt = null))
+        val call = session(api)
+        call.placing()
+        runCurrent()
+
+        api.reads += serverCall(TeamCallState.CONNECTING, rangAt = null)
+        poll()
+        assertEquals(TeamCallPhase.Connecting, call.phase.value)
+        assertEquals(0, ringback.starts)
+        call.hangUp()
+        runCurrent()
+    }
+
+    /** Muted on "Calling…" (from the small window): still muted once the room is joined. */
+    @Test
+    fun `a mute chosen while it rings holds once the call connects`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING))
+        val call = session(api)
+        call.placing()
+        runCurrent()
+        call.toggleMute()
+        runCurrent()
+
+        api.reads += serverCall(TeamCallState.CONNECTING)
+        poll()
+        assertTrue(room.connected)
+        assertTrue(call.muted.value)
+        assertEquals(false, room.micEnabled)
+        call.hangUp()
+        runCurrent()
+    }
+
+    /** A video call answered "Audio only": a camera that then will not start is shown off. */
+    @Test
+    fun `audio only, then a camera that would not start, is shown off`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, role = TeamCallRole.CALLEE, channel = CallChannel.VIDEO))
+        val call = session(api)
+        room.cameraStarts = false
+        call.ringing(CallChannel.VIDEO)
+        runCurrent()
+        call.answer(withVideo = false)
+        runCurrent()
+        assertFalse(call.cameraOn.value)
+
+        room.emitted.tryEmit(CallRoom.Event.VisitorPresenceChanged(present = true))
+        runCurrent()
+        call.toggleCamera()
+        // Shown on at once (the press), then off once the room says it would not start.
+        assertTrue(call.cameraOn.value)
+        runCurrent()
+        assertFalse(call.cameraOn.value)
+        assertTrue(foreground.shown.last().video.not())
+
+        // It starts after all: on, and it stays on.
+        room.cameraStarts = true
+        call.toggleCamera()
+        runCurrent()
+        assertTrue(call.cameraOn.value)
+        assertTrue(foreground.shown.last().video)
+        call.hangUp()
+        runCurrent()
+    }
+
+    /** Unmuting a microphone that will not start: shown muted, never live and silent. */
+    @Test
+    fun `an unmute the microphone refuses stays muted`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, role = TeamCallRole.CALLEE))
+        val call = session(api)
+        call.ringing()
+        runCurrent()
+        call.answer()
+        runCurrent()
+        room.emitted.tryEmit(CallRoom.Event.VisitorPresenceChanged(present = true))
+        runCurrent()
+
+        call.toggleMute()
+        runCurrent()
+        assertTrue(call.muted.value)
+        assertEquals(false, room.micEnabled)
+
+        room.micStarts = false
+        call.toggleMute()
+        assertFalse(call.muted.value) // the press
+        runCurrent()
+        assertTrue(call.muted.value) // the room's answer
+
+        room.micStarts = true
+        call.toggleMute()
+        runCurrent()
+        assertFalse(call.muted.value)
+        assertEquals(true, room.micEnabled)
+
+        // Over: a late press changes nothing.
+        call.hangUp()
+        runCurrent()
+        call.toggleMute()
+        runCurrent()
+        assertFalse(call.muted.value)
     }
 
     /** No event announces a participant who was there first. */
@@ -504,6 +647,8 @@ class TeamCallSessionTest {
         assertTrue(api.accepted.isEmpty())
         assertTrue(foreground.shown.isEmpty())
         assertEquals(0, ringback.starts) // The ring is the notification's; no tone here.
+        // The in-app ring screen says this phone rings (the reporter sends it once).
+        assertEquals(listOf(CALL), rangs)
         call.hangUp()
         runCurrent()
     }

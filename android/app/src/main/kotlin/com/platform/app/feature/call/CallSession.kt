@@ -107,7 +107,9 @@ class CallSession(
 
     private var invitationId: String? = null
     private var callSessionId: String? = null
-    private var started = false
+    /** Whether [start] or [ring] has run: one session is one call. */
+    var started = false
+        private set
     private var language: Language = Language.EN
 
     /** Set for a call-centre call this phone was rung for: whose queue it is in. */
@@ -431,6 +433,11 @@ class CallSession(
                 if (!result.microphone) {
                     _muted.value = true
                     _degraded.value = CallDegradation.NO_MICROPHONE
+                } else if (_muted.value) {
+                    // Muted before the call connected (from the small window):
+                    // the room joins with the microphone on, so the choice
+                    // made then is applied now — never shown muted and sending.
+                    room.setMicrophone(enabled = false)
                 }
                 if (channel == CallChannel.VIDEO && !result.camera) {
                     _cameraOn.value = false
@@ -468,19 +475,57 @@ class CallSession(
 
     // MARK: - Controls
 
+    /**
+     * The latest mute and camera presses: a late answer from the room for an
+     * earlier press (on, off, on in quick succession) changes nothing.
+     */
+    private var micPress = 0
+    private var cameraPress = 0
+
     fun toggleMute() {
+        // Over: a microphone grant that arrives after the end changes nothing.
+        if (!_phase.value.isLive) return
         val next = !_muted.value
         _muted.value = next
-        viewModelScope.launch { room.setMicrophone(enabled = !next) }
+        val press = ++micPress
+        viewModelScope.launch {
+            val ok = room.setMicrophone(enabled = !next)
+            // Before the call is live there is no microphone in a room yet:
+            // the choice is applied when it joins.
+            if (press != micPress || !(_phase.value == CallPhase.Connected) || next) return@launch
+            if (!ok) {
+                // A microphone that would not start: shown muted, never live
+                // and silent.
+                _muted.value = true
+            } else {
+                if (_degraded.value == CallDegradation.NO_MICROPHONE) _degraded.value = null
+                // The service gains the microphone type it may not have had.
+                if (inForeground) showForeground()
+            }
+        }
     }
 
     fun toggleCamera() {
-        if (channel != CallChannel.VIDEO) return
+        if (channel != CallChannel.VIDEO || !(_phase.value == CallPhase.Connected)) return
         val next = !_cameraOn.value
         _cameraOn.value = next
         // The service holds the camera only while it is on.
         if (inForeground) showForeground()
-        viewModelScope.launch { room.setCamera(enabled = next) }
+        val press = ++cameraPress
+        viewModelScope.launch {
+            val ok = room.setCamera(enabled = next)
+            if (press != cameraPress || !(_phase.value == CallPhase.Connected) || !next) return@launch
+            if (!ok) {
+                // A camera that would not start (no permission, another app
+                // has it): the button and the service say so, rather than
+                // showing a camera on that nobody sees.
+                _cameraOn.value = false
+                if (inForeground) showForeground()
+            } else if (_degraded.value == CallDegradation.NO_CAMERA) {
+                // Turned on after all (asked for and granted mid-call).
+                _degraded.value = null
+            }
+        }
     }
 
     fun toggleSpeaker() {

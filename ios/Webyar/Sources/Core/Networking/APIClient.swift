@@ -821,6 +821,11 @@ actor APIClient {
         let device_id: String
     }
 
+    private struct TeamCallRangBody: Encodable, Sendable {
+        let device_id: String
+        let platform: String
+    }
+
     /// Rings a colleague. The refusals the call screen explains — busy, not
     /// in the plan, a limit — arrive as `APIError.server` with the server's
     /// code as the message (`TeamCallEnd.refusal`).
@@ -865,6 +870,34 @@ actor APIClient {
         default:
             let message = try? decoder.decode(ErrorResponse.self, from: data).error
             throw APIError.server(status: http.statusCode, message: message)
+        }
+    }
+
+    /// This phone is ringing for the call: CallKit accepted the report of the
+    /// ring. The caller's phone says "Ringing…" from then on, not before.
+    /// Sent once per call; `409 not_ringing` (too late: answered, declined,
+    /// over) and `404`/`405` (a server that does not have the route yet) are
+    /// answers, not failures — only a transport error or another status
+    /// throws, for the caller's retry.
+    func markTeamCallRang(id: String, deviceID: String) async throws {
+        let request = try makeRequest(
+            "POST", "/api/team-calls/\(Self.escape(id))/rang",
+            body: TeamCallRangBody(device_id: deviceID, platform: "ios")
+        )
+        let response: URLResponse
+        do {
+            (_, response) = try await session.data(for: request)
+        } catch {
+            throw APIError.transport
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.transport }
+        switch http.statusCode {
+        case 200..<300, 404, 405, 409:
+            return
+        case 401:
+            throw APIError.unauthorized
+        default:
+            throw APIError.server(status: http.statusCode, message: nil)
         }
     }
 

@@ -308,6 +308,15 @@ struct ChatView: View {
                 Button(Str.cancel(language), role: .cancel) {}
             }
             .alert(
+                Str.callAlreadyOn(language),
+                isPresented: $actions.callBlockedByColleagueCall
+            ) {
+                Button(Str.teamCallReturnToCall(language)) {
+                    TeamCallPresentation.shared.expand()
+                }
+                Button(Str.cancel(language), role: .cancel) {}
+            }
+            .alert(
                 SettingsStr.callNeedsMicrophone(language),
                 isPresented: $actions.callNeedsMicrophone
             ) {

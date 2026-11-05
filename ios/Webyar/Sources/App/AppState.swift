@@ -360,6 +360,11 @@ final class AppState {
         // answers 401, the device row stays enabled, and the phone keeps
         // receiving another operator's notifications until a send happens to
         // fail. Best effort, and never a reason to keep somebody signed in.
+        //
+        // A colleague call still on (minimised, so Sign out was reachable) is
+        // ended first, with the server told while the session can still
+        // tell it: the colleague's phones stop ringing.
+        await CallManager.shared.endForSignOut()
         await PushController.shared.signOut()
         do {
             try await api.logOut()

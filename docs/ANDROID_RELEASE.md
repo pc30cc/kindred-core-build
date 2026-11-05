@@ -10,11 +10,19 @@ Published copies, as of 2026-11-05:
 
 | App | Where | Version | Signed with |
 |-----|-------|---------|-------------|
-| WebYar `com.webyar.ai` | `app.webyar.ai/downloads/Webyar-Android.apk` (since 2026-11-05) | 1.9, `versionCode` 30 | `webyar-release.jks` (cert SHA-256 `f1ed448f…b2160142`) |
-| WebYar `com.webyar.ai` | Cafe Bazaar (1.8 since 2026-11-04; the owner uploads each new file, 1.9 next) | 1.8, `versionCode` 29 | the same key |
-| RESPOK `com.respok.app` | `app.respok.app/downloads/RESPOK-Android.apk` only (not on Google Play yet; since 2026-11-05) | 1.0.5, `versionCode` 6 | `respok-release.jks` (cert SHA-256 `c71c4665…8b8ee500`) |
+| WebYar `com.webyar.ai` | `app.webyar.ai/downloads/Webyar-Android.apk` (since 2026-11-05) | 1.9.1, `versionCode` 31 | `webyar-release.jks` (cert SHA-256 `f1ed448f…b2160142`) |
+| WebYar `com.webyar.ai` | Cafe Bazaar (1.8 since 2026-11-04; the owner uploads each new file, 1.9.1 next) | 1.8, `versionCode` 29 | the same key |
+| RESPOK `com.respok.app` | `app.respok.app/downloads/RESPOK-Android.apk` only (not on Google Play yet; since 2026-11-05) | 1.0.6, `versionCode` 7 | `respok-release.jks` (cert SHA-256 `c71c4665…8b8ee500`) |
 
-1.9 and 1.0.5 were built on the owner's Mac from `main` at `b63b896`
+1.9.1 and 1.0.6 were built on the owner's Mac from `main` at `7d0b684`
+(`~/Desktop/WebYar-RESPOK/scripts/kcb-brands-android-6.sh`, then
+`kcb-brands-apk-publish-6.sh`): the 2026-11-05 call fixes (#417). The caller
+hears the ringback (on the loudspeaker in front of the face, in the earpiece
+at the ear, over a headset or Bluetooth media), an unanswered ring ends with
+one signal, and the end screen closes itself. 1.9.1 was installed over 1.9 on
+the emulator (`Webyar_API36`) in place, and opened, still signed in.
+
+1.9 and 1.0.5 (`versionCode` 30 and 6, the same day, before them) were built on the owner's Mac from `main` at `b63b896`
 (`~/Desktop/WebYar-RESPOK/scripts/kcb-brands-android-5.sh`, then
 `kcb-brands-apk-publish-5.sh`): the 2026-11-04 call work. Colleague calls
 show "Ringing…" only once the other phone rang (#409, #412), every call runs
@@ -33,7 +41,7 @@ and placed a colleague video call that connected and went active. The 1.7
 and 1.0.3 before them (built from `main` at `b6fee6e`) brought colleague
 calls, the mobile app as a plan feature, the sign-in Website link, the movable
 small picture and the call lines in the team chat. The next WebYar build must
-be above 30.
+be above 31.
 
 **The next WebYar release is the first built from the brand-neutral sources**
 (#323: code namespace `com.platform.app`, shared class names). Nothing a
@@ -44,9 +52,9 @@ all of these hold:
    change it).
 2. Signed with **`webyar-release.jks`**, the same certificate as every earlier
    WebYar version. Bazaar and phones refuse an update signed with any other key.
-3. `versionCode` **above the last one published** (30 for 1.9 on the site;
+3. `versionCode` **above the last one published** (31 for 1.9.1 on the site;
    check Bazaar's developer panel before building), e.g.
-   `-Pwebyar.versionCode=31 -Pwebyar.versionName=2.0`.
+   `-Pwebyar.versionCode=32 -Pwebyar.versionName=2.0`.
 4. The same APK goes to Bazaar and to `public/downloads/Webyar-Android.apk`
    (with its `.json` sidecar), so the site and the store never offer
    different builds under one version.
@@ -56,7 +64,7 @@ all of these hold:
    (the `com.webyar.ai.MainActivity` alias in `src/webyar/AndroidManifest.xml`),
    and that notifications arrive on the `webyar_messages` channel.
 
-RESPOK's next version must be above `versionCode` 6. On Google Play, the
+RESPOK's next version must be above `versionCode` 7. On Google Play, the
 first upload fixes the app's signing setup for good: see "The signing keys"
 below before doing it.
 

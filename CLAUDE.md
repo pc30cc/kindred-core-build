@@ -21,13 +21,13 @@ Why each of those holds, with measurements: `docs/ANDROID_LOCAL_DEV.md`.
 
 ## Before building an Android release
 
-WebYar 1.9 (`versionCode` 30) is on the site since 2026-11-05 (Cafe Bazaar
-still has 1.8, `versionCode` 29, until the owner uploads 1.9; the owner
-uploads each new file there); RESPOK 1.0.5 (`versionCode` 6) is on the site
+WebYar 1.9.1 (`versionCode` 31) is on the site since 2026-11-05 (Cafe Bazaar
+still has 1.8, `versionCode` 29, until the owner uploads 1.9.1; the owner
+uploads each new file there); RESPOK 1.0.6 (`versionCode` 7) is on the site
 only. Read `docs/ANDROID_RELEASE.md` → "Before the next release" first: every
 WebYar build must keep `com.webyar.ai`, be signed with
 `~/dev/webyar-release.jks` and use a `versionCode` above the last one
-published (30).
+published (31).
 
 ## Widget templates (chat widget and call center widget)
 

@@ -436,10 +436,22 @@ over unchanged. A full disk stops Postgres too.
 - Coolify database `webyar-postgres` (uuid `oqzy9q4ovntam9jgf7nxzqun`,
   `pgvector/pgvector:pg17`: PostgreSQL 17.11, pgvector 0.8.7), database
   `webyar`. It is on the `coolify` network only and has no public port.
+  It is tuned with `ALTER SYSTEM` (`shared_buffers` 384MB,
+  `pg_stat_statements` preloaded, statements over 2 s logged; 2 GB container
+  limit). `respok-postgres` has had the same settings since 2026-11-05
+  22:18 UTC (`/root/perf-20261105/respok-pg-tune.sql`, a restart of about a
+  second at a quiet hour; way back: `ALTER SYSTEM RESET ALL` and a restart).
 - The backend (25) and the workers 17, 18, 20, 22, 23 and 26 run
   `DATABASE_MODE=postgres-only` as `webyar_app`
   (`oqzy9q4ovntam9jgf7nxzqun:5432/webyar`, `sslmode=disable`). `webyar_app`
   is NOINHERIT, member of `service_role`; `webyar_backup` is read-only.
+- Pools (`DATABASE_POOL_MAX`): the backend 15 since 2026-11-05 22:17 UTC
+  (was 3), each worker 1; RESPOK's the same (32 at 15). `webyar_app` may
+  hold 60 connections on each database, and a deploy runs the old and the
+  new backend side by side, so twice the backend's pool plus its LISTEN
+  connection and the workers must stay under 60 (about 40 now). The change
+  was the Coolify variable and a no-build redeploy of the running commit
+  (`deploy.php` with `ROLLBACK=1`; `/root/perf-20261105/pool-change.log`).
 - Backups: Coolify dumps `webyar` daily at 02:13 UTC and keeps 14 copies in
   `/data/coolify/backups/databases/root-team-0/webyar-postgres-oqzy9q4ovntam9jgf7nxzqun/`
   (on the server's own disk; Coolify has no S3 storage). The off-site copy is

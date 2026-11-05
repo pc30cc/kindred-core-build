@@ -155,12 +155,100 @@ describe('missed-call toast once across tabs', () => {
     b.tell('c1', () => shown.push('b'));
     await vi.advanceTimersByTimeAsync(MISSED_CALL_CLAIM_WINDOW_MS + 10);
     expect(shown).toEqual([]);
+    // Looked at after both windows and the losers' grace: whichever it is shows it.
+    await vi.advanceTimersByTimeAsync(MISSED_CALL_CLAIM_WINDOW_MS * 2 + 10);
     bTab.set(true);
     await vi.advanceTimersByTimeAsync(10);
     expect(shown).toEqual(['b']);
     aTab.set(true);
     await vi.advanceTimersByTimeAsync(10);
     expect(shown).toEqual(['b']);
+    a.close();
+    b.close();
+  });
+
+  it('one tab that claims visible and is hidden before its window ends: shown once, when it is seen again', async () => {
+    vi.useFakeTimers();
+    const Channel = fakeBus();
+    const shown: string[] = [];
+    const only = tabVisibility(true);
+    const a = createMissedCallOnce('team-call-missed:me', { Channel, visibility: only });
+    a.tell('c1', () => shown.push('a'));
+    await vi.advanceTimersByTimeAsync(50);
+    only.set(false);
+    await vi.advanceTimersByTimeAsync(MISSED_CALL_CLAIM_WINDOW_MS * 3);
+    expect(shown).toEqual([]);
+    only.set(true);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(shown).toEqual(['a']);
+    only.set(false);
+    only.set(true);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(shown).toEqual(['a']);
+    a.close();
+  });
+
+  it('A visible and B hidden, the member switches A to B inside the window: one toast, in B', async () => {
+    vi.useFakeTimers();
+    const Channel = fakeBus();
+    const shown: string[] = [];
+    const aTab = tabVisibility(true);
+    const bTab = tabVisibility(false);
+    const a = createMissedCallOnce('team-call-missed:me', { Channel, visibility: aTab });
+    const b = createMissedCallOnce('team-call-missed:me', { Channel, visibility: bTab });
+    a.tell('c1', () => shown.push('a'));
+    b.tell('c1', () => shown.push('b'));
+    await vi.advanceTimersByTimeAsync(50);
+    aTab.set(false);
+    bTab.set(true);
+    await vi.advanceTimersByTimeAsync(MISSED_CALL_CLAIM_WINDOW_MS * 3);
+    expect(shown).toEqual(['b']);
+    // Back to A: never a second one.
+    bTab.set(false);
+    aTab.set(true);
+    await vi.advanceTimersByTimeAsync(MISSED_CALL_CLAIM_WINDOW_MS * 3);
+    expect(shown).toEqual(['b']);
+    a.close();
+    b.close();
+  });
+
+  it('A visible and B hidden, A hidden inside the window, and A looked at again first: one toast, in A', async () => {
+    vi.useFakeTimers();
+    const Channel = fakeBus();
+    const shown: string[] = [];
+    const aTab = tabVisibility(true);
+    const bTab = tabVisibility(false);
+    const a = createMissedCallOnce('team-call-missed:me', { Channel, visibility: aTab });
+    const b = createMissedCallOnce('team-call-missed:me', { Channel, visibility: bTab });
+    a.tell('c1', () => shown.push('a'));
+    b.tell('c1', () => shown.push('b'));
+    await vi.advanceTimersByTimeAsync(50);
+    aTab.set(false);
+    await vi.advanceTimersByTimeAsync(MISSED_CALL_CLAIM_WINDOW_MS * 3);
+    expect(shown).toEqual([]);
+    aTab.set(true);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(shown).toEqual(['a']);
+    aTab.set(false);
+    bTab.set(true);
+    await vi.advanceTimersByTimeAsync(MISSED_CALL_CLAIM_WINDOW_MS * 3);
+    expect(shown).toEqual(['a']);
+    a.close();
+    b.close();
+  });
+
+  it('two visible tabs: the loser waits its grace and hears the winner\'s shown, never a second toast', async () => {
+    vi.useFakeTimers();
+    const Channel = fakeBus();
+    const shown: string[] = [];
+    const a = createMissedCallOnce('team-call-missed:me', { Channel, visibility: tabVisibility(true) });
+    await vi.advanceTimersByTimeAsync(0);
+    a.tell('c1', () => shown.push('a'));
+    await vi.advanceTimersByTimeAsync(100);
+    const b = createMissedCallOnce('team-call-missed:me', { Channel, visibility: tabVisibility(true) });
+    b.tell('c1', () => shown.push('b'));
+    await vi.advanceTimersByTimeAsync(MISSED_CALL_CLAIM_WINDOW_MS * 4);
+    expect(shown).toHaveLength(1);
     a.close();
     b.close();
   });

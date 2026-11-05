@@ -388,11 +388,13 @@ uncounted time.
 - Missed: one toast across the member's open tabs (the push is the phones'):
   the tabs claim the call over a BroadcastChannel (`team-call-missed:<user>`,
   keyed by call id, each claim saying whether its tab is visible;
-  `src/features/teamCalls/missedCallOnce.ts`) and only one shows it, a
-  visible one: a visible claim beats any hidden one, and while every claimant
-  is hidden none shows it (the toast would close unseen) until the first of
-  them is looked at, or a visible tab comes to the call. Where
-  BroadcastChannel is missing, each tab shows its own.
+  `src/features/teamCalls/missedCallOnce.ts`) and only one shows it, in a tab
+  visible at that moment (a hidden tab's toast would close unseen). A visible
+  claim beats any hidden one; the winner may show it from the end of its
+  window, every other claimant from a grace later (by which the winner's
+  `shown` has arrived), each at once if visible then, else when next seen.
+  So a winner that went hidden or closed never leaves it unshown, and `shown`
+  keeps it to one. Where BroadcastChannel is missing, each tab shows its own.
 - Busy: a member in a visitor call in the panel is busy (the existing
   `operator_call_availability` rule).
 

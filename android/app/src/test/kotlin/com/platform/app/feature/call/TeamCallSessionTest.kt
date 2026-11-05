@@ -873,6 +873,8 @@ class TeamCallSessionTest {
         assertEquals(RingbackOutput.EARPIECE, ringback.output)
         call.setAtEar(false)
         assertEquals(RingbackOutput.LOUDSPEAKER, ringback.output)
+        call.hangUp() // Ended, so its watcher stops and the test ends.
+        runCurrent()
     }
 
     @Test
@@ -889,6 +891,8 @@ class TeamCallSessionTest {
         assertFalse(room.connected)
         call.toggleSpeaker()
         assertEquals(RingbackOutput.EARPIECE, ringback.output)
+        call.hangUp() // Ended, so its watcher stops and the test ends.
+        runCurrent()
     }
 
     @Test
@@ -901,6 +905,8 @@ class TeamCallSessionTest {
         runCurrent()
         assertEquals(TeamCallPhase.Calling, call.phase.value)
         assertEquals(RingbackOutput.LOUDSPEAKER, ringback.output)
+        call.hangUp() // Ended, so its watcher stops and the test ends.
+        runCurrent()
     }
 
     @Test
@@ -911,6 +917,8 @@ class TeamCallSessionTest {
         runCurrent()
         call.setAtEar(true)
         assertEquals(RingbackOutput.LOUDSPEAKER, ringback.output)
+        call.hangUp() // Ended, so its watcher stops and the test ends.
+        runCurrent()
     }
 
     @Test

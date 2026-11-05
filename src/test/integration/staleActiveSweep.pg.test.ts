@@ -237,12 +237,55 @@ suite('stale active calls (staleActiveSweep.ts)', () => {
     expect(await sweep()).toEqual({ checked: 3, ended: 3, kept: 0 });
 
     expect((await stateOf(rejoined)).ended_at).toEqual(await eventAt(rejoined, 'lk.participant_joined'));
-    expect((await stateOf(noLeave)).ended_at).toEqual(await eventAt(noLeave, 'recording_config_ready'));
+    // recording_config_ready shows nobody in the call: the join is the end.
+    expect((await stateOf(noLeave)).ended_at).toEqual(await eventAt(noLeave, 'lk.participant_joined'));
     const s = await stateOf(silent);
     expect(s.ended_at).toEqual(s.connected_at);
     expect(s.duration_seconds).toBe(0);
-    // 15 + 20 + 0 minutes.
-    expect(await minutesUsed()).toBe(before + 35);
+    // 15 + 1 + 0 minutes.
+    expect(await minutesUsed()).toBe(before + 16);
+  });
+
+  it('an operator\'s note or spam mark after the people left (no leave recorded) never moves the end, nor the bill', async () => {
+    // Joined at T0 (60 minutes ago), both dropped during an outage (their
+    // leaves and room_finished lost), wrap-up written at T0 + 26 and later.
+    const noted = await call({ ageMin: 61, connectedMin: 60 });
+    await event(noted, 'lk.participant_joined', 60, { identity: 'visitor:v1' });
+    await event(noted, 'operator_note_added', 34, { note: 'wrap-up' });
+    await event(noted, 'operator_note_added', 20, { note: 'more' });
+    const spam = await call({ ageMin: 61, connectedMin: 60 });
+    await event(spam, 'lk.participant_joined', 60, { identity: 'visitor:v1' });
+    await event(spam, 'call_marked_spam', 34);
+    await event(spam, 'call_unmarked_spam', 25);
+    // A leave, then a note: still the leave.
+    const leftThenNoted = await call({ ageMin: 61, connectedMin: 60 });
+    await event(leftThenNoted, 'lk.participant_left', 50, { identity: 'visitor:v1' });
+    await event(leftThenNoted, 'operator_note_added', 30, { note: 'wrap-up' });
+    const before = await minutesUsed();
+
+    expect(await sweep()).toEqual({ checked: 3, ended: 3, kept: 0 });
+
+    for (const id of [noted, spam]) {
+      const row = await stateOf(id);
+      expect(row.ended_at).toEqual(await eventAt(id, 'lk.participant_joined'));
+      expect(row.duration_seconds).toBe(0);
+      const ended = await one(`SELECT payload FROM public.call_events WHERE call_session_id = $1 AND event_type = 'ended'`, [id]);
+      expect(ended.payload).toMatchObject({ end_time_source: 'last_sign_of_life' });
+    }
+    const left = await stateOf(leftThenNoted);
+    expect(left.ended_at).toEqual(await eventAt(leftThenNoted, 'lk.participant_left'));
+    // 0 + 0 + 10 minutes, not 26 or 35.
+    expect(await minutesUsed()).toBe(before + 10);
+  });
+
+  it('a note within the quiet time delays the sweep (it is a sign of life), and still does not move the end', async () => {
+    const id = await call({ ageMin: 61, connectedMin: 60 });
+    await event(id, 'lk.participant_left', 40, { identity: 'visitor:v1' });
+    await event(id, 'operator_note_added', 3, { note: 'just now' });
+    expect(await sweep()).toEqual({ checked: 1, ended: 0, kept: 1 });
+    await q(`UPDATE public.call_events SET created_at = created_at - interval '10 minutes' WHERE call_session_id = $1 AND event_type = 'operator_note_added'`, [id]);
+    expect(await sweep()).toEqual({ checked: 1, ended: 1, kept: 0 });
+    expect((await stateOf(id)).ended_at).toEqual(await eventAt(id, 'lk.participant_left'));
   });
 
   it('someone in the room, or LiveKit unreachable: kept, nothing billed; a provider with no listing is not read', async () => {

@@ -34,10 +34,12 @@
  * The end time is never the time of the pass. It is the latest real
  * `lk.participant_left` (the last participant's leave; `call_participants.
  * left_at` carries the same moment but is cleared by a rejoin and kept on one
- * row per identity, so the event log is the record read), or, if someone
- * joined after it (`lk.participant_joined`, whose own leave was lost too),
- * that join; with no leave recorded at all, the last sign of life above. It is
- * never before `connected_at`/`started_at`. tg_call_sessions_bill_minutes
+ * row per identity, so the event log is the record read), or, if an event
+ * that shows someone in the call came after it (a join whose own leave was
+ * lost too), that event; with no leave recorded at all, the latest such event,
+ * else `connected_at`. Only events on an allow-list count (PRESENCE_EVENTS
+ * below): an operator's note or spam mark written after the people left never
+ * moves the end. It is never before `connected_at`/`started_at`. tg_call_sessions_bill_minutes
  * bills CEIL((ended_at − connected_at)/60) once, on the move into `ended`,
  * and 298's trigger keeps an over call over, so a second pass or a late
  * `room_finished` bills nothing again.
@@ -155,7 +157,11 @@ function anchorOf(row: Pick<StaleActiveRow, 'connected_at' | 'started_at'>): num
   return ms(row.connected_at) ?? ms(row.started_at);
 }
 
-/** The latest moment anything shows the call was going on. */
+/**
+ * The latest moment anything shows the call was going on, for the quiet
+ * time only: every event counts here (an operator's note only delays the
+ * sweep), but not for the end time (endTimeOf).
+ */
 export function lastSignOfLife(
   row: Pick<StaleActiveRow, 'connected_at' | 'started_at' | 'created_at'>,
   events: CallEventRow[],
@@ -170,33 +176,60 @@ export function lastSignOfLife(
 }
 
 /**
- * The call's end: its last participant's leave (or a later join, whose leave
- * was lost too); with no leave recorded, its last sign of life. Never before
- * its anchor. Null when nothing at all is known (the call is then kept).
+ * Events that show someone in the call, the only ones an end time is taken
+ * from (an allow-list): LiveKit's room start, joins and leaves (a replaced
+ * connection's leave left out), the visitor's join (callWidget.ts), the
+ * operator's accept, takeover and assignment on accept (callCenter.ts) and a
+ * transfer done (routing.ts). Everything else an operator may write while
+ * the server still has the call live, and after the people left (a note, a
+ * spam mark, a recording or transfer request), says nothing about the call
+ * going on, so it never moves the end, and the bill, forward. LiveKit's
+ * egress events are left out too: an egress ends when its upload is done,
+ * after the room.
+ */
+const PRESENCE_EVENTS: ReadonlySet<string> = new Set([
+  'lk.room_started',
+  'lk.participant_joined',
+  'lk.participant_left',
+  'visitor_joined',
+  'call_accepted',
+  'call_assigned_on_accept',
+  'call_takeover',
+  'call_transferred',
+]);
+
+function isPresence(ev: CallEventRow): boolean {
+  return PRESENCE_EVENTS.has(ev.event_type) && !isReplacedLeave(ev);
+}
+
+/**
+ * The call's end: its last participant's leave, or a later event that shows
+ * someone still in it (a join, whose leave was lost too); with no leave
+ * recorded, the latest event that shows someone in it, else `connected_at`
+ * (else `started_at`). Never before its anchor. Null when nothing at all is
+ * known (the call is then kept).
  */
 export function endTimeOf(
   row: Pick<StaleActiveRow, 'connected_at' | 'started_at' | 'created_at'>,
   events: CallEventRow[],
 ): { at: number; source: 'participant_left' | 'participant_joined' | 'last_sign_of_life' } | null {
   let lastLeave: number | null = null;
-  let lastJoin: number | null = null;
+  let latest: { at: number; type: string } | null = null;
   for (const ev of events) {
     const t = ms(ev.created_at);
-    if (t === null) continue;
-    if (ev.event_type === 'lk.participant_left' && !isReplacedLeave(ev)) {
-      if (lastLeave === null || t > lastLeave) lastLeave = t;
-    } else if (ev.event_type === 'lk.participant_joined') {
-      if (lastJoin === null || t > lastJoin) lastJoin = t;
-    }
+    if (t === null || !isPresence(ev)) continue;
+    if (ev.event_type === 'lk.participant_left' && (lastLeave === null || t > lastLeave)) lastLeave = t;
+    if (latest === null || t > latest.at) latest = { at: t, type: ev.event_type };
   }
   const anchor = anchorOf(row);
   const notBeforeAnchor = (t: number) => (anchor !== null && t < anchor ? anchor : t);
-  if (lastLeave !== null) {
-    if (lastJoin !== null && lastJoin > lastLeave) return { at: notBeforeAnchor(lastJoin), source: 'participant_joined' };
-    return { at: notBeforeAnchor(lastLeave), source: 'participant_left' };
+  if (latest !== null) {
+    const source = lastLeave === null ? 'last_sign_of_life'
+      : latest.at === lastLeave ? 'participant_left'
+        : latest.type === 'lk.participant_joined' ? 'participant_joined' : 'last_sign_of_life';
+    return { at: notBeforeAnchor(latest.at), source };
   }
-  const life = lastSignOfLife(row, events);
-  return life === null ? null : { at: notBeforeAnchor(life), source: 'last_sign_of_life' };
+  return anchor === null ? null : { at: anchor, source: 'last_sign_of_life' };
 }
 
 /** Whether anyone is in the call's room: true, false, or null when that cannot be known. Throws when the provider does not answer. */

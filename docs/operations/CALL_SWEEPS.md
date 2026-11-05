@@ -31,13 +31,22 @@ that wraps, so kept calls never hold others back.
   `DUPLICATE_IDENTITY` (a connection the same identity's new one replaced,
   which the webhook logs but is not a leave). If an `lk.participant_joined`
   came after that leave, that join (its own leave was lost too). With no
-  leave recorded, the latest `call_events` row (same exclusion), else
-  `connected_at`/`started_at`. Never before `connected_at` (else
+  leave recorded, the latest event that shows someone in the call, else
+  `connected_at`/`started_at`. Only these events count, an allow-list
+  (`PRESENCE_EVENTS`): `lk.room_started`, `lk.participant_joined`,
+  `lk.participant_left` (that exclusion kept), `visitor_joined`,
+  `call_accepted`, `call_assigned_on_accept`, `call_takeover`,
+  `call_transferred`. An operator's wrap-up written while the server still
+  has the call live (`operator_note_added`, `call_marked_spam`,
+  `call_unmarked_spam`, recording or transfer requests) and LiveKit's egress
+  events (an egress ends after its upload, after the room) never move the
+  end, and so never the bill. Never before `connected_at` (else
   `started_at`), and never the time of the pass.
   `call_participants.left_at` holds the same moment, but a rejoin clears it,
   so the event log is what is read.
-- **Bound** (`STALE_ACTIVE_QUIET_MS`, 10 min): no `call_events` row (same
-  exclusion), `connected_at` or `started_at` within it. LiveKit closes a
+- **Bound** (`STALE_ACTIVE_QUIET_MS`, 10 min): no `call_events` row of any
+  type (same exclusion), `connected_at` or `started_at` within it (a note
+  only delays the sweep; it does not move the end). LiveKit closes a
   room 20 s after its last participant leaves and an unjoined one after
   `empty_timeout` 300 s, then sends `room_finished`; 10 minutes leaves the
   webhook and its retries every chance first. The wait costs no minutes,

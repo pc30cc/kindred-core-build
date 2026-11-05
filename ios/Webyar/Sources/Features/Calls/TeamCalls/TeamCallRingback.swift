@@ -19,15 +19,27 @@ import Foundation
 @MainActor
 final class TeamCallRingback {
     private var player: AVAudioPlayer?
+    /// Full on the loudspeaker, the old soft level on the earpiece or a
+    /// headset: what is heard at arm's length is far too loud at the ear.
+    private var loud = false
+    static let loudVolume: Float = 1.0
+    static let quietVolume: Float = 0.18
 
     var isPlaying: Bool { player?.isPlaying == true }
+
+    /// The level for where the sound goes now (`CallManager.applyRoute`).
+    func setLoud(_ loud: Bool) {
+        guard loud != self.loud else { return }
+        self.loud = loud
+        player?.setVolume(loud ? Self.loudVolume : Self.quietVolume, fadeDuration: 0.1)
+    }
 
     func start() {
         guard !isPlaying else { return }
         if player == nil {
             player = try? AVAudioPlayer(data: RingbackTone.wav)
             player?.numberOfLoops = -1
-            player?.volume = 1.0
+            player?.volume = loud ? Self.loudVolume : Self.quietVolume
             player?.prepareToPlay()
         }
         player?.currentTime = 0

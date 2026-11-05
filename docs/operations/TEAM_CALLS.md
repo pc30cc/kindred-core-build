@@ -225,8 +225,11 @@ uncounted time.
   realtime), then "Ringing…" with the ringback (the web's two-tone pattern,
   made in memory, `TeamCallRingback`, held fuller and longer, every 3 s). A
   voice call rings out on the loudspeaker away from the ear and on the
-  earpiece at it (proximity), until the Speaker control picks; answered, it
-  goes to the earpiece unless the speaker was picked. CallKit: started
+  earpiece at it (proximity), until the Speaker control picks, and never
+  on the loudspeaker by itself while a headset, AirPods or a car is
+  connected; the ringback is full on the loudspeaker and soft at the ear or
+  in a headset. Answered, it goes to the earpiece unless the speaker was
+  picked; the override is dropped when the call ends. CallKit: started
   connecting at the start action, connected only when both are in the room.
 - One end signal: a ring that ended unanswered on this phone (missed, or the
   caller gave up) closes its screen at once and leaves the missed-call

@@ -79,6 +79,19 @@ enum TeamCallAudio {
     static func route(toSpeaker: Bool) {
         try? AVAudioSession.sharedInstance().overrideOutputAudioPort(toSpeaker ? .speaker : .none)
     }
+
+    /// A headset, AirPods, a car or another outside device carries the
+    /// call's sound, or is there to: the phone's own speaker is never
+    /// chosen for it automatically. Read from what plays now and from the
+    /// microphones on offer, which name a Bluetooth or wired headset even
+    /// while the loudspeaker is forced.
+    static var hasExternalAudio: Bool {
+        let session = AVAudioSession.sharedInstance()
+        let builtIn: Set<AVAudioSession.Port> = [.builtInReceiver, .builtInSpeaker]
+        if session.currentRoute.outputs.contains(where: { !builtIn.contains($0.portType) }) { return true }
+        let external: Set<AVAudioSession.Port> = [.bluetoothHFP, .headsetMic, .carAudio, .bluetoothLE, .usbAudio]
+        return (session.availableInputs ?? []).contains { external.contains($0.portType) }
+    }
 }
 
 /// The room of one colleague call: joining it, the microphone and camera,

@@ -192,6 +192,9 @@ final class CallManager {
     /// CallKit has activated the audio session for the call: the ringback
     /// can be heard (and LiveKit's engine may run).
     @ObservationIgnored private var audioActive = false
+    /// The output override last set (`applyRoute`), so it is set only when
+    /// it changes: setting it posts a route change, which reads it again.
+    @ObservationIgnored private var appliedSpeaker: Bool?
     /// The call this phone last told the server it rings for (`POST /rang`):
     /// once per call.
     @ObservationIgnored private var rangSent: String?
@@ -217,6 +220,13 @@ final class CallManager {
             forName: UIDevice.proximityStateDidChangeNotification, object: nil, queue: .main
         ) { _ in
             MainActor.assumeIsolated { CallManager.shared.applyRoute() }
+        }
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+        ) { note in
+            let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            let reason = raw.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            MainActor.assumeIsolated { CallManager.shared.audioRouteChanged(reason) }
         }
     }
 
@@ -841,6 +851,8 @@ final class CallManager {
     fileprivate func audioActivated() {
         guard holdsAudio else { return }
         audioActive = true
+        // A session (re)activated has no override of ours on it.
+        appliedSpeaker = nil
         defer { syncRingback() }
         do {
             try TeamCallAudio.activated()
@@ -975,20 +987,52 @@ final class CallManager {
     fileprivate func applyRoute() {
         guard var call, !call.phase.isOver else { return }
         let ringingOut = call.direction == .outgoing && call.isRinging && !call.answered
+        // A headset, AirPods or a car keeps the sound: nothing is switched
+        // to the phone's loudspeaker by itself then.
+        let external = TeamCallAudio.hasExternalAudio
+        let automatic = call.channel == .audio && ringingOut && !call.speakerChosen
         if call.channel == .audio {
-            if ringingOut, !call.speakerChosen {
+            if automatic {
                 let atEar = UIDevice.current.isProximityMonitoringEnabled && UIDevice.current.proximityState
-                if call.isSpeakerOn == atEar {
-                    call.isSpeakerOn = !atEar
+                let speaker = !external && !atEar
+                if call.isSpeakerOn != speaker {
+                    call.isSpeakerOn = speaker
                     self.call = call
                 }
             }
-            TeamCallAudio.route(toSpeaker: call.isSpeakerOn)
+            setSpeaker(call.isSpeakerOn)
         }
-        let sensing = call.channel == .audio && (call.isLive ? !call.isSpeakerOn : ringingOut && !call.speakerChosen)
+        // The ringback's level follows the output: full on the loudspeaker,
+        // soft at the ear or in a headset.
+        let onLoudspeaker = call.channel == .video ? !external : call.isSpeakerOn
+        ringback.setLoud(onLoudspeaker)
+        // The screen goes dark at the ear whenever a voice call is not on the
+        // loudspeaker, or while the ringback still follows the phone.
+        let sensing = call.channel == .audio && (!call.isSpeakerOn || (automatic && !external))
         if UIDevice.current.isProximityMonitoringEnabled != sensing {
             UIDevice.current.isProximityMonitoringEnabled = sensing
         }
+    }
+
+    /// A headset, AirPods or a car came or went: an automatic loudspeaker
+    /// gives way to a device that arrived (the override would keep the sound
+    /// on the phone), and the route is decided again.
+    fileprivate func audioRouteChanged(_ reason: AVAudioSession.RouteChangeReason?) {
+        // Our own override is not news.
+        guard reason != .override, let call, !call.phase.isOver else { return }
+        // Any other change may have dropped the override: set it again.
+        appliedSpeaker = nil
+        if reason == .newDeviceAvailable, call.channel == .audio, !call.speakerChosen, call.isSpeakerOn {
+            self.call?.isSpeakerOn = false
+            setSpeaker(false)
+        }
+        applyRoute()
+    }
+
+    private func setSpeaker(_ speaker: Bool) {
+        guard appliedSpeaker != speaker else { return }
+        appliedSpeaker = speaker
+        TeamCallAudio.route(toSpeaker: speaker)
     }
 
     // MARK: - Signing out
@@ -1194,6 +1238,11 @@ final class CallManager {
     /// left half-way would keep the colleague listening to silence until
     /// LiveKit noticed this phone had gone.
     private func teardown() {
+        // The loudspeaker override goes before CallKit deactivates the
+        // session: a visitor call or a voice note after it must not inherit
+        // it (it also forces the built-in microphone over a headset's).
+        TeamCallAudio.route(toSpeaker: false)
+        appliedSpeaker = nil
         ringback.stop()
         audioActive = false
         if let owner = call?.uuid.uuidString {

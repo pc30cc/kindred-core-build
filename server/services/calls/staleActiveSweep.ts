@@ -34,12 +34,13 @@
  * The end time is never the time of the pass. It is the latest real
  * `lk.participant_left` (the last participant's leave; `call_participants.
  * left_at` carries the same moment but is cleared by a rejoin and kept on one
- * row per identity, so the event log is the record read), or, if an event
- * that shows someone in the call came after it (a join whose own leave was
- * lost too), that event; with no leave recorded at all, the latest such event,
- * else `connected_at`. Only events on an allow-list count (PRESENCE_EVENTS
- * below): an operator's note or spam mark written after the people left never
- * moves the end. It is never before `connected_at`/`started_at`. tg_call_sessions_bill_minutes
+ * row per identity, so the event log is the record read), or, if an
+ * allow-listed event came after it (PRESENCE_EVENTS below: LiveKit's room
+ * start, joins and leaves, and the visitor's join; in practice a join whose
+ * own leave was lost too), that event; with no leave recorded at all, the
+ * latest allow-listed event, else `connected_at`. What the server writes for
+ * an operator's action (an accept or takeover, a transfer, a note, a spam
+ * mark) never moves the end. It is never before `connected_at`/`started_at`. tg_call_sessions_bill_minutes
  * bills CEIL((ended_at − connected_at)/60) once, on the move into `ended`,
  * and 298's trigger keeps an over call over, so a second pass or a late
  * `room_finished` bills nothing again.
@@ -177,25 +178,28 @@ export function lastSignOfLife(
 
 /**
  * Events that show someone in the call, the only ones an end time is taken
- * from (an allow-list): LiveKit's room start, joins and leaves (a replaced
- * connection's leave left out), the visitor's join (callWidget.ts), the
- * operator's accept, takeover and assignment on accept (callCenter.ts) and a
- * transfer done (routing.ts). Everything else an operator may write while
- * the server still has the call live, and after the people left (a note, a
- * spam mark, a recording or transfer request), says nothing about the call
- * going on, so it never moves the end, and the bill, forward. LiveKit's
- * egress events are left out too: an egress ends when its upload is done,
- * after the room.
+ * from (an allow-list): LiveKit's own record of the room, its start, joins
+ * and leaves (a replaced connection's leave left out), and the visitor's
+ * join (callWidget.ts markVisitorJoined, written once, with `connected_at`).
+ * Any of these after the last leave overrides that leave (in practice a join
+ * whose own leave was lost too).
+ *
+ * What the server writes for an operator's action is left out, because it is
+ * written when the operator acts, not when anyone is in the room, and an
+ * operator may act on a call the server still has live after the people
+ * left: an accept, takeover or assignment on accept (callCenter.ts; an accept
+ * of an `active` call is a takeover), a transfer requested or done
+ * (routing.ts transferCall writes both in the same request, before the
+ * colleague joins), a note, a spam mark, a recording change. An operator who
+ * then really joins is in the room's record (`lk.participant_joined`). So none
+ * of those moves the end, and the bill, forward. LiveKit's egress events are
+ * left out too: an egress ends when its upload is done, after the room.
  */
 const PRESENCE_EVENTS: ReadonlySet<string> = new Set([
   'lk.room_started',
   'lk.participant_joined',
   'lk.participant_left',
   'visitor_joined',
-  'call_accepted',
-  'call_assigned_on_accept',
-  'call_takeover',
-  'call_transferred',
 ]);
 
 function isPresence(ev: CallEventRow): boolean {

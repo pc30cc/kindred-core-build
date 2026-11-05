@@ -29,18 +29,24 @@ that wraps, so kept calls never hold others back.
 - **End time** (`endTimeOf`): the latest `lk.participant_left` in
   `call_events`, leaving out a leave with `disconnect_reason`
   `DUPLICATE_IDENTITY` (a connection the same identity's new one replaced,
-  which the webhook logs but is not a leave). If an `lk.participant_joined`
-  came after that leave, that join (its own leave was lost too). With no
-  leave recorded, the latest event that shows someone in the call, else
-  `connected_at`/`started_at`. Only these events count, an allow-list
-  (`PRESENCE_EVENTS`): `lk.room_started`, `lk.participant_joined`,
-  `lk.participant_left` (that exclusion kept), `visitor_joined`,
-  `call_accepted`, `call_assigned_on_accept`, `call_takeover`,
-  `call_transferred`. An operator's wrap-up written while the server still
-  has the call live (`operator_note_added`, `call_marked_spam`,
-  `call_unmarked_spam`, recording or transfer requests) and LiveKit's egress
-  events (an egress ends after its upload, after the room) never move the
-  end, and so never the bill. Never before `connected_at` (else
+  which the webhook logs but is not a leave). Only an allow-list of events
+  counts (`PRESENCE_EVENTS`), LiveKit's own record of the room and the
+  visitor's join: `lk.room_started`, `lk.participant_joined`,
+  `lk.participant_left` (that exclusion kept) and `visitor_joined` (written
+  once, with `connected_at`). Any of them after the last leave overrides it
+  and becomes the end (in practice a join whose own leave was lost too).
+  With no leave recorded, the end is the latest of them, else
+  `connected_at`/`started_at`. What the server writes for an operator's
+  action never moves the end, and so never the bill: it is written when the
+  operator acts, not when anyone is in the room, and an operator may act on
+  a call still live on the server after the people left. That covers
+  `call_accepted`, `call_takeover` and `call_assigned_on_accept` (an accept
+  of an `active` call is a takeover), `call_transfer_requested` and
+  `call_transferred` (written in the same request, before the colleague
+  joins), `operator_note_added`, `call_marked_spam`, `call_unmarked_spam`
+  and recording changes. An operator who really joins shows as
+  `lk.participant_joined`. LiveKit's egress events are left out too (an
+  egress ends after its upload, after the room). Never before `connected_at` (else
   `started_at`), and never the time of the pass.
   `call_participants.left_at` holds the same moment, but a rejoin clears it,
   so the event log is what is read.

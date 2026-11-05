@@ -278,6 +278,33 @@ suite('stale active calls (staleActiveSweep.ts)', () => {
     expect(await minutesUsed()).toBe(before + 10);
   });
 
+  it('a transfer or a takeover after the leave (written before anyone joins) never moves the end', async () => {
+    // Connected 60 minutes ago, the last leave at -50; then, on the call the
+    // server still has live, a transfer (requested and done in one request,
+    // routing.ts transferCall) and, on another, an accept that takes it over.
+    const transferred = await call({ ageMin: 61, connectedMin: 60 });
+    await event(transferred, 'lk.participant_joined', 60, { identity: 'visitor:v1' });
+    await event(transferred, 'lk.participant_left', 50, { identity: 'visitor:v1' });
+    await event(transferred, 'call_transfer_requested', 20, { handoff: 'manual' });
+    await event(transferred, 'call_transferred', 20, { handoff: 'manual' });
+    const takenOver = await call({ ageMin: 61, connectedMin: 60 });
+    await event(takenOver, 'lk.participant_left', 50, { identity: 'visitor:v1' });
+    await event(takenOver, 'call_accepted', 20);
+    await event(takenOver, 'call_takeover', 20);
+    await event(takenOver, 'call_assigned_on_accept', 20);
+    const before = await minutesUsed();
+
+    expect(await sweep()).toEqual({ checked: 2, ended: 2, kept: 0 });
+
+    for (const id of [transferred, takenOver]) {
+      const row = await stateOf(id);
+      expect(row.ended_at).toEqual(await eventAt(id, 'lk.participant_left'));
+      expect(row.duration_seconds).toBe(600);
+    }
+    // 10 + 10 minutes, not 40 + 40.
+    expect(await minutesUsed()).toBe(before + 20);
+  });
+
   it('a note within the quiet time delays the sweep (it is a sign of life), and still does not move the end', async () => {
     const id = await call({ ageMin: 61, connectedMin: 60 });
     await event(id, 'lk.participant_left', 40, { identity: 'visitor:v1' });

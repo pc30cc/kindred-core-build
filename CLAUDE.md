@@ -284,14 +284,17 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
 - 16 LiveKit: auto-deploy on every push to `main` since 2026-11-03 (owner),
   so a merge restarts it and drops the calls in progress at that moment.
 - 21 AI Runtime (`ai.webyar.ai`): auto-deploy on every push to `main`
-  (found on 2026-11-04, when it deployed with the merge of #387). RESPOK's
-  AI Runtime (30) is off: queue it by hand when `ai-runtime/`, `runtime/` or
-  what it imports from `shared/` changes.
-- 15 Centrifugo, 17 Intelligence Worker, 18 Source Sync
-  Worker, 19 Plugins Channels (`channels.webyar.ai`), 20 Channels-Worker,
-  22 Regression AI Worker, 23 Seo-Crawler:
+  (found on 2026-11-04, when it deployed with the merge of #387).
+- 15 Centrifugo, 17 Intelligence Worker, 18 Source Sync Worker, 19 Plugins
+  Channels (`channels.webyar.ai`), 20 Channels-Worker and 22 Regression AI
+  Worker auto-deploy on every push to `main` too, and so do RESPOK's 29, 30
+  (AI Runtime), 31, 34, 36 and 37: `application_settings.is_auto_deploy_enabled`
+  in `coolify-db`, read on 2026-11-05, which is the place to check. A merge
+  therefore queues 19 apps.
+- 23 Seo-Crawler and RESPOK's 35 (Source Sync Worker) and 38 (Seo-Crawler):
   auto-deploy off, so a push does not update them; queue them by hand when a
-  change needs them.
+  change needs them (35 runs the same source sync, crawler and indexer code
+  as WebYar's 18).
 - 42 Widget Bridge Worker (RESPOK's 43, `Dockerfile.widget-bridge`):
   auto-deploy off too. Its Chromium runs under the seccomp profile its custom
   Docker options name, `/root/.docker/buildx/bridge/seccomp.json` on the host
@@ -616,6 +619,17 @@ over unchanged. A full disk stops Postgres too.
     `billing_account_settle_payment` (the live body otherwise unchanged). The schema
     dump, the dry run, the diff and the run's logs are in
     `/root/webyar-migrate-296-301/`. RESPOK by its migrator on push.
+    Then `302_call_create_concurrency.sql` (`call_session_create()`: every
+    call creation recounts and inserts under the per-workspace lock 298
+    takes; PR #410), applied by hand before its merge, 2026-11-04 23:29:21
+    UTC, after a dry run inside `BEGIN … ROLLBACK` at about 21:20 (a second
+    run a no-op, EXECUTE for `service_role` only, `limit_reached` at the limit
+    with nothing written, an insert with the right defaults under it, unknown
+    keys refused, 137 calls before and after). Its header changed after the
+    dry run (the invitation accept named as a caller), its SQL did not; the
+    file applied is the merged one (sha256 `b9a54814…`). It only adds a
+    function and writes no data. A schema dump, the dry run and the run's log:
+    `/root/webyar-migrate-302/`. RESPOK by its migrator on push.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

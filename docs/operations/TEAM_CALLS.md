@@ -177,30 +177,38 @@ server stamps for them (`server/services/push/teamCallRing.ts`):
 - `teamCallRingTargets` reads each phone's `app_version` (what the app
   registers, `"<name> (<build>)"` on both apps: Android's versionName and
   versionCode, iOS's CFBundleShortVersionString and CFBundleVersion).
-- A phone **cannot say `rang`** (`teamCallDeviceSendsRang`) when its build
-  number is below the first build that sends it
-  (`TEAM_CALL_FIRST_RANG_BUILD`), or when it has no `app_version` or none
-  with a build number in it:
-  - Android, WebYar (edition `iran`): below versionCode **30** (1.9, the first
-    built with #412; 1.8 is 29);
-  - Android, RESPOK (edition `international`): below versionCode **6**
-    (1.0.5, built from the same tree as WebYar 1.9);
-  - Android with the edition unreadable: WebYar's 30 (a RESPOK 1.0.5 caller
-    then hears the ringback a moment early; the other way a WebYar 1.8 caller
-    would hear nothing);
-  - iOS, both brands: below build **6**. Every iOS build so far, `main` and
-    the iOS call branch (#414) alike, is `CURRENT_PROJECT_VERSION` 5, and
-    only #414 sends `rang`, so the build number cannot tell them apart today:
-    the first build numbered 6 (`ios/Webyar/project.yml`, or
-    `xcodebuild archive CURRENT_PROJECT_VERSION=6`) must carry #414. Until
-    then an iPhone of build 5 that does send `rang` is stamped by its push
-    too (an early ringback, never a silent one).
+- A ring push **stamps** a phone (`teamCallPushStampsRang`,
+  `TEAM_CALL_PUSH_STAMP_BUILDS`) only when its build rings for colleague calls
+  but cannot say `rang`: **floor ≤ build < first**.
+
+  | Phone | Floor (first with colleague calls) | First that says `rang` | Stamped |
+  |---|---|---|---|
+  | Android, WebYar (edition `iran`) | versionCode 28 (1.7) | 30 (1.9, #412) | 1.7 (28), 1.8 (29) |
+  | Android, RESPOK (edition `international`) | versionCode 4 (1.0.3) | 6 (1.0.5) | 1.0.3 (4), 1.0.4 (5) |
+  | iOS, both brands | build 3 (#382) | build 6 | 3, 4, 5 |
+
+  - Below the floor the app has no handler for the ring, yet the push is
+    accepted: a stamp would show "Ringing…" while nothing rings, so it
+    never stamps (the caller sees an honest "Calling…").
+  - No `app_version`, or none with a build number: never stamped, for the
+    same reason (it could as well predate colleague calls).
+  - Edition unreadable: WebYar's numbers, which stamp only 1.7 and 1.8 (no
+    RESPOK build was ever numbered 28 or 29), so no RESPOK phone is stamped.
+  - iOS: #414 brought `rang` with the project still at build 5, and every
+    upload before it (the App Store archive of 2026-11-03 included) is 5 or
+    below, so `ios/Webyar/project.yml` went to `CURRENT_PROJECT_VERSION` 6
+    with this rule (one base setting, both targets): every build cut from
+    `main` since says `rang` and is not stamped. **The next iOS archive must
+    be build 6 or above**, and none below 6 may be uploaded again
+    (`teamCallRingbackFallback.test.ts` checks the project against the rule).
 - When the transport accepts the ring (APNs for the VoIP push, FCM for the
   data message) for such a phone, the server stamps the call as `rang` does:
   `rang_at` now, `rang_device_id` that phone, `rang_platform` **`push`**, and
   the `team_call` event with `rang_at` to both members. Once per call,
   whichever old phone was first; a refused push stamps nothing; a phone that
-  sends `rang` is never stamped by its push.
+  sends `rang` is never stamped by its push. The stamp runs beside the ring,
+  not inside it: when the ring ran out meanwhile, the stamp marks the call
+  missed, and that stop waits for the ring to be sent.
 - It is a **best effort**: an accepted push says nothing of the phone being
   on or in signal, so for old builds "Ringing…" means "the ring was sent".
   A real `rang` that came first wins, a push stamp that came first stays (the
@@ -379,8 +387,12 @@ uncounted time.
   declines while it rings and hangs up once its answer went through.
 - Missed: one toast across the member's open tabs (the push is the phones'):
   the tabs claim the call over a BroadcastChannel (`team-call-missed:<user>`,
-  keyed by call id; `src/features/teamCalls/missedCallOnce.ts`) and only one
-  shows it. Where BroadcastChannel is missing, each tab shows its own.
+  keyed by call id, each claim saying whether its tab is visible;
+  `src/features/teamCalls/missedCallOnce.ts`) and only one shows it, a
+  visible one: a visible claim beats any hidden one, and while every claimant
+  is hidden none shows it (the toast would close unseen) until the first of
+  them is looked at, or a visible tab comes to the call. Where
+  BroadcastChannel is missing, each tab shows its own.
 - Busy: a member in a visitor call in the panel is busy (the existing
   `operator_call_availability` rule).
 
@@ -600,5 +612,5 @@ list no relay. Server, firewall, probe and changes:
    whose app does not send `rang` is stamped by the server when its ring push
    is accepted (2026-11-05, "Ringback for old builds"; no migration either:
    `push` is a value in the same `metadata`), so its callers hear the
-   ringback. The first iOS build numbered 6 must carry the iOS call branch
-   (#414): from 6 on, an iPhone's push no longer stamps.
+   ringback. The iOS project is at build 6 since then: the next archive
+   must be 6 or above, and an iPhone of 6 or above is never stamped.

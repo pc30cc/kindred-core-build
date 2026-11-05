@@ -104,7 +104,7 @@ describe('payloads', () => {
 describe('which phones ring', () => {
   it('every enabled iPhone with a VoIP token and every enabled Android phone of the callee', async () => {
     const targets = await ring.teamCallRingTargets(config, CALLEE, 'ws-1');
-    expect(targets.ios).toEqual([{ rowId: 'r-ios', deviceId: 'ios-1', voipToken: 'voip-1', sendsRang: false }]);
+    expect(targets.ios).toEqual([{ rowId: 'r-ios', deviceId: 'ios-1', voipToken: 'voip-1', pushStampsRang: false }]);
     expect(targets.android.map((d) => d.deviceId)).toEqual(['and-1', 'and-2']);
   });
 

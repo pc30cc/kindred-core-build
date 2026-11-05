@@ -2,8 +2,9 @@
  * One missed-call toast per call across a member's panel tabs
  * (src/features/teamCalls/missedCallOnce.ts, docs/operations/TEAM_CALLS.md
  * "Web panel"): the tabs claim the call over a BroadcastChannel keyed by
- * call id and exactly one shows it; without BroadcastChannel each tab shows
- * its own, as before.
+ * call id and exactly one shows it, a visible one (a hidden tab's toast
+ * would close unseen); without BroadcastChannel each tab shows its own, as
+ * before.
  *
  * @vitest-environment jsdom
  */
@@ -27,6 +28,17 @@ function fakeBus() {
     close() { open.delete(this); }
   }
   return FakeChannel;
+}
+
+/** One tab's visibility, set by the test. */
+function tabVisibility(visible = true) {
+  const listeners = new Set<() => void>();
+  return {
+    state: { visible },
+    visible() { return this.state.visible; },
+    onChange(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    set(next: boolean) { this.state.visible = next; for (const l of listeners) l(); },
+  };
 }
 
 afterEach(() => {
@@ -92,6 +104,65 @@ describe('missed-call toast once across tabs', () => {
     expect(shown.sort()).toEqual(['me', 'them']);
     mine.close();
     theirs.close();
+  });
+
+  it('a visible tab and a hidden one, the hidden one claiming first: the visible tab shows it', async () => {
+    vi.useFakeTimers();
+    const Channel = fakeBus();
+    const shown: string[] = [];
+    const hiddenTab = tabVisibility(false);
+    const visibleTab = tabVisibility(true);
+    const hidden = createMissedCallOnce('team-call-missed:me', { Channel, visibility: hiddenTab });
+    const seen = createMissedCallOnce('team-call-missed:me', { Channel, visibility: visibleTab });
+    hidden.tell('c1', () => shown.push('hidden'));
+    await vi.advanceTimersByTimeAsync(10);
+    seen.tell('c1', () => shown.push('visible'));
+    await vi.advanceTimersByTimeAsync(MISSED_CALL_CLAIM_WINDOW_MS + 10);
+    expect(shown).toEqual(['visible']);
+    // Shown: the hidden tab, once seen, does not show it again.
+    hiddenTab.set(true);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(shown).toEqual(['visible']);
+    hidden.close();
+    seen.close();
+  });
+
+  it('a hidden tab that won alone never suppresses a visible one that comes later', async () => {
+    vi.useFakeTimers();
+    const Channel = fakeBus();
+    const shown: string[] = [];
+    const hidden = createMissedCallOnce('team-call-missed:me', { Channel, visibility: tabVisibility(false) });
+    const seen = createMissedCallOnce('team-call-missed:me', { Channel, visibility: tabVisibility(true) });
+    hidden.tell('c1', () => shown.push('hidden'));
+    await vi.advanceTimersByTimeAsync(MISSED_CALL_CLAIM_WINDOW_MS + 10);
+    expect(shown).toEqual([]);
+    seen.tell('c1', () => shown.push('visible'));
+    await vi.advanceTimersByTimeAsync(MISSED_CALL_CLAIM_WINDOW_MS + 10);
+    expect(shown).toEqual(['visible']);
+    hidden.close();
+    seen.close();
+  });
+
+  it('every tab hidden: the first one the member looks at shows it, once', async () => {
+    vi.useFakeTimers();
+    const Channel = fakeBus();
+    const shown: string[] = [];
+    const aTab = tabVisibility(false);
+    const bTab = tabVisibility(false);
+    const a = createMissedCallOnce('team-call-missed:me', { Channel, visibility: aTab });
+    const b = createMissedCallOnce('team-call-missed:me', { Channel, visibility: bTab });
+    a.tell('c1', () => shown.push('a'));
+    b.tell('c1', () => shown.push('b'));
+    await vi.advanceTimersByTimeAsync(MISSED_CALL_CLAIM_WINDOW_MS + 10);
+    expect(shown).toEqual([]);
+    bTab.set(true);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(shown).toEqual(['b']);
+    aTab.set(true);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(shown).toEqual(['b']);
+    a.close();
+    b.close();
   });
 
   it('without BroadcastChannel each tab shows its own, at once', () => {

@@ -4,31 +4,57 @@
  * same missed or cancelled ring, and each used to show its own toast.
  *
  * Over a BroadcastChannel (one per member), keyed by call id: a tab that
- * would tell a missed call claims it, waits a short window for the other
- * tabs' claims of the same call, and shows it only if its own claim is the
- * lowest it saw. Every tab sees the same claims, so exactly one shows it; a
- * tab that comes to the call after the window already heard the claim and
- * stays quiet. Where BroadcastChannel is missing (or cannot be opened), each
- * tab shows its own, as before.
+ * would tell a missed call claims it, saying whether it is visible, and waits
+ * a short window for the other tabs' claims of the same call. Claims rank
+ * visible before hidden, then by tab id, so every tab picks the same winner.
+ * A visible winner shows the toast and says so (`shown`). A hidden winner
+ * would show it unseen (the toast closes on its own), so no tab shows it
+ * while every claimant is hidden: the first of them to become visible shows
+ * it then, and a visible tab that comes to the call later shows it too. Once
+ * shown anywhere, no tab shows it again. Where BroadcastChannel is missing
+ * (or cannot be opened), each tab shows its own, as before.
  */
 
 /** How long a tab waits for the other tabs' claims of the same call. */
 export const MISSED_CALL_CLAIM_WINDOW_MS = 150;
 
-interface Claim {
-  kind: 'team_call_missed_claim';
-  callId: string;
-  tab: string;
-}
+type Message =
+  | { kind: 'team_call_missed_claim'; callId: string; tab: string; visible: boolean }
+  | { kind: 'team_call_missed_shown'; callId: string };
 
 type ChannelLike = Pick<BroadcastChannel, 'postMessage' | 'close'> & {
   onmessage: ((event: MessageEvent) => void) | null;
 };
 
+/** Whether this tab can be seen, and a way to hear when that changes. */
+export interface TabVisibility {
+  visible(): boolean;
+  onChange(listener: () => void): () => void;
+}
+
+const documentVisibility: TabVisibility = {
+  visible: () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
+  onChange: (listener) => {
+    if (typeof document === 'undefined') return () => {};
+    document.addEventListener('visibilitychange', listener);
+    return () => document.removeEventListener('visibilitychange', listener);
+  },
+};
+
 export interface MissedCallOnce {
-  /** Calls [show] for [callId] in exactly one tab (in each, without BroadcastChannel). */
+  /** Calls [show] for [callId] in exactly one tab, a visible one (in each, without BroadcastChannel). */
   tell(callId: string, show: () => void): void;
   close(): void;
+}
+
+interface Entry {
+  /** Claims heard or made: tab → visible when it claimed. */
+  claims: Map<string, boolean>;
+  shown: boolean;
+  /** This tab's toast, while it may still have to show it. */
+  show: (() => void) | null;
+  /** This tab's window has passed: it may show the toast on becoming visible. */
+  decided: boolean;
 }
 
 function randomTab(): string {
@@ -41,15 +67,19 @@ function randomTab(): string {
 
 export function createMissedCallOnce(
   name: string,
-  opts: { windowMs?: number; Channel?: (new (name: string) => ChannelLike) | null } = {},
+  opts: {
+    windowMs?: number;
+    Channel?: (new (name: string) => ChannelLike) | null;
+    visibility?: TabVisibility;
+  } = {},
 ): MissedCallOnce {
   const windowMs = opts.windowMs ?? MISSED_CALL_CLAIM_WINDOW_MS;
+  const visibility = opts.visibility ?? documentVisibility;
   const Channel = opts.Channel !== undefined
     ? opts.Channel
     : (typeof BroadcastChannel === 'function' ? BroadcastChannel as unknown as new (name: string) => ChannelLike : null);
   const tab = randomTab();
-  /** Every claim heard or made, by call id. */
-  const claims = new Map<string, Set<string>>();
+  const entries = new Map<string, Entry>();
   const timers = new Set<ReturnType<typeof setTimeout>>();
   let channel: ChannelLike | null = null;
   try {
@@ -57,22 +87,81 @@ export function createMissedCallOnce(
   } catch {
     channel = null;
   }
-  const claimsOf = (callId: string): Set<string> => {
-    let set = claims.get(callId);
-    if (!set) {
-      set = new Set();
-      claims.set(callId, set);
+
+  const entryOf = (callId: string): Entry => {
+    let entry = entries.get(callId);
+    if (!entry) {
+      entry = { claims: new Map(), shown: false, show: null, decided: false };
+      entries.set(callId, entry);
       // Bounded: a long-open tab forgets the oldest calls.
-      if (claims.size > 200) claims.delete(claims.keys().next().value as string);
+      if (entries.size > 200) entries.delete(entries.keys().next().value as string);
     }
-    return set;
+    return entry;
   };
+
+  const post = (message: Message) => {
+    try { channel?.postMessage(message); } catch { /* the toast still shows here */ }
+  };
+
+  const showHere = (callId: string, entry: Entry) => {
+    const show = entry.show;
+    entry.show = null;
+    if (entry.shown || !show) return;
+    entry.shown = true;
+    post({ kind: 'team_call_missed_shown', callId });
+    show();
+  };
+
+  /** The claim every tab ranks first: visible before hidden, then the lowest tab id. */
+  const winnerOf = (entry: Entry): { tab: string; visible: boolean } | null => {
+    let best: { tab: string; visible: boolean } | null = null;
+    for (const [claimTab, visible] of entry.claims) {
+      if (!best || (visible && !best.visible) || (visible === best.visible && claimTab < best.tab)) {
+        best = { tab: claimTab, visible };
+      }
+    }
+    return best;
+  };
+
+  const decide = (callId: string, entry: Entry) => {
+    entry.decided = true;
+    if (entry.shown || !entry.show) return;
+    const winner = winnerOf(entry);
+    if (winner?.tab === tab && visibility.visible()) {
+      showHere(callId, entry);
+      return;
+    }
+    // A visible tab won: it shows it.
+    if (winner && winner.visible) {
+      entry.show = null;
+      return;
+    }
+    // Every claimant is hidden: the first to be seen shows it.
+    if (visibility.visible()) showHere(callId, entry);
+  };
+
+  const offVisibility = channel
+    ? visibility.onChange(() => {
+      if (!visibility.visible()) return;
+      for (const [callId, entry] of entries) {
+        if (entry.decided && entry.show && !entry.shown) showHere(callId, entry);
+      }
+    })
+    : () => {};
+
   if (channel) {
     channel.onmessage = (event: MessageEvent) => {
-      const data = event?.data as Partial<Claim> | null;
-      if (!data || data.kind !== 'team_call_missed_claim') return;
-      if (typeof data.callId !== 'string' || typeof data.tab !== 'string') return;
-      claimsOf(data.callId).add(data.tab);
+      const data = event?.data as Partial<Message> | null;
+      if (!data || typeof data.callId !== 'string') return;
+      if (data.kind === 'team_call_missed_shown') {
+        const entry = entryOf(data.callId);
+        entry.shown = true;
+        entry.show = null;
+        return;
+      }
+      if (data.kind === 'team_call_missed_claim' && typeof data.tab === 'string') {
+        entryOf(data.callId).claims.set(data.tab, data.visible === true);
+      }
     };
   }
 
@@ -82,26 +171,23 @@ export function createMissedCallOnce(
         show();
         return;
       }
-      const seen = claimsOf(callId);
-      // Claimed already: by this tab, or by another before this one came to it.
-      if (seen.size > 0) return;
-      seen.add(tab);
-      try {
-        channel.postMessage({ kind: 'team_call_missed_claim', callId, tab } satisfies Claim);
-      } catch {
-        show();
-        return;
-      }
+      const entry = entryOf(callId);
+      // Shown somewhere already, or this tab is on it.
+      if (entry.shown || entry.claims.has(tab)) return;
+      const visible = visibility.visible();
+      entry.claims.set(tab, visible);
+      entry.show = show;
+      post({ kind: 'team_call_missed_claim', callId, tab, visible });
       const timer = setTimeout(() => {
         timers.delete(timer);
-        const all = [...claimsOf(callId)].sort();
-        if (all[0] === tab) show();
+        decide(callId, entry);
       }, windowMs);
       timers.add(timer);
     },
     close() {
       for (const timer of timers) clearTimeout(timer);
       timers.clear();
+      offVisibility();
       try { channel?.close(); } catch { /* ignore */ }
       channel = null;
     },

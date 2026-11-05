@@ -39,7 +39,7 @@ export type TeamCallCancelReason = 'answered_elsewhere' | 'declined' | 'cancelle
  * What stamped the ring: one of the callee's surfaces saying it rang
  * (`POST /:id/rang`: `ios`, `android`, `web`), or `push`, the server itself
  * when a ring push was accepted for a phone whose app cannot send `rang`
- * (server/services/push/teamCallRing.ts, teamCallDeviceSendsRang): a best
+ * (server/services/push/teamCallRing.ts, teamCallPushStampsRang): a best
  * effort for old builds, so their callers are not left on a silent
  * "Calling…".
  */

@@ -151,7 +151,7 @@ const fullEff = () => ({
 });
 
 function device(row: Row): Row {
-  // Builds that say `rang` themselves (teamCallDeviceSendsRang), so no ring
+  // Builds that say `rang` themselves (teamCallPushStampsRang), so no ring
   // stamps the call for them: teamCallRingbackFallback.test.ts covers old ones.
   const appVersion = row.platform === 'ios' ? '1.0.0 (6)' : '1.9 (30)';
   return { enabled: true, voip_token: null, push_token: null, transport: 'fcm', app_version: appVersion, ...row };

@@ -196,9 +196,11 @@ describe('the iPhone call camera budget', () => {
 });
 
 describe('the iPhone build that carries it', () => {
-  it('is 1.0.0 (5): build 4 is on App Store Connect and every upload needs a higher number', () => {
+  it('is 1.0.0 (5) or later: build 4 is on App Store Connect and every upload needs a higher number', () => {
     expect(PROJECT).toContain('MARKETING_VERSION: "1.0.0"');
-    expect(PROJECT).toContain('CURRENT_PROJECT_VERSION: "5"');
+    // 6 since the ringback for old builds (src/test/teamCalls/teamCallRingbackFallback.test.ts).
+    const build = PROJECT.match(/CURRENT_PROJECT_VERSION: "(\d+)"/);
+    expect(Number(build?.[1])).toBeGreaterThanOrEqual(5);
     expect(PROJECT.match(/CURRENT_PROJECT_VERSION:/g)).toHaveLength(1);
   });
 });

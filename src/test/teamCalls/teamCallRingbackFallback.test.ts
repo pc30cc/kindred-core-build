@@ -9,6 +9,8 @@
  * came first wins, and the stamp never moves the call.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { createFakeDb, type FakeDb } from '../calls/teamCallTestDb';
 
 const h = vi.hoisted(() => ({
@@ -17,6 +19,7 @@ const h = vi.hoisted(() => ({
   voipOutcome: { ok: true } as Record<string, unknown>,
   fcmOutcome: { ok: true } as Record<string, unknown>,
   published: [] as Array<{ users: readonly string[]; payload: Record<string, unknown> }>,
+  fcm: [] as Array<{ token: string; data: Record<string, string> }>,
 }));
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => h.db }));
@@ -29,7 +32,10 @@ vi.mock('../../../server/services/push/apnsVoip.js', () => ({
 }));
 vi.mock('../../../server/services/push/fcm.js', () => ({
   isPushConfigured: () => true,
-  sendFcmData: async () => h.fcmOutcome,
+  sendFcmData: async (m: { token: string; data: Record<string, string> }) => {
+    h.fcm.push(m);
+    return m.data.type === 'team_call_incoming' ? h.fcmOutcome : { ok: true };
+  },
 }));
 vi.mock('../../../server/services/push/dispatch.js', () => ({ notifyTeamCallMissed: async () => {} }));
 vi.mock('../../../server/services/calls/teamCallChat.js', () => ({ writeTeamCallLine: async () => {} }));
@@ -84,7 +90,9 @@ const meta = () => readTeamCallMeta(h.db.tables.call_sessions[0] as never);
 async function ringWith(devices: ReturnType<typeof device>[]) {
   h.db.tables.mobile_push_devices = devices;
   const targets = await ring.teamCallRingTargets(config, CALLEE, 'ws-1');
-  return ring.ringTeamCall(config, input, targets);
+  const sent = await ring.ringTeamCall(config, input, targets);
+  await ring.teamCallPushStampSettled(input.callId);
+  return sent;
 }
 
 beforeEach(() => {
@@ -93,6 +101,7 @@ beforeEach(() => {
   h.voipOutcome = { ok: true };
   h.fcmOutcome = { ok: true };
   h.published = [];
+  h.fcm = [];
   seedCall();
 });
 
@@ -106,50 +115,71 @@ describe('which builds say rang themselves', () => {
     expect(ring.teamCallAppBuild(undefined)).toBeNull();
   });
 
-  it('Android, WebYar: versionCode 30 (1.9) and above; 29 (1.8, Cafe Bazaar) and below cannot', () => {
-    expect(ring.teamCallDeviceSendsRang('android', '1.9 (30)', 'iran')).toBe(true);
-    expect(ring.teamCallDeviceSendsRang('android', '2.0 (31)', 'iran')).toBe(true);
-    expect(ring.teamCallDeviceSendsRang('android', '1.8 (29)', 'iran')).toBe(false);
-    expect(ring.teamCallDeviceSendsRang('android', '0.1.0 (1)', 'iran')).toBe(false);
+  const stamps = (platform: 'ios' | 'android', v: string | null | undefined, e: 'iran' | 'international' | null = 'iran') =>
+    ring.teamCallPushStampsRang(platform, v, e);
+
+  it('Android, WebYar: 1.7 (28) and 1.8 (29, Cafe Bazaar); not 1.9 (30) and later, which say rang', () => {
+    expect(stamps('android', '1.7 (28)')).toBe(true);
+    expect(stamps('android', '1.8 (29)')).toBe(true);
+    expect(stamps('android', '1.9 (30)')).toBe(false);
+    expect(stamps('android', '2.0 (31)')).toBe(false);
   });
 
-  it('Android, RESPOK: versionCode 6 (1.0.5) and above; 5 and below cannot', () => {
-    expect(ring.teamCallDeviceSendsRang('android', '1.0.5 (6)', 'international')).toBe(true);
-    expect(ring.teamCallDeviceSendsRang('android', '1.0.4 (5)', 'international')).toBe(false);
+  it('Android, WebYar: never below the floor, 1.6 (27) and earlier, which have no colleague calls to ring', () => {
+    expect(stamps('android', '1.6 (27)')).toBe(false);
+    expect(stamps('android', '0.1.0 (1)')).toBe(false);
   });
 
-  it('Android with the edition unread: WebYar\'s number (an early ringback beats a silent caller)', () => {
-    expect(ring.teamCallDeviceSendsRang('android', '1.0.5 (6)', null)).toBe(false);
-    expect(ring.teamCallDeviceSendsRang('android', '1.9 (30)', null)).toBe(true);
+  it('Android, RESPOK: 1.0.3 (4) and 1.0.4 (5); not 1.0.5 (6) and later; never 1.0.2 (3) and earlier', () => {
+    expect(stamps('android', '1.0.3 (4)', 'international')).toBe(true);
+    expect(stamps('android', '1.0.4 (5)', 'international')).toBe(true);
+    expect(stamps('android', '1.0.5 (6)', 'international')).toBe(false);
+    expect(stamps('android', '1.0.2 (3)', 'international')).toBe(false);
+    expect(stamps('android', '1.0.0 (1)', 'international')).toBe(false);
   });
 
-  it('iOS, both brands: build 6 and above; 5 (main and the iOS call branch today) and below cannot', () => {
+  it('Android with the edition unread: WebYar\'s numbers, which stamp no RESPOK build', () => {
+    expect(stamps('android', '1.8 (29)', null)).toBe(true);
+    expect(stamps('android', '1.9 (30)', null)).toBe(false);
+    for (const code of [1, 3, 4, 5, 6, 7]) expect(stamps('android', `1.0.x (${code})`, null)).toBe(false);
+  });
+
+  it('iOS, both brands: builds 3 to 5 (colleague calls, no rang); not 6 and later; never 1 or 2', () => {
     for (const edition of ['iran', 'international', null] as const) {
-      expect(ring.teamCallDeviceSendsRang('ios', '1.0.0 (6)', edition)).toBe(true);
-      expect(ring.teamCallDeviceSendsRang('ios', '1.1.0 (12)', edition)).toBe(true);
-      expect(ring.teamCallDeviceSendsRang('ios', '1.0.0 (5)', edition)).toBe(false);
+      expect(stamps('ios', '1.0.0 (3)', edition)).toBe(true);
+      expect(stamps('ios', '1.0.0 (5)', edition)).toBe(true);
+      expect(stamps('ios', '1.0.0 (6)', edition)).toBe(false);
+      expect(stamps('ios', '1.1.0 (12)', edition)).toBe(false);
+      expect(stamps('ios', '1.0.0 (2)', edition)).toBe(false);
     }
   });
 
-  it('a phone with no app_version, or none with a build number, counts as an old build', () => {
-    expect(ring.teamCallDeviceSendsRang('android', null, 'iran')).toBe(false);
-    expect(ring.teamCallDeviceSendsRang('ios', undefined, 'iran')).toBe(false);
-    expect(ring.teamCallDeviceSendsRang('android', '1.9', 'iran')).toBe(false);
+  it('a phone with no app_version, or none with a build number, is never stamped (it could predate colleague calls)', () => {
+    expect(stamps('android', null)).toBe(false);
+    expect(stamps('ios', undefined)).toBe(false);
+    expect(stamps('android', '1.8')).toBe(false);
+  });
+
+  it('every iOS build cut from main says rang: the project is at the first such build or above', () => {
+    const project = readFileSync(resolve(process.cwd(), 'ios/Webyar/project.yml'), 'utf8');
+    const build = project.match(/CURRENT_PROJECT_VERSION: "(\d+)"/);
+    expect(Number(build?.[1])).toBeGreaterThanOrEqual(ring.TEAM_CALL_PUSH_STAMP_BUILDS.ios.first);
+    expect(project.match(/CURRENT_PROJECT_VERSION:/g)).toHaveLength(1);
   });
 
   it('the targets carry it, read from each phone\'s app_version and the platform\'s edition', async () => {
     h.db.tables.mobile_push_devices = [
       device('ios-old', 'ios', '1.0.0 (5)'), device('ios-new', 'ios', '1.0.0 (6)'),
       device('and-old', 'android', '1.8 (29)'), device('and-new', 'android', '1.9 (30)'),
-      device('and-none', 'android', null),
+      device('and-none', 'android', null), device('and-ancient', 'android', '1.6 (27)'),
     ];
     const targets = await ring.teamCallRingTargets(config, CALLEE, 'ws-1');
-    expect(Object.fromEntries([...targets.ios, ...targets.android].map((d) => [d.deviceId, d.sendsRang]))).toEqual({
-      'ios-old': false, 'ios-new': true, 'and-old': false, 'and-new': true, 'and-none': false,
+    expect(Object.fromEntries([...targets.ios, ...targets.android].map((d) => [d.deviceId, d.pushStampsRang]))).toEqual({
+      'ios-old': true, 'ios-new': false, 'and-old': true, 'and-new': false, 'and-none': false, 'and-ancient': false,
     });
     h.edition = 'international';
-    h.db.tables.mobile_push_devices = [device('respok', 'android', '1.0.5 (6)')];
-    expect((await ring.teamCallRingTargets(config, CALLEE, 'ws-1')).android[0].sendsRang).toBe(true);
+    h.db.tables.mobile_push_devices = [device('respok', 'android', '1.0.4 (5)')];
+    expect((await ring.teamCallRingTargets(config, CALLEE, 'ws-1')).android[0].pushStampsRang).toBe(true);
   });
 });
 
@@ -178,9 +208,10 @@ describe('an accepted ring to an old build stamps rang_at', () => {
     expect(h.published).toHaveLength(1);
   });
 
-  it('a phone that registered no app_version', async () => {
-    await ringWith([device('and-none', 'android', null)]);
-    expect(meta().rang_platform).toBe('push');
+  it('never for a phone that registered no app_version, nor a build from before colleague calls', async () => {
+    await ringWith([device('and-none', 'android', null), device('and-ancient', 'android', '1.6 (27)'), device('ios-ancient', 'ios', '1.0.0 (2)')]);
+    expect(meta().rang_at).toBeNull();
+    expect(h.published).toEqual([]);
   });
 
   it('once per call, however many old phones took the ring', async () => {
@@ -220,6 +251,25 @@ describe('an accepted ring to an old build stamps rang_at', () => {
     expect(later.stamped).toBe(false);
     expect(meta()).toMatchObject({ rang_at: stamped, rang_platform: 'push', rang_device_id: 'and-old' });
     expect(h.published).toHaveLength(1);
+  });
+
+  it('a ring accepted after the ring ran out: the stamp marks it missed and its stop still goes out (no wait on itself)', async () => {
+    seedCall({ rung_android_device_ids: ['and-old'] });
+    const row = h.db.tables.call_sessions[0];
+    row.created_at = new Date(Date.now() - 60_000).toISOString();
+    h.db.tables.mobile_push_devices = [device('and-old', 'android', '1.8 (29)')];
+    const targets = await ring.teamCallRingTargets(config, CALLEE, 'ws-1');
+    const ringing = ring.ringTeamCall(config, input, targets);
+    const settled = await Promise.race([
+      ringing.then(() => 'resolved'),
+      new Promise((r) => setTimeout(() => r('stuck'), 2_000)),
+    ]);
+    expect(settled).toBe('resolved');
+    await ring.teamCallPushStampSettled('call-1');
+    await vi.waitFor(() => expect(h.fcm.map((m) => m.data.type)).toEqual(['team_call_incoming', 'team_call_cancel']));
+    expect(h.fcm[1].data).toEqual({ type: 'team_call_cancel', callId: 'call-1', reason: 'missed' });
+    expect(row.state).toBe('missed');
+    expect(meta().rang_at).toBeNull();
   });
 
   it('a call that no longer rings is neither rung nor stamped', async () => {

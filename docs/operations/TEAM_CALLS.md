@@ -217,6 +217,54 @@ uncounted time.
 - Entry: phone and video buttons in the colleague thread's toolbar, shown when
   the plan allows that kind of call.
 - The missed-call notification (`team_call_missed`) opens the thread.
+- Ring state (owner, 2026-11-04): the callee's phone sends `POST /:id/rang`
+  (`{device_id, platform: "ios"}`) once per call when CallKit accepts the
+  report of the ring, never before or instead of that report; retried twice,
+  3 s apart; `409`, `404` and `405` are ignored. The caller's screen says
+  "Calling…" with no ringback until the call's `rang_at` is set (poll or
+  realtime), then "Ringing…" with the ringback (the web's two-tone pattern,
+  made in memory, `TeamCallRingback`, held fuller and longer, every 3 s). A
+  voice call rings out on the loudspeaker away from the ear and on the
+  earpiece at it (proximity), until the Speaker control picks, and never
+  on the loudspeaker by itself while the sound is routed to a headset,
+  AirPods or a car (the route decides, not a device merely connected); a
+  device arriving takes the sound even from a chosen loudspeaker; CallKit's
+  own Speaker button is followed. The ringback is full where the sound comes
+  out of the loudspeaker and soft at the ear or in a headset. Answered, it goes to the earpiece unless the speaker was
+  picked; the override is dropped when the call ends. CallKit: started
+  connecting at the start action, connected only when both are in the room.
+- One end signal: a ring that ended unanswered on this phone (missed, or the
+  caller gave up) closes its screen at once and leaves the missed-call
+  notification to say it; a call that ends while the app is not in front
+  (CallKit's own screen said "Call ended") leaves no end screen behind.
+- Busy with a visitor call: a colleague's VoIP ring is reported to CallKit
+  and ended at once, and never touches the audio or sends `rang`, while this
+  phone is in a visitor call. In the visitor's room (connecting or connected)
+  it is also declined on the server (`POST /decline`), so the call ends
+  `declined` for the caller and the member's other phones. While only
+  inviting a visitor (the request, or a screen still waiting, even past the
+  invitation's expiry, as the visitor may have answered while the app slept)
+  it ends on this phone alone, and the other phones may still answer. An
+  ended visitor screen left behind is not busy (`VisitorCallScreens.busy`).
+  And a visitor call whose invitation turns out joined while a colleague
+  call holds the audio is never joined: it ends failed, the server told.
+- Signing out with a colleague call on (reachable once it is minimised) ends
+  it with the server told first, within 5 s, a call still being placed
+  included. Deleting the account ends it on the server
+  (`endTeamCallsOfMember` in `DELETE /api/account`, after the password and
+  owner checks and before the sessions are revoked), for every client.
+- The call screens (colleague and visitor) are opaque (`CallBackdrop`: black,
+  the brand's deep tone, the caller's photo blurred), never the app behind.
+- Minimise: the chevron shrinks the call's window to a draggable floating view
+  (`TeamCallBubble`) so the rest of the app works; a tap, PiP's return or the
+  app's return from the background opens the call full again.
+- Picture-in-picture on a video call (colleague or visitor): the remote video
+  in iOS's video-call PiP (`CallPictureInPicture`, LiveKit's `VideoView` in
+  sample-buffer mode), started automatically when the app goes to the
+  background. The member's own camera pauses in the background until the app
+  holds Apple's `com.apple.developer.avfoundation.multitasking-camera-access`
+  entitlement (not requested yet); with it, `CallCamera` turns multitasking on
+  by itself.
 - `rang` (`platform: "ios"`, `device_id` the install's): once CallKit accepted
   the report of the incoming call (its completion without an error), or when
   the in-app ring shows. As the caller: "Calling…" without ringback until
@@ -242,8 +290,8 @@ uncounted time.
   (the media stream), never on the loudspeaker over it, re-checked as
   devices come and go. Bluetooth for calls only (HFP/SCO: a watch, a car
   kit) does not count: media never takes it before the room exists, so the
-  earpiece and loudspeaker rule holds. At the ear it is the old ringback's level, on the
-  loudspeaker louder. It forces no route (no speakerphone, communication
+  earpiece and loudspeaker rule holds. At the ear it is the old ringback's
+  level, on the loudspeaker louder. It forces no route (no speakerphone, communication
   device or audio mode), so nothing carries into the next call.
 - One end signal for a ring nobody answered here (owner, 2026-11-05, both
   apps): a ring screen whose call ends cancelled or missed closes at once and

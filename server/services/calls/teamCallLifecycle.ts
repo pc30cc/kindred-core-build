@@ -616,3 +616,53 @@ export async function onTeamCallRoomListed(
   }
   return completeTeamCall(config, row, { by: 'system', userId: null, reason: 'system_ended' });
 }
+
+/**
+ * A member's account is being deleted (DELETE /api/account): every colleague
+ * call they are on — ringing, connecting or active, as caller or callee — is
+ * hung up for them, with the move's usual effects (the rung phones stop,
+ * the other member hears it, the call's line in the chat), before their
+ * sessions go. Otherwise the colleague's phones ring on to the expiry, or
+ * an answered call leaves them in an empty room. Covers every client (the
+ * iPhone, Android and the web panel) alike. Resolves with the number of
+ * calls ended; throws on a failed read.
+ */
+export async function endTeamCallsOfMember(config: ServerConfig, userId: string): Promise<number> {
+  const sb = getServiceClient(config);
+  const [asCaller, asCallee] = await Promise.all([
+    sb.from('call_sessions').select(TEAM_CALL_COLUMNS)
+      .eq('entry_source', TEAM_CALL_ENTRY_SOURCE)
+      .in('state', [...TEAM_CALL_LIVE_STATES])
+      .eq('metadata->team_call->>caller_user_id', userId),
+    sb.from('call_sessions').select(TEAM_CALL_COLUMNS)
+      .eq('entry_source', TEAM_CALL_ENTRY_SOURCE)
+      .in('state', [...TEAM_CALL_LIVE_STATES])
+      .eq('metadata->team_call->>callee_user_id', userId),
+  ]);
+  for (const read of [asCaller, asCallee]) {
+    if (read.error) throw new Error(`team_call_read_failed: ${read.error.message}`);
+  }
+  const rows = new Map<string, TeamCallRow>();
+  for (const row of [...(asCaller.data ?? []), ...(asCallee.data ?? [])] as unknown as TeamCallRow[]) {
+    if (isTeamCallRow(row)) rows.set(row.id, row);
+  }
+  let ended = 0;
+  for (const row of rows.values()) {
+    try {
+      let move = await hangUpTeamCall(config, row, userId);
+      // A cancel or decline that lost to an answer at the same instant
+      // leaves the call live (now connecting): hang that one up too, from
+      // the row as it now is, a couple of times at most.
+      for (let i = 0; i < 2 && !move.moved && (TEAM_CALL_LIVE_STATES as readonly string[]).includes(move.row.state); i++) {
+        await move.effects;
+        move = await hangUpTeamCall(config, move.row, userId);
+      }
+      await move.effects;
+      if (move.moved) ended += 1;
+    } catch (err) {
+      // One call that cannot be moved never keeps the others live.
+      console.warn('[team-calls] ending a call of a deleted account failed', row.id, err instanceof Error ? err.message : err);
+    }
+  }
+  return ended;
+}

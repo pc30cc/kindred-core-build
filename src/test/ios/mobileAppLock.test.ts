@@ -274,11 +274,11 @@ describe('while the app is locked', () => {
     const root = body(source('App/AppLock.swift'), 'struct SignedInRoot: View {');
     expect(root).toMatch(/static func showsLock\(appLocked: Bool, visitorCallOnScreen: Bool\) -> Bool \{\s*appLocked && !visitorCallOnScreen/);
     const host = body(source('Features/Calls/CallScreen.swift'), 'struct CallHost: View {');
-    expect(host).toContain('.onAppear { VisitorCallScreens.shared.opened(presence) }');
+    expect(host).toContain('.onAppear { VisitorCallScreens.shared.opened(invitation, phase: session.phase) }');
     // Leaving the screen closes its entry first; a call still live then is
     // hung up (a workspace switch or sign-out took the screen away), never
     // by the lock, which waits while this screen is up.
-    expect(host).toMatch(/\.onDisappear \{\s*VisitorCallScreens\.shared\.closed\(presence\)/);
+    expect(host).toMatch(/\.onDisappear \{\s*VisitorCallScreens\.shared\.closed\(invitation\.id\)/);
     // The only place a visitor call's screen is made.
     expect(filesMatching(/CallHost\(/)).toEqual(['Features/Chat/ChatView.swift']);
   });

@@ -68,6 +68,12 @@ struct TeamCall: Decodable, Identifiable, Equatable, Sendable {
     let endedAt: Date?
     /// When the ring stops (`TEAM_CALL_RING_SECONDS` after it started).
     let expiresAt: Date?
+    /// When one of the callee's phones (or panel tabs) said it is actually
+    /// ringing (`POST /:id/rang`); nil until then. The caller's phone shows
+    /// "Calling…" without a ringback until it is set, and "Ringing…" with
+    /// one after (owner, 2026-11-04: not "ringing" before the other phone
+    /// rings). A server without the field yet leaves it nil.
+    let rangAt: Date?
 
     struct Peer: Decodable, Equatable, Sendable {
         let userID: String
@@ -89,6 +95,7 @@ struct TeamCall: Decodable, Identifiable, Equatable, Sendable {
         case answeredAt = "answered_at"
         case endedAt = "ended_at"
         case expiresAt = "expires_at"
+        case rangAt = "rang_at"
     }
 
     init(
@@ -103,7 +110,8 @@ struct TeamCall: Decodable, Identifiable, Equatable, Sendable {
         createdAt: Date? = nil,
         answeredAt: Date? = nil,
         endedAt: Date? = nil,
-        expiresAt: Date? = nil
+        expiresAt: Date? = nil,
+        rangAt: Date? = nil
     ) {
         self.id = id
         self.workspaceID = workspaceID
@@ -117,6 +125,7 @@ struct TeamCall: Decodable, Identifiable, Equatable, Sendable {
         self.answeredAt = answeredAt
         self.endedAt = endedAt
         self.expiresAt = expiresAt
+        self.rangAt = rangAt
     }
 
     init(from decoder: Decoder) throws {
@@ -135,6 +144,7 @@ struct TeamCall: Decodable, Identifiable, Equatable, Sendable {
         answeredAt = try c.decodeIfPresent(Date.self, forKey: .answeredAt)
         endedAt = try c.decodeIfPresent(Date.self, forKey: .endedAt)
         expiresAt = try c.decodeIfPresent(Date.self, forKey: .expiresAt)
+        rangAt = try c.decodeIfPresent(Date.self, forKey: .rangAt)
     }
 
     /// Answered on the phone `deviceID` names, as the callee: this phone's

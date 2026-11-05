@@ -18,9 +18,12 @@ struct ActiveTeamCall: Equatable, Sendable {
     }
 
     enum Phase: Equatable, Sendable {
-        /// Outgoing: the request to ring is on its way.
+        /// Outgoing: the request to ring is on its way, or the server has it
+        /// but no phone of the colleague's has said it rings yet ("Calling…",
+        /// no ringback).
         case calling
-        /// The colleague's phones are ringing (outgoing), or this one is.
+        /// A phone of the colleague's rings — the server's `rang_at` is set
+        /// ("Ringing…", with the ringback) — or, incoming, this one does.
         case ringing
         /// Answered; the room is being joined.
         case connecting
@@ -56,7 +59,13 @@ struct ActiveTeamCall: Equatable, Sendable {
     var knownToCallKit: Bool
     var isMuted = false
     /// A voice call starts on the earpiece, a video call on the loudspeaker.
+    /// While a voice call is placed and rings out, it follows the phone
+    /// instead — the loudspeaker away from the ear, the earpiece at it — until
+    /// the member picks with the Speaker control (`speakerChosen`).
     var isSpeakerOn: Bool
+    /// The member chose the speaker or the earpiece themselves: the route is
+    /// theirs from then on.
+    var speakerChosen = false
     var isCameraOn: Bool
     /// Connected, without everything it was meant to carry.
     var degraded: CallDegradation?
@@ -166,11 +175,32 @@ final class CallManager {
     /// known. Kept so that a call ended here meanwhile can still be hung up
     /// once the answer says it was this phone's (`TeamCallNotice`).
     @ObservationIgnored private var answering: Task<TeamCallAcceptance?, Never>?
+    /// `POST /api/team-calls` on its way, for an outgoing call that has no
+    /// call id yet: what a sign-out waits on to hang the ring up
+    /// (`endForSignOut`).
+    @ObservationIgnored private var placing: Task<Result<TeamCall, Error>, Never>?
+    /// The call whose placement a sign-out took over (`endForSignOut`): its
+    /// hang-up is the sign-out's to send, once, not `startOnServer`'s too.
+    @ObservationIgnored private var placementHandedOff: UUID?
     @ObservationIgnored private var watcher: Task<Void, Never>?
     @ObservationIgnored private var ringTimer: Task<Void, Never>?
     @ObservationIgnored private var joinTimer: Task<Void, Never>?
     @ObservationIgnored private var clearTimer: Task<Void, Never>?
     @ObservationIgnored private var signals: Task<Void, Never>?
+    /// The caller's tone while the colleague's phone rings.
+    @ObservationIgnored private let ringback = TeamCallRingback()
+    /// CallKit has activated the audio session for the call: the ringback
+    /// can be heard (and LiveKit's engine may run).
+    @ObservationIgnored private var audioActive = false
+    /// The output override last set (`applyRoute`), so it is set only when
+    /// it changes: setting it posts a route change, which reads it again.
+    @ObservationIgnored private var appliedSpeaker: Bool?
+    /// Whether the sound goes to a headset, AirPods or a car, as last read
+    /// from the route while no loudspeaker override of ours hid it.
+    @ObservationIgnored private var externalAudio = false
+    /// The call this phone last told the server it rings for (`POST /rang`):
+    /// once per call.
+    @ObservationIgnored private var rangSent: String?
 
     /// Asked every two seconds while ringing, as the contract says; once
     /// answered, every ten — a safety net under the room's own events, for a
@@ -188,6 +218,19 @@ final class CallManager {
         callKit = CallKitBridge(configuration: Self.providerConfiguration())
         callKit.manager = self
         listenForSignals()
+        // The ringback follows the phone to the ear and away (`applyRoute`).
+        NotificationCenter.default.addObserver(
+            forName: UIDevice.proximityStateDidChangeNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { CallManager.shared.applyRoute() }
+        }
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+        ) { note in
+            let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            let reason = raw.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            MainActor.assumeIsolated { CallManager.shared.audioRouteChanged(reason) }
+        }
     }
 
     /// The id this phone answers with, and the one the server compares
@@ -196,6 +239,11 @@ final class CallManager {
 
     /// A call holds the audio: one that has not ended.
     private var holdsAudio: Bool { call.map { !$0.phase.isOver } ?? false }
+
+    /// A colleague call is on (ringing, placed, connecting or live), even
+    /// minimised: no visitor call may start beside it — the two rooms would
+    /// share the audio CallKit owns (`ConversationActionsModel.invite`).
+    var isOnCall: Bool { holdsAudio }
 
     /// The language CallKit names the colleague in: the app's, as stored —
     /// a ring can launch the app with no scene and no `AppState`.
@@ -286,10 +334,15 @@ final class CallManager {
         // last read it for the ring's workspace (`MobileAppLock`) — a locked
         // workspace's ring is reported and ended at once
         // (docs/operations/MOBILE_APP_PLAN.md).
+        // A visitor call on this phone — its screen up, or its invitation
+        // on the way — holds the audio as much as a colleague call: LiveKit's
+        // engine is that call's, and handing it to CallKit would mute it.
+        let visitorCall = VisitorCallScreens.shared.busy(now: now)
+        let visitorCallOn = visitorCall != .none
         let accepted: TeamCallRing? = ring.flatMap { ring in
             guard ring.mayRing(
                 now: now,
-                holdsAudio: holdsAudio,
+                holdsAudio: holdsAudio || visitorCallOn,
                 signedIn: TokenStore.read() != nil,
                 workspaceLocked: MobileAppLock.isLocked(workspaceID: ring.workspaceID)
             ) else { return nil }
@@ -298,6 +351,14 @@ final class CallManager {
         report(uuid, update)
         guard let ring = accepted else {
             callKit.provider.reportCall(with: uuid, endedAt: nil, reason: .failed)
+            // In a visitor's room (joining or talking): declined — the call
+            // ends `declined` for the caller and the member's other phones.
+            // Only inviting a visitor (no room yet): ended on this phone
+            // alone, and the other phones may still answer. Either way
+            // nothing touches the audio, and no `rang` is sent.
+            if let ring, visitorCall == .live, !holdsAudio, !ring.isExpired(now: now), TokenStore.read() != nil {
+                tell(.decline, callID: ring.callID, answering: nil)
+            }
             // Ended for what this phone last read of that workspace's plan,
             // which goes stale when the plan is switched back on while
             // another workspace is open here: ask it again, so the next ring
@@ -327,10 +388,55 @@ final class CallManager {
         ringUntil(TeamCallTiming.deadline(expiresAt: ring.expiresAt, receivedAt: now), uuid: uuid)
     }
 
+    /// Reports the ring to CallKit, at once. Its answer comes back later: a
+    /// refusal ends the call here, an acceptance is when this phone really
+    /// rings — what the caller's phone waits for to say "Ringing…"
+    /// (`incomingReported`). Nothing here waits for the server.
     private func report(_ uuid: UUID, _ update: CXCallUpdate) {
         callKit.provider.reportNewIncomingCall(with: uuid, update: update) { @Sendable error in
-            guard let error else { return }
-            Task { @MainActor in CallManager.shared.incomingReportFailed(uuid: uuid, error: error) }
+            Task { @MainActor in
+                if let error {
+                    CallManager.shared.incomingReportFailed(uuid: uuid, error: error)
+                } else {
+                    CallManager.shared.incomingReported(uuid: uuid)
+                }
+            }
+        }
+    }
+
+    /// CallKit took the ring: this phone is ringing. Tells the server so,
+    /// once per call (`POST /:id/rang`), when the call is still the ringing
+    /// one here — a ring reported only to be ended at once (not for this
+    /// member, a locked workspace, another call on) is never "rang".
+    private func incomingReported(uuid: UUID) {
+        guard let call, call.uuid == uuid, call.direction == .incoming, call.phase == .ringing,
+              let callID = call.callID, rangSent != callID
+        else { return }
+        rangSent = callID
+        sendRang(callID)
+    }
+
+    /// `POST /rang`, retried twice a few seconds apart, then dropped: the
+    /// caller's phone then says "Calling…" a little longer, nothing worse.
+    /// Stops as soon as the call is no longer ringing here. With iOS's leave
+    /// to finish: a VoIP push may have launched the app in the background.
+    private func sendRang(_ callID: String) {
+        let deviceID = self.deviceID
+        BackgroundGrace.run("Colleague call rang") { [api] in
+            for attempt in 0..<3 {
+                if attempt > 0 {
+                    try? await Task.sleep(for: .seconds(3))
+                    guard let call = CallManager.shared.call, call.callID == callID, call.phase == .ringing else { return }
+                }
+                do {
+                    try await api.markTeamCallRang(id: callID, deviceID: deviceID)
+                    return
+                } catch APIError.unauthorized {
+                    return
+                } catch {
+                    continue
+                }
+            }
         }
     }
 
@@ -371,13 +477,24 @@ final class CallManager {
             isCameraOn: channel == .video
         )
         takeAudio()
-        Task { await startOnServer(uuid: uuid, calleeID: colleague.userId, channel: channel, workspaceID: workspaceID) }
+        let calleeID = colleague.userId
+        let placing = Task { [api] () async -> Result<TeamCall, Error> in
+            do {
+                return .success(try await api.startTeamCall(workspaceID: workspaceID, calleeID: calleeID, channel: channel))
+            } catch {
+                return .failure(error)
+            }
+        }
+        self.placing = placing
+        Task { await startOnServer(uuid: uuid, channel: channel, placing: placing) }
     }
 
-    private func startOnServer(uuid: UUID, calleeID: String, channel: CallChannel, workspaceID: String) async {
+    private func startOnServer(uuid: UUID, channel: CallChannel, placing: Task<Result<TeamCall, Error>, Never>) async {
+        let result = await placing.value
+        if self.placing == placing { self.placing = nil }
         let placed: TeamCall
         do {
-            placed = try await api.startTeamCall(workspaceID: workspaceID, calleeID: calleeID, channel: channel)
+            placed = try result.get()
         } catch APIError.server(let status, let code) {
             finish(uuid, .refusal(status: status, code: code), tellServer: false, reportToCallKit: false)
             return
@@ -390,7 +507,11 @@ final class CallManager {
         // cancel while it rings and an end should the colleague already have
         // answered.
         guard var call, call.uuid == uuid, !call.phase.isOver else {
-            tell(.hangUp, callID: placed.id, answering: nil)
+            if placementHandedOff == uuid {
+                placementHandedOff = nil
+            } else {
+                tell(.hangUp, callID: placed.id, answering: nil)
+            }
             return
         }
         call.callID = placed.id
@@ -461,11 +582,15 @@ final class CallManager {
                 call.answered = true
                 self.call = call
                 ringTimer?.cancel()
+                syncRingback()
                 Task { await join(fresh.id) }
             } else if let end = TeamCallEnd.resolve(fresh, deviceID: deviceID) {
                 endCall(fresh.id, end)
-            } else if call.phase == .calling {
+            } else if call.phase == .calling, fresh.rangAt != nil {
+                // A phone of the colleague's says it rings: only now
+                // "Ringing…", and the ringback.
                 self.call?.phase = .ringing
+                syncRingback()
             }
         case .incoming:
             if call.answered || call.phase != .ringing {
@@ -639,6 +764,11 @@ final class CallManager {
         if call.direction == .outgoing {
             callKit.provider.reportOutgoingCall(with: uuid, connectedAt: now)
         }
+        // Answered: a voice call goes to the earpiece, as it always did,
+        // unless the member chose the speaker while it rang.
+        if call.channel == .audio, !call.speakerChosen {
+            self.call?.isSpeakerOn = false
+        }
         applyRoute()
     }
 
@@ -723,6 +853,11 @@ final class CallManager {
     /// CallKit activated the session: LiveKit's engine may run now.
     fileprivate func audioActivated() {
         guard holdsAudio else { return }
+        audioActive = true
+        // A session (re)activated has no override of ours on it.
+        appliedSpeaker = nil
+        externalAudio = TeamCallAudio.routeIsExternal
+        defer { syncRingback() }
         do {
             try TeamCallAudio.activated()
         } catch {
@@ -735,6 +870,8 @@ final class CallManager {
     /// CallKit deactivated it: mid-call, the engine waits for it back; after
     /// the call, the session goes back to LiveKit for visitor calls.
     fileprivate func audioDeactivated() {
+        audioActive = false
+        syncRingback()
         if holdsAudio {
             TeamCallAudio.deactivated()
         } else {
@@ -809,6 +946,7 @@ final class CallManager {
     func toggleSpeaker() {
         guard let call, call.channel == .audio, !call.phase.isOver else { return }
         self.call?.isSpeakerOn = !call.isSpeakerOn
+        self.call?.speakerChosen = true
         applyRoute()
     }
 
@@ -844,12 +982,89 @@ final class CallManager {
     /// The speaker and the proximity sensor follow the call: a voice call on
     /// the earpiece turns the screen off at the ear; on the loudspeaker, or
     /// on a video call, it stays on.
-    private func applyRoute() {
-        guard let call, !call.phase.isOver else { return }
+    ///
+    /// A voice call ringing out (the ringback) is heard on the loudspeaker
+    /// while the phone is away from the ear and on the earpiece at it, the
+    /// proximity sensor deciding, until the member uses the Speaker control.
+    /// Only the output port moves (`overrideOutputAudioPort`), which CallKit
+    /// leaves to the app; the session's category and mode stay as set.
+    fileprivate func applyRoute() {
+        guard var call, !call.phase.isOver else { return }
+        let ringingOut = call.direction == .outgoing && call.isRinging && !call.answered
+        // A headset, AirPods or a car keeps the sound: nothing is switched
+        // to the phone's loudspeaker by itself then. Read from the route
+        // while it is ours unforced; kept from then while the loudspeaker is.
+        if appliedSpeaker == false { externalAudio = TeamCallAudio.routeIsExternal }
+        let external = externalAudio
+        let automatic = call.channel == .audio && ringingOut && !call.speakerChosen
         if call.channel == .audio {
-            TeamCallAudio.route(toSpeaker: call.isSpeakerOn)
+            if automatic {
+                let atEar = UIDevice.current.isProximityMonitoringEnabled && UIDevice.current.proximityState
+                let speaker = !external && !atEar
+                if call.isSpeakerOn != speaker {
+                    call.isSpeakerOn = speaker
+                    self.call = call
+                }
+            }
+            setSpeaker(call.isSpeakerOn)
         }
-        UIDevice.current.isProximityMonitoringEnabled = call.channel == .audio && !call.isSpeakerOn && call.isLive
+        // The ringback's level follows where the sound really goes: full on
+        // the loudspeaker, soft at the ear or in a headset.
+        ringback.setLoud(TeamCallAudio.playsOnLoudspeaker)
+        // The screen goes dark at the ear whenever a voice call is not on the
+        // loudspeaker, or while the ringback still follows the phone.
+        let sensing = call.channel == .audio && (!call.isSpeakerOn || (automatic && !external))
+        if UIDevice.current.isProximityMonitoringEnabled != sensing {
+            UIDevice.current.isProximityMonitoringEnabled = sensing
+        }
+    }
+
+    /// A headset, AirPods or a car came or went: an automatic loudspeaker
+    /// gives way to a device that arrived (the override would keep the sound
+    /// on the phone), and the route is decided again.
+    fileprivate func audioRouteChanged(_ reason: AVAudioSession.RouteChangeReason?) {
+        guard let call, !call.phase.isOver else { return }
+        switch reason {
+        case .override?:
+            // Ours, or the system's: CallKit's own Speaker button (the lock
+            // screen's call screen) changes the route the same way. Ours set
+            // `appliedSpeaker` first, so a route that disagrees is the
+            // member's choice made there: the app follows it.
+            let actual = TeamCallAudio.playsOnLoudspeaker
+            if call.channel == .audio, let applied = appliedSpeaker, applied != actual {
+                self.call?.isSpeakerOn = actual
+                self.call?.speakerChosen = true
+                appliedSpeaker = actual
+            }
+            applyRoute()
+        case .newDeviceAvailable?:
+            // A headset, AirPods or a car arrived: it takes the sound, as in
+            // the Phone app, even over a loudspeaker the member chose.
+            if call.channel == .audio, call.isSpeakerOn {
+                self.call?.isSpeakerOn = false
+                setSpeaker(false)
+            }
+            externalAudio = TeamCallAudio.routeIsExternal
+            applyRoute()
+        case .categoryChange?, .routeConfigurationChange?:
+            // These drop the override without a new device: set it again.
+            if appliedSpeaker != true { externalAudio = TeamCallAudio.routeIsExternal }
+            appliedSpeaker = nil
+            applyRoute()
+        default:
+            // A device left, or anything else: read the route again.
+            if appliedSpeaker != true { externalAudio = TeamCallAudio.routeIsExternal }
+            applyRoute()
+        }
+    }
+
+    /// Sets the loudspeaker override when it changes — and not at all when
+    /// the route already is what is asked, so a re-apply never posts a change.
+    private func setSpeaker(_ speaker: Bool) {
+        guard appliedSpeaker != speaker else { return }
+        appliedSpeaker = speaker
+        guard TeamCallAudio.playsOnLoudspeaker != speaker else { return }
+        TeamCallAudio.route(toSpeaker: speaker)
     }
 
     // MARK: - Signing out
@@ -866,6 +1081,54 @@ final class CallManager {
     }
 
     // MARK: - Ending
+
+    /// Signing out with a colleague call on (reachable once it is
+    /// minimised): the call ends here and the server is told — and awaited,
+    /// while the session that may tell it still exists — so the colleague's
+    /// phones stop ringing, or the colleague is not left in an empty room.
+    /// Bounded: sign-out never waits on it for more than a few seconds.
+    ///
+    /// Covers the moments a plain end cannot: a call still being placed (no
+    /// call id yet — the placement is awaited, and the ring it made hung up)
+    /// and this phone's answer still on its way (not awaited past a moment;
+    /// the server is asked whose the call is instead). The requests run in
+    /// tasks of their own, never cancelled, so none is cut short by the cap.
+    func endForSignOut() async {
+        guard let call, !call.phase.isOver else { return }
+        let notice = TeamCallNotice.leaving(call)
+        let knownID = call.callID
+        let answering = self.answering
+        let placing = knownID == nil ? self.placing : nil
+        if placing != nil { placementHandedOff = call.uuid }
+        finish(call.uuid, Self.endedHere(call), tellServer: false, reportToCallKit: true)
+        let api = self.api, deviceID = self.deviceID
+        let deadline = Date().addingTimeInterval(5)
+        await SignOutRace.first(by: deadline) {
+            var callID = knownID
+            if callID == nil, let placing {
+                callID = try? await placing.value.get().id
+            }
+            guard let callID else { return }
+            switch notice {
+            case .afterTheAnswer:
+                // The answer for at most half the time left; else the
+                // server's word on whose the call is.
+                let answer = await SignOutRace.value(by: Date().addingTimeInterval(max(0, deadline.timeIntervalSinceNow) / 2)) {
+                    await answering?.value
+                }
+                let won: Bool
+                if let answer = answer ?? nil {
+                    won = answer.isWon(by: deviceID)
+                } else {
+                    won = (try? await api.teamCall(id: callID))?.isAnswered(on: deviceID) == true
+                }
+                guard won else { return }
+                await Self.notify(.hangUp, callID: callID, answering: nil, api: api, deviceID: deviceID)
+            case .hangUp, .decline:
+                await Self.notify(notice, callID: callID, answering: nil, api: api, deviceID: deviceID)
+            }
+        }
+    }
 
     /// The call `callID` names ended as the server said — so the server is
     /// not told again.
@@ -899,11 +1162,19 @@ final class CallManager {
         }
         teardown()
 
-        // A ring declined here has nothing to say, and one cancelled or
-        // missed is said by the missed-call notification alone
-        // (`closesRingAtOnce`); anything else lingers a moment so the outcome
-        // can be read.
-        if wasRingingHere, end.closesRingAtOnce {
+        // One end signal, never two (owner, 2026-11-05):
+        // - a ring declined here has nothing to say;
+        // - a ring that ended unanswered here (missed, or the caller gave
+        //   up) is said by the server's missed-call notification, so the call
+        //   screen goes at once rather than showing its own outcome under it;
+        // - with the app not in front, CallKit's own screen said it (a call
+        //   answered on the lock screen shows CallKit's "Call ended"), so the
+        //   app does not show its end screen again when it is opened.
+        // Anything else lingers a moment so the outcome can be read. The
+        // first two are `TeamCallEnd.closesRingAtOnce`, Android's rule too.
+        let closesAtOnce = wasRingingHere && end.closesRingAtOnce
+        let notInFront = UIApplication.shared.applicationState != .active
+        if closesAtOnce || notInFront {
             self.call = nil
         } else {
             clearTimer = Task { [weak self] in
@@ -927,22 +1198,46 @@ final class CallManager {
     private func tell(_ notice: TeamCallNotice, callID: String, answering: Task<TeamCallAcceptance?, Never>?) {
         let deviceID = self.deviceID
         BackgroundGrace.run("Colleague call end") { [api] in
-            switch notice {
-            case .hangUp:
-                try? await api.hangUpTeamCall(id: callID)
-            case .decline:
-                try? await api.declineTeamCall(id: callID)
-            case .afterTheAnswer:
-                let won: Bool
-                if let answer = await answering?.value {
-                    won = answer.isWon(by: deviceID)
-                } else {
-                    won = (try? await api.teamCall(id: callID))?.isAnswered(on: deviceID) == true
-                }
-                guard won else { return }
-                try? await api.hangUpTeamCall(id: callID)
-            }
+            await Self.notify(notice, callID: callID, answering: answering, api: api, deviceID: deviceID)
         }
+    }
+
+    /// The request `notice` names — the one place a call's end reaches the
+    /// server (`tell`, `endForSignOut`).
+    nonisolated private static func notify(
+        _ notice: TeamCallNotice,
+        callID: String,
+        answering: Task<TeamCallAcceptance?, Never>?,
+        api: any WebyarAPI,
+        deviceID: String
+    ) async {
+        switch notice {
+        case .hangUp:
+            try? await api.hangUpTeamCall(id: callID)
+        case .decline:
+            try? await api.declineTeamCall(id: callID)
+        case .afterTheAnswer:
+            let won: Bool
+            if let answer = await answering?.value {
+                won = answer.isWon(by: deviceID)
+            } else {
+                won = (try? await api.teamCall(id: callID))?.isAnswered(on: deviceID) == true
+            }
+            guard won else { return }
+            try? await api.hangUpTeamCall(id: callID)
+        }
+    }
+
+    /// The ringback plays while the caller's phone shows "Ringing…" — the
+    /// colleague's phone rings, nobody answered yet — and CallKit has given
+    /// the call its audio. Called wherever one of those changes.
+    private func syncRingback() {
+        guard let call, call.direction == .outgoing, call.phase == .ringing, !call.answered, audioActive else {
+            ringback.stop()
+            return
+        }
+        ringback.start()
+        applyRoute()
     }
 
     private func stopTimers() {
@@ -976,6 +1271,16 @@ final class CallManager {
     /// left half-way would keep the colleague listening to silence until
     /// LiveKit noticed this phone had gone.
     private func teardown() {
+        // The loudspeaker override goes before CallKit deactivates the
+        // session: a visitor call or a voice note after it must not inherit
+        // it (it also forces the built-in microphone over a headset's).
+        TeamCallAudio.route(toSpeaker: false)
+        appliedSpeaker = nil
+        ringback.stop()
+        audioActive = false
+        if let owner = call?.uuid.uuidString {
+            CallPictureInPicture.shared.end(owner: owner)
+        }
         let leaving = room
         room = nil
         remoteVideo = nil
@@ -1088,5 +1393,53 @@ final class CallKitBridge: NSObject, @preconcurrency CXProviderDelegate {
 
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
         manager?.audioDeactivated()
+    }
+}
+
+/// Waiting on sign-out's requests no longer than it may, without cancelling
+/// them: each runs in a task of its own, and only the waiting stops.
+enum SignOutRace {
+    /// Runs `work` and returns when it finishes or at `deadline`, whichever
+    /// is first.
+    static func first(by deadline: Date, _ work: @escaping @Sendable () async -> Void) async {
+        _ = await value(by: deadline) { await work(); return true }
+    }
+
+    /// `work`'s value, or nil at `deadline`.
+    static func value<T: Sendable>(by deadline: Date, _ work: @escaping @Sendable () async -> T) async -> T? {
+        let once = Once<T?>()
+        return await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
+            once.set(continuation)
+            Task { once.resume(await work()) }
+            Task {
+                try? await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
+                once.resume(nil)
+            }
+        }
+    }
+
+    /// A continuation resumed once, by whichever side comes first.
+    private final class Once<T: Sendable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<T, Never>?
+        private var done = false
+
+        func set(_ continuation: CheckedContinuation<T, Never>) {
+            lock.lock()
+            defer { lock.unlock() }
+            self.continuation = continuation
+        }
+
+        func resume(_ value: T) {
+            lock.lock()
+            guard !done, let continuation else {
+                lock.unlock()
+                return
+            }
+            done = true
+            self.continuation = nil
+            lock.unlock()
+            continuation.resume(returning: value)
+        }
     }
 }

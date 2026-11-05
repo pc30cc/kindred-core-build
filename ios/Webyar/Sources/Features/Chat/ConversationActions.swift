@@ -30,6 +30,9 @@ final class ConversationActionsModel {
     /// The microphone is off for this app in iOS Settings, so no call was
     /// offered: the visitor would have answered and heard nothing.
     var callNeedsMicrophone = false
+    /// A colleague call is on (minimised over the app): a visitor call would
+    /// share its audio, so none is offered until it ends.
+    var callBlockedByColleagueCall = false
     /// Set once the server has actually handed the thread over, so the menu
     /// stops offering a row with nothing left to do.
     ///
@@ -211,6 +214,10 @@ final class ConversationActionsModel {
     /// once the visitor accepts — which is why this ends in "waiting", not in
     /// a ringing tone.
     func invite(_ channel: CallChannel, appState: AppState) async {
+        guard !CallManager.shared.isOnCall else {
+            callBlockedByColleagueCall = true
+            return
+        }
         // Asked before the visitor is: iOS records silence rather than
         // failing when the microphone is refused, and its own question
         // arriving after the visitor answers lands in the middle of the call.
@@ -223,15 +230,30 @@ final class ConversationActionsModel {
         if channel == .video {
             _ = await AVCaptureDevice.requestAccess(for: .video)
         }
+        // Asked again after the permission prompts, which can take as long
+        // as the member likes: a colleague call may have rung meanwhile.
+        guard !CallManager.shared.isOnCall else {
+            callBlockedByColleagueCall = true
+            return
+        }
+        // From here a visitor call is starting, before its screen is up: a
+        // colleague's ring meanwhile is not rung here (`VisitorCallScreens`).
+        // The mark is handed to the invitation, which the screen takes over.
+        let mark = "request-\(UUID().uuidString)"
+        VisitorCallScreens.shared.requesting(mark)
         do {
-            pendingInvitation = try await api.inviteToCall(
+            let invitation = try await api.inviteToCall(
                 conversationID: conversationID,
                 workspaceID: workspaceID,
                 channel: channel
             )
+            VisitorCallScreens.shared.handOver(mark, to: invitation)
+            pendingInvitation = invitation
         } catch APIError.unauthorized {
+            VisitorCallScreens.shared.dropped(mark)
             await appState.handleUnauthorized()
         } catch {
+            VisitorCallScreens.shared.dropped(mark)
             inviteFailed = true
         }
     }

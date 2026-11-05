@@ -16,6 +16,7 @@ import { indexSource, getEmbedderForWorkspace, type SourceType } from './indexer
 import { isUsableEmbeddingProvider, type EmbeddingProvider } from '../embeddings/index.js';
 import { getOrCreateSettings } from '../settings.js';
 import { isKbArticleLocked, resolveKbLock } from '../../knowledge-base/locks.js';
+import { readRows, readRowsByKey, keyPage } from '../../../lib/pagedRows.js';
 
 const PLAN_BUDGETS: Record<string, number> = {
   free: 50,
@@ -50,6 +51,9 @@ async function resolveEmbeddingBudget(config: ServerConfig, workspaceId: string)
   }
 }
 
+
+/** Source ids per retiring update (keeps each statement's IN list short). */
+const RETIRE_BATCH = 500;
 export interface SyncSourceInput {
   workspaceId: string;
   sourceType: SourceType;
@@ -270,14 +274,17 @@ export async function rebuildWorkspaceIndex(
   // max_kb_articles) are not eligible: the sweep below retires their chunks,
   // and the catch-up after an upgrade or a delete indexes them again. An
   // unreadable lock state locks nothing (fail open), so it never retires.
+  //
+  // Every eligible article, page by page: the data layer caps a read at
+  // DATABASE_MAX_ROWS, and an article missing from this set would have its
+  // chunks retired by the sweep below.
   const [{ data: publishedArticles, error: articlesError }, kbLock] = await Promise.all([
-    sb
+    readRowsByKey<Record<string, unknown>>('id', (after, size) => keyPage(sb
       .from('knowledge_base_articles')
       .select('id, slug, locale, title, content, status, created_at')
       .eq('workspace_id', workspaceId)
       .eq('status', 'published')
-      .eq('used_by_ai', true)
-      .limit(2000),
+      .eq('used_by_ai', true), 'id', after, size)),
     resolveKbLock(config, workspaceId),
   ]);
   const articleSetTrustworthy = !articlesError;
@@ -402,13 +409,14 @@ export async function rebuildWorkspaceIndex(
   let reconciliationFailed = false;
   const reconciliationBlocked = !reconciliationAllowed;
   if (reconciliationAllowed) {
-    const { data: kbChunks, error: chunksError } = await sb
+    // Every live kb_article chunk, page by page (DATABASE_MAX_ROWS caps a
+    // single read): a chunk past the cap would never be retired.
+    const { data: kbChunks, error: chunksError } = await readRowsByKey<{ id: string; source_id: string }>('id', (after, size) => keyPage(sb
       .from('ai_knowledge_chunks')
-      .select('source_id')
+      .select('id, source_id')
       .eq('workspace_id', workspaceId)
       .eq('source_type', 'kb_article')
-      .neq('status', 'deleted')
-      .limit(20000);
+      .neq('status', 'deleted'), 'id', after, size));
     if (chunksError) {
       reconciliationFailed = true;
       distrust();
@@ -422,21 +430,27 @@ export async function rebuildWorkspaceIndex(
         ),
       );
       if (staleSourceIds.length > 0) {
-        const { data: retired, error: retireError } = await sb
-          .from('ai_knowledge_chunks')
-          .update({ status: 'deleted', updated_at: new Date().toISOString() })
-          .eq('workspace_id', workspaceId)
-          .eq('source_type', 'kb_article')
-          .neq('status', 'deleted')
-          .in('source_id', staleSourceIds)
-          .select('id');
-        if (retireError) {
+        let retiredCount = 0;
+        let retireFailed = false;
+        for (let i = 0; i < staleSourceIds.length && !retireFailed; i += RETIRE_BATCH) {
+          const { data: retired, error: retireError } = await sb
+            .from('ai_knowledge_chunks')
+            .update({ status: 'deleted', updated_at: new Date().toISOString() })
+            .eq('workspace_id', workspaceId)
+            .eq('source_type', 'kb_article')
+            .neq('status', 'deleted')
+            .in('source_id', staleSourceIds.slice(i, i + RETIRE_BATCH))
+            .select('id');
+          if (retireError) retireFailed = true;
+          else retiredCount += (retired || []).length;
+        }
+        if (retireFailed) {
           reconciliationFailed = true;
           distrust();
           fail('chunk_reconciliation_failed');
         } else {
           summary.staleSourcesReconciled = staleSourceIds.length;
-          summary.chunksDeleted += (retired || []).length;
+          summary.chunksDeleted += retiredCount;
         }
       }
     }
@@ -507,29 +521,52 @@ export async function getKnowledgeIndexStatus(
     embeddingProviderAvailable: false,
   };
 
-  const { data: rows } = await sb
-    .from('ai_knowledge_chunks')
-    .select('status, source_type, locale, embedding, embedding_provider, embedding_model, updated_at')
-    .eq('workspace_id', workspaceId)
-    .limit(10000);
-  let last: string | null = null;
-  for (const r of rows || []) {
-    if (r.status === 'active') status.activeChunks += 1;
-    else if (r.status === 'stale') status.staleChunks += 1;
-    else if (r.status === 'deleted') status.deletedChunks += 1;
-    if (r.embedding) status.embeddedChunks += 1;
-    if (r.status !== 'deleted') {
-      status.bySourceType[r.source_type] = (status.bySourceType[r.source_type] || 0) + 1;
-      const loc = r.locale || 'unknown';
-      status.byLocale[loc] = (status.byLocale[loc] || 0) + 1;
-    }
-    if (r.embedding_provider && !status.embeddingProvider) {
-      status.embeddingProvider = r.embedding_provider;
-      status.embeddingModel = r.embedding_model || null;
-    }
-    if (!last || (r.updated_at && r.updated_at > last)) last = r.updated_at as string;
+  // The data layer caps a read at DATABASE_MAX_ROWS, so the totals are exact
+  // counts and the breakdowns are read page by page (two narrow columns, not
+  // the vectors).
+  const chunks = () => sb.from('ai_knowledge_chunks');
+  const counted = () => chunks().select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId);
+  const countOf = async (query: PromiseLike<{ count: number | null }>): Promise<number> => (await query).count || 0;
+  const [active, stale, deleted, embedded, live, provider, newest] = await Promise.all([
+    countOf(counted().eq('status', 'active')),
+    countOf(counted().eq('status', 'stale')),
+    countOf(counted().eq('status', 'deleted')),
+    countOf(counted().not('embedding', 'is', null)),
+    readRows<{ id: string; source_type: string; locale: string | null }>((from, to) => chunks()
+      .select('id, source_type, locale')
+      .eq('workspace_id', workspaceId)
+      .neq('status', 'deleted')
+      .order('id', { ascending: true })
+      .range(from, to)),
+    chunks()
+      .select('embedding_provider, embedding_model')
+      .eq('workspace_id', workspaceId)
+      .not('embedding_provider', 'is', null)
+      .limit(1)
+      .maybeSingle(),
+    chunks()
+      .select('updated_at')
+      .eq('workspace_id', workspaceId)
+      .not('updated_at', 'is', null)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  status.activeChunks = active;
+  status.staleChunks = stale;
+  status.deletedChunks = deleted;
+  status.embeddedChunks = embedded;
+  for (const r of live.data) {
+    status.bySourceType[r.source_type] = (status.bySourceType[r.source_type] || 0) + 1;
+    const loc = r.locale || 'unknown';
+    status.byLocale[loc] = (status.byLocale[loc] || 0) + 1;
   }
-  status.lastUpdated = last;
+  const providerRow = provider.data as { embedding_provider?: string | null; embedding_model?: string | null } | null;
+  if (providerRow?.embedding_provider) {
+    status.embeddingProvider = providerRow.embedding_provider;
+    status.embeddingModel = providerRow.embedding_model || null;
+  }
+  status.lastUpdated = ((newest.data as { updated_at?: string | null } | null)?.updated_at) ?? null;
 
   try {
     const embedder = await getEmbedderForWorkspace(config, workspaceId);

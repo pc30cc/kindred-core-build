@@ -13,6 +13,7 @@ import {
 } from '../../services/ai-agent/platformSettings.js';
 import { resolveCurrentUserId } from './shared.js';
 import { getServiceClient } from '../../supabase.js';
+import { readRows } from '../../lib/pagedRows.js';
 import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 import { getMonitoringCollector } from '../../services/observability/collector/index.js';
 import { canAccessAiAgentPlatformPagesServer } from '../../services/ai-agent/customerSafe.js';
@@ -126,15 +127,22 @@ platformRouter.get('/platform/ai-proactive-stats', async (req: Request, res: Res
   try {
     const sb = getServiceClient(config);
     const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-    const [{ count: workspacesUsing }, { data: events }, { data: runs }] = await Promise.all([
+    // Exact counts per event type, and the runs' costs paged: the data layer
+    // caps a single read at DATABASE_MAX_ROWS (1000).
+    const EVENT_TYPES = ['shown', 'dismissed', 'cta_clicked', 'widget_opened', 'conversation_started'] as const;
+    const [{ count: workspacesUsing }, eventCounts, { data: runs }] = await Promise.all([
       sb.from('widget_ai_nudge_settings').select('workspace_id', { count: 'exact', head: true }).eq('enabled', true),
-      sb.from('widget_smart_events').select('event_type').eq('source', 'ai_proactive').gte('created_at', since).limit(20000),
-      sb.from('ai_runs').select('customer_charge_irr, provider_cost_usd').eq('entry_point', 'proactive_nudge').gte('created_at', since).limit(20000),
+      Promise.all(EVENT_TYPES.map(async (type) => (await sb.from('widget_smart_events')
+        .select('id', { count: 'exact', head: true })
+        .eq('source', 'ai_proactive').eq('event_type', type).gte('created_at', since)).count || 0)),
+      readRows<{ id: string; customer_charge_irr: unknown; provider_cost_usd: unknown }>((from, to) => sb.from('ai_runs')
+        .select('id, customer_charge_irr, provider_cost_usd')
+        .eq('entry_point', 'proactive_nudge').gte('created_at', since)
+        .order('id', { ascending: true })
+        .range(from, to)),
     ]);
     const counters = { shown: 0, dismissed: 0, cta_clicked: 0, widget_opened: 0, conversation_started: 0 };
-    for (const row of (events || []) as Array<{ event_type: string }>) {
-      if (row.event_type in counters) (counters as Record<string, number>)[row.event_type]++;
-    }
+    EVENT_TYPES.forEach((type, i) => { counters[type] = eventCounts[i]; });
     let costUsd = 0;
     let chargeIrr = 0;
     for (const r of (runs || []) as Array<{ provider_cost_usd: unknown; customer_charge_irr: unknown }>) {

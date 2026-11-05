@@ -25,6 +25,9 @@ function fakeClient() {
       const filters: Array<(r: Row) => boolean> = [];
       const described: string[] = [];
       let patch: Row | null = null;
+      let window: [number, number] | null = null;
+      let orderBy: string | null = null;
+      let cap: number | null = null;
       const rows = () => (TABLES[table] || []).filter((r) => filters.every((f) => f(r)));
       const apply = () => {
         const hit = rows();
@@ -36,8 +39,13 @@ function fakeClient() {
       };
       const q = {
         select: () => q,
-        order: () => q,
-        limit: () => q,
+        order: (col: string) => { orderBy = col; return q; },
+        limit: (n: number) => { cap = n; return q; },
+        gt: (col: string, val: unknown) => {
+          filters.push((r) => String(r[col]) > String(val));
+          return q;
+        },
+        range: (from: number, to: number) => { window = [from, to]; return q; },
         or: () => q,
         upsert: async (row: Row) => {
           (TABLES[table] ||= []).push(row);
@@ -70,8 +78,14 @@ function fakeClient() {
         maybeSingle: async () => ({ data: apply()[0] ?? null, error: null }),
         single: async () => ({ data: apply()[0] ?? null, error: null }),
         then: (resolve: (v: { data: Row[]; error: null; count: number }) => unknown) => {
-          const hit = apply();
-          return resolve({ data: hit, error: null, count: hit.length });
+          let all = apply();
+          if (orderBy) {
+            const col = orderBy;
+            all = [...all].sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0));
+          }
+          let hit = window ? all.slice(window[0], window[1] + 1) : all;
+          if (cap !== null) hit = hit.slice(0, cap);
+          return resolve({ data: hit, error: null, count: all.length });
         },
       };
       return q;

@@ -43,6 +43,26 @@ const h = vi.hoisted(() => ({
   minted: [] as Array<{ callSessionId: string; participantType: string }>,
 }));
 
+/** The plan's max_concurrent_calls for these tests (-1: none). */
+const plan = vi.hoisted(() => ({ limit: -1 }));
+vi.mock('../../../server/services/calls/concurrencyLimit.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../server/services/calls/concurrencyLimit.js')>();
+  const { db: tables, fakeClient: fc } = await import('../callWidget/fakeDb');
+  const live = () => (tables.call_sessions || []).filter((s) => ['pending', 'ringing', 'connecting', 'active'].includes(String(s.state))).length;
+  return {
+    ...real,
+    checkPlanConcurrencyCeiling: async () => (plan.limit >= 0 && live() >= plan.limit
+      ? { allowed: false, reason: 'plan_limit_reached', limit: plan.limit, used: live(), plan: 'small' }
+      : { allowed: true, limit: plan.limit, plan: 'small' }),
+    // The SQL (migration 302) is proven in serverRowCaps.pg.test.ts; here
+    // the same verdicts over the fake tables.
+    insertCallSessionWithinCeiling: async (_sb: unknown, row: Record<string, unknown>, limit: number | undefined) => {
+      if (typeof limit === 'number' && limit >= 0 && live() >= limit) return { verdict: 'limit_reached', used: live(), max: limit };
+      const r = await fc.from('call_sessions').insert(row).select('*').maybeSingle();
+      return r.data ? { verdict: 'created', call: r.data } : { verdict: 'error', message: 'insert_returned_no_row' };
+    },
+  };
+});
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeClient }));
 vi.mock('../../../server/services/widget/security.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../server/services/widget/security.js')>()),

@@ -11,6 +11,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { canUseInbox } from '../../../shared/chatRoles.js';
 import { getServiceClient } from '../../supabase.js';
+import { readRows } from '../../lib/pagedRows.js';
 import { redactSecrets } from '../../lib/redactSecrets.js';
 import { getOrCreateSettings } from '../../services/ai-agent/settings.js';
 import { retrieveHybridSources, type HybridRetrievalResult } from '../../services/ai-agent/retrievalHybrid.js';
@@ -707,6 +708,25 @@ function e8RangeToDays(range: string | undefined): number {
   return 7;
 }
 
+interface AssistRunRow {
+  id: string;
+  created_at: string;
+  status: string | null;
+  confidence: number | null;
+  suggestion: string | null;
+  selected_sources: Array<{ source_type?: unknown } | null> | null;
+  safety_notes: string[] | null;
+}
+
+interface AssistFeedbackRow {
+  id: string;
+  assist_run_id: string;
+  rating: string | null;
+  reason: string | null;
+  operator_action: string | null;
+  created_at: string;
+}
+
 operatorAssistRouter.get('/operator-assist/analytics', async (req: Request, res: Response) => {
   const config = (req as Request & { serverConfig: ServerConfig }).serverConfig;
   const workspaceId = String(req.query.workspaceId || '');
@@ -724,18 +744,22 @@ operatorAssistRouter.get('/operator-assist/analytics', async (req: Request, res:
   const sb = getServiceClient(config);
 
   const [runsRes, fbRes] = await Promise.all([
-    sb.from('ai_operator_assist_runs')
+    // Up to 2000 runs and 5000 feedback rows, page by page: the data layer
+    // caps a single read at DATABASE_MAX_ROWS (1000).
+    readRows<AssistRunRow>((from, to) => sb.from('ai_operator_assist_runs')
       .select('id, created_at, status, confidence, suggestion, selected_sources, safety_notes')
       .eq('workspace_id', workspaceId)
       .gte('created_at', since)
       .order('created_at', { ascending: false })
-      .limit(2000),
-    sb.from('ai_operator_assist_feedback')
+      .order('id', { ascending: false })
+      .range(from, to), 2000),
+    readRows<AssistFeedbackRow>((from, to) => sb.from('ai_operator_assist_feedback')
       .select('id, assist_run_id, rating, reason, operator_action, created_at')
       .eq('workspace_id', workspaceId)
       .gte('created_at', since)
       .order('created_at', { ascending: false })
-      .limit(5000),
+      .order('id', { ascending: false })
+      .range(from, to), 5000),
   ]);
   if (runsRes.error) return res.status(500).json({ error: 'analytics_runs_failed', details: runsRes.error.message });
   if (fbRes.error) return res.status(500).json({ error: 'analytics_feedback_failed', details: fbRes.error.message });

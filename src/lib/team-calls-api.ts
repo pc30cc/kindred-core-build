@@ -36,6 +36,12 @@ export interface TeamCall {
   answered_at: string | null;
   ended_at: string | null;
   expires_at: string;
+  /**
+   * When a phone or a tab of the callee first rang (server time); null until
+   * then. The caller shows "Calling…" without a ringback while it is null and
+   * the call rings, "Ringing…" with the ringback once it is set.
+   */
+  rang_at: string | null;
 }
 
 /**
@@ -113,6 +119,14 @@ export const teamCallsApi = {
   /** First answer wins: a 409 `not_ringing` carries the call as it is. */
   async accept(id: string, deviceId: string): Promise<TeamCall> {
     return (await post<{ call: TeamCall }>(`/${encodeURIComponent(id)}/accept`, { device_id: deviceId })).call;
+  },
+  /**
+   * The callee's: this tab shows the ring (its ringing card). The first such
+   * word of any phone or tab stamps `rang_at`; a 409 `not_ringing` carries
+   * the call as it is.
+   */
+  async rang(id: string, deviceId: string): Promise<TeamCall> {
+    return (await post<{ call: TeamCall }>(`/${encodeURIComponent(id)}/rang`, { device_id: deviceId, platform: 'web' })).call;
   },
   async decline(id: string): Promise<TeamCall> {
     return (await post<{ call: TeamCall }>(`/${encodeURIComponent(id)}/decline`)).call;

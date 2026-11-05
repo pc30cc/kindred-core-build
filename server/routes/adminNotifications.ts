@@ -25,6 +25,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { readRows } from '../lib/pagedRows.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { getFcmCredentials, isPushConfigured, sendFcmMessage } from '../services/push/fcm.js';
 import { listActiveDevices } from '../services/push/devices.js';
@@ -192,12 +193,15 @@ adminNotificationsRouter.get('/devices', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   const sb = getServiceClient(serverConfigOf(req));
   try {
-    const { data, error } = await sb
+    // The whole fleet, page by page: the data layer caps a read at
+    // DATABASE_MAX_ROWS, which would undercount every number below.
+    const { data, error } = await readRows<Record<string, unknown>>((from, to) => sb
       .from('mobile_push_devices')
-      .select('platform, enabled, permission_status, app_version, last_seen_at, disabled_reason')
-      .limit(5000);
+      .select('id, platform, enabled, permission_status, app_version, last_seen_at, disabled_reason')
+      .order('id', { ascending: true })
+      .range(from, to));
     if (error) return res.status(500).json({ error: error.message });
-    const rows = (data ?? []) as {
+    const rows = data as unknown as {
       platform: string;
       enabled: boolean;
       permission_status: string | null;

@@ -53,6 +53,13 @@ function IncomingCard({ session, ctx }: { session: TeamCallSession; ctx: TeamCal
   const name = peerDisplayName(session.peer, t('teamCall.colleague'));
   const video = session.channel === 'video';
   const title = t(video ? 'teamCall.incomingVideo' : 'teamCall.incomingVoice');
+  // On screen: this tab rang. The caller hears "Ringing…" from the first
+  // phone or tab of this member that says so (`rang`, once per call).
+  const ringId = session.call?.id ?? null;
+  const { ringShown } = ctx;
+  useEffect(() => {
+    if (ringId) ringShown(ringId);
+  }, [ringId, ringShown]);
   return (
     <div
       dir={dir}
@@ -267,7 +274,8 @@ function CallWindow({ session, ctx }: { session: TeamCallSession; ctx: TeamCallC
   const status = (() => {
     switch (session.phase) {
       case 'placing': return t('teamCall.calling');
-      case 'outgoing': return t('teamCall.ringing');
+      // "Ringing…" only once the colleague's phone or tab rang (owner, 2026-11-04).
+      case 'outgoing': return session.call?.rang_at ? t('teamCall.ringing') : t('teamCall.calling');
       case 'answering':
       case 'connecting': return t('teamCall.connecting');
       case 'active': return live.state === 'reconnecting' ? t('teamCall.reconnecting') : clock(elapsed, locale);

@@ -85,12 +85,18 @@ final class TeamCallTests: XCTestCase {
         XCTAssertNil(older.rangAt)
     }
 
-    /// The ringback is a playable WAV of one 1.9 s cycle.
+    /// The ringback is a playable WAV of one 3 s cycle, and loud: a tone
+    /// heard at arm's length, not a blip (owner, 2026-11-05).
     func testTheRingbackToneIsAWaveFile() {
         let wav = RingbackTone.wav
         XCTAssertEqual(String(decoding: wav.prefix(4), as: UTF8.self), "RIFF")
         XCTAssertEqual(String(decoding: wav.subdata(in: 8..<12), as: UTF8.self), "WAVE")
-        XCTAssertEqual(wav.count, 44 + Int(22_050 * 1.9) * 2)
+        XCTAssertEqual(wav.count, 44 + Int(22_050 * 3.0) * 2)
+        let samples = wav.subdata(in: 44..<wav.count).withUnsafeBytes { Array($0.bindMemory(to: Int16.self)) }
+        let peak = samples.map { abs(Int($0)) }.max() ?? 0
+        XCTAssertGreaterThan(peak, 20_000, "near full scale")
+        let sounding = samples.filter { abs(Int($0)) > 3_000 }.count
+        XCTAssertGreaterThan(Double(sounding) / 22_050, 0.8, "most of a second and a half sounding, not short beeps")
     }
 
     /// A value this build does not know never fails the whole answer: an

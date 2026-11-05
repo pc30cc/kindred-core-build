@@ -59,7 +59,13 @@ struct ActiveTeamCall: Equatable, Sendable {
     var knownToCallKit: Bool
     var isMuted = false
     /// A voice call starts on the earpiece, a video call on the loudspeaker.
+    /// While a voice call is placed and rings out, it follows the phone
+    /// instead — the loudspeaker away from the ear, the earpiece at it — until
+    /// the member picks with the Speaker control (`speakerChosen`).
     var isSpeakerOn: Bool
+    /// The member chose the speaker or the earpiece themselves: the route is
+    /// theirs from then on.
+    var speakerChosen = false
     var isCameraOn: Bool
     /// Connected, without everything it was meant to carry.
     var degraded: CallDegradation?
@@ -206,6 +212,12 @@ final class CallManager {
         callKit = CallKitBridge(configuration: Self.providerConfiguration())
         callKit.manager = self
         listenForSignals()
+        // The ringback follows the phone to the ear and away (`applyRoute`).
+        NotificationCenter.default.addObserver(
+            forName: UIDevice.proximityStateDidChangeNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { CallManager.shared.applyRoute() }
+        }
     }
 
     /// The id this phone answers with, and the one the server compares
@@ -739,6 +751,11 @@ final class CallManager {
         if call.direction == .outgoing {
             callKit.provider.reportOutgoingCall(with: uuid, connectedAt: now)
         }
+        // Answered: a voice call goes to the earpiece, as it always did,
+        // unless the member chose the speaker while it rang.
+        if call.channel == .audio, !call.speakerChosen {
+            self.call?.isSpeakerOn = false
+        }
         applyRoute()
     }
 
@@ -913,6 +930,7 @@ final class CallManager {
     func toggleSpeaker() {
         guard let call, call.channel == .audio, !call.phase.isOver else { return }
         self.call?.isSpeakerOn = !call.isSpeakerOn
+        self.call?.speakerChosen = true
         applyRoute()
     }
 
@@ -948,12 +966,29 @@ final class CallManager {
     /// The speaker and the proximity sensor follow the call: a voice call on
     /// the earpiece turns the screen off at the ear; on the loudspeaker, or
     /// on a video call, it stays on.
-    private func applyRoute() {
-        guard let call, !call.phase.isOver else { return }
+    ///
+    /// A voice call ringing out (the ringback) is heard on the loudspeaker
+    /// while the phone is away from the ear and on the earpiece at it, the
+    /// proximity sensor deciding, until the member uses the Speaker control.
+    /// Only the output port moves (`overrideOutputAudioPort`), which CallKit
+    /// leaves to the app; the session's category and mode stay as set.
+    fileprivate func applyRoute() {
+        guard var call, !call.phase.isOver else { return }
+        let ringingOut = call.direction == .outgoing && call.isRinging && !call.answered
         if call.channel == .audio {
+            if ringingOut, !call.speakerChosen {
+                let atEar = UIDevice.current.isProximityMonitoringEnabled && UIDevice.current.proximityState
+                if call.isSpeakerOn == atEar {
+                    call.isSpeakerOn = !atEar
+                    self.call = call
+                }
+            }
             TeamCallAudio.route(toSpeaker: call.isSpeakerOn)
         }
-        UIDevice.current.isProximityMonitoringEnabled = call.channel == .audio && !call.isSpeakerOn && call.isLive
+        let sensing = call.channel == .audio && (call.isLive ? !call.isSpeakerOn : ringingOut && !call.speakerChosen)
+        if UIDevice.current.isProximityMonitoringEnabled != sensing {
+            UIDevice.current.isProximityMonitoringEnabled = sensing
+        }
     }
 
     // MARK: - Signing out
@@ -1051,9 +1086,18 @@ final class CallManager {
         }
         teardown()
 
-        // A ring declined here has nothing to say; anything else lingers a
-        // moment so the outcome can be read.
-        if wasRingingHere, end == .hungUp {
+        // One end signal, never two (owner, 2026-11-05):
+        // - a ring declined here has nothing to say;
+        // - a ring that ended unanswered here (missed, or the caller gave
+        //   up) is said by the server's missed-call notification, so the call
+        //   screen goes at once rather than showing its own outcome under it;
+        // - with the app not in front, CallKit's own screen said it (a call
+        //   answered on the lock screen shows CallKit's "Call ended"), so the
+        //   app does not show its end screen again when it is opened.
+        // Anything else lingers a moment so the outcome can be read.
+        let unansweredHere = wasRingingHere && (end == .missed || end == .cancelled)
+        let notInFront = UIApplication.shared.applicationState != .active
+        if wasRingingHere && end == .hungUp || unansweredHere || notInFront {
             self.call = nil
         } else {
             clearTimer = Task { [weak self] in
@@ -1116,6 +1160,7 @@ final class CallManager {
             return
         }
         ringback.start()
+        applyRoute()
     }
 
     private func stopTimers() {

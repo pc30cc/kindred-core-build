@@ -6,13 +6,16 @@ import Foundation
 /// "Calling…" (owner, 2026-11-04: nothing says it rings before the other
 /// phone does; `CallManager.syncRingback`).
 ///
-/// The web panel's tone (`src/features/calls/callSound.ts`, `ringOnce`): a
-/// soft two-tone warble, A4 and E5 twice, every 1.9 s. Made here as PCM in
-/// memory rather than shipped as a file, as the web makes it in the page.
+/// The web panel's notes (`src/features/calls/callSound.ts`, `ringOnce`),
+/// A4 and E5 twice, held fuller and longer, every 3 s (owner, 2026-11-05:
+/// the short quiet beeps were not heard). Made here as PCM in memory rather
+/// than shipped as a file, as the web makes it in the page.
 ///
-/// It plays into the call's own audio session, which CallKit activated: on
-/// the earpiece for a voice call, the loudspeaker for a video call — as a
-/// phone's own ringback is heard. Main-actor, as the manager that drives it.
+/// It plays into the call's own audio session, which CallKit activated. A
+/// voice call rings out on the loudspeaker away from the ear and on the
+/// earpiece at it, until the member uses the Speaker control; a video call
+/// on the loudspeaker (`CallManager.applyRoute`). Main-actor, as the manager
+/// that drives it.
 @MainActor
 final class TeamCallRingback {
     private var player: AVAudioPlayer?
@@ -24,7 +27,7 @@ final class TeamCallRingback {
         if player == nil {
             player = try? AVAudioPlayer(data: RingbackTone.wav)
             player?.numberOfLoops = -1
-            player?.volume = 0.6
+            player?.volume = 1.0
             player?.prepareToPlay()
         }
         player?.currentTime = 0
@@ -40,14 +43,16 @@ final class TeamCallRingback {
 /// The ringback's sound: one cycle as a WAV file, made once.
 enum RingbackTone {
     private static let sampleRate = 22_050
-    /// One cycle: the four notes, then silence until the next.
-    private static let period: Double = 1.9
-    /// `ringOnce`'s notes: frequency, start, length (seconds).
+    /// One cycle: about a second and a half of tone, then quiet until the
+    /// next — a ringback's rhythm, heard at arm's length.
+    private static let period: Double = 3.0
+    /// The web's two notes (A4, E5), held longer and fuller: each is the
+    /// note with a soft octave over it, so it carries on a phone's speaker.
     private static let notes: [(frequency: Double, at: Double, length: Double)] = [
-        (440.0, 0.0, 0.22),
-        (659.25, 0.22, 0.22),
-        (440.0, 0.46, 0.22),
-        (659.25, 0.68, 0.22),
+        (440.0, 0.0, 0.38),
+        (659.25, 0.38, 0.38),
+        (440.0, 0.80, 0.38),
+        (659.25, 1.18, 0.38),
     ]
 
     /// A WAV file of one cycle: 16-bit mono PCM.
@@ -59,11 +64,12 @@ enum RingbackTone {
             let length = Int(note.length * Double(sampleRate))
             for i in 0..<length where start + i < count {
                 let t = Double(i) / Double(sampleRate)
-                // 30 ms in, then an exponential fall to silence, as the web's
-                // gain ramps.
-                let attack = min(1, t / 0.03)
-                let decay = t < 0.03 ? 1 : exp(-(t - 0.03) * 22)
-                let value = sin(2 * .pi * note.frequency * t) * attack * decay * 0.5
+                // 20 ms in, held, 60 ms out: no click, and loud for most of
+                // the note rather than a blip.
+                let attack = min(1, t / 0.02)
+                let release = min(1, max(0, (note.length - t) / 0.06))
+                let tone = sin(2 * .pi * note.frequency * t) + 0.35 * sin(4 * .pi * note.frequency * t)
+                let value = tone / 1.35 * attack * release * 0.85
                 samples[start + i] = Int16(max(-1, min(1, value)) * Double(Int16.max))
             }
         }

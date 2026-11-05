@@ -223,8 +223,15 @@ uncounted time.
   3 s apart; `409`, `404` and `405` are ignored. The caller's screen says
   "Calling…" with no ringback until the call's `rang_at` is set (poll or
   realtime), then "Ringing…" with the ringback (the web's two-tone pattern,
-  made in memory, `TeamCallRingback`). CallKit: started connecting at the
-  start action, connected only when both are in the room.
+  made in memory, `TeamCallRingback`, held fuller and longer, every 3 s). A
+  voice call rings out on the loudspeaker away from the ear and on the
+  earpiece at it (proximity), until the Speaker control picks; answered, it
+  goes to the earpiece unless the speaker was picked. CallKit: started
+  connecting at the start action, connected only when both are in the room.
+- One end signal: a ring that ended unanswered on this phone (missed, or the
+  caller gave up) closes its screen at once and leaves the missed-call
+  notification to say it; a call that ends while the app is not in front
+  (CallKit's own screen said "Call ended") leaves no end screen behind.
 - Busy with a visitor call: a colleague's VoIP ring is reported to CallKit
   and ended at once, and never touches the audio or sends `rang`, while this
   phone is in a visitor call. In the visitor's room (connecting or connected)

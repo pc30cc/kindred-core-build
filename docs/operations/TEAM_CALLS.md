@@ -79,9 +79,11 @@ together with the code.
   rang_at, rang_device_id, rang_platform }`.
   `outcome` ∈ `completed | declined | cancelled | missed | failed`.
 - `rang_at` (ISO 8601, server time), `rang_device_id` and `rang_platform`
-  (`ios | android | web`) are null until a phone or a tab of the callee says
-  the call rang there (`POST /:id/rang`); the first such word while the call
-  rings stamps them, and nothing else ever writes them. It is the only write
+  (`ios | android | web | push`) are null until a phone or a tab of the callee
+  says the call rang there (`POST /:id/rang`), or the server accepted a ring
+  push to a phone whose build cannot say it (`push`, "Ringback for old
+  builds" below); the first of these while the call rings stamps them, and
+  nothing else ever writes them. It is the only write
   to `metadata.team_call` that does not move the state, so every move also
   compares the `rang_at` it read and, having lost to the stamp alone, tries
   again from the stamped row (`teamCallLifecycle.ts`): a move never wipes it.
@@ -116,7 +118,7 @@ callee has rung (`POST /:id/rang`); then the server time of the first one.
 | `POST /` `{workspace_id, callee_id, channel}` | a member | Checks membership, plan, limits, busy; creates the row and the room; rings the callee; `201 {call}`. Errors: `400 invalid_params`, `403 upgrade_required` (`feature: 'team_calls'`), `403 not_a_member` (also when a pair hides the two from each other: `server/services/teamVisibility.ts`, migration 295), `409 callee_busy`, `409 caller_busy`, `429 too_many_calls`, `422 limit_reached` (`limit: 'max_concurrent_calls' | 'max_call_minutes_per_month'`). Rate limit: a caller rings at most 10 times a minute, a callee is rung at most 6 times a minute (by everyone together; an attempt that does not ring — busy, a failure — gives its ring back). The concurrency ceiling is read before the placement, as `/api/calls/create` reads it, and again inside it under the workspace's lock (migration 298): a placement that finds the limit met answers the same `422 limit_reached` (`limit: 'max_concurrent_calls'`, `reason: 'plan_limit_reached'`, `max`, `used`) with nothing written. |
 | `GET /:id` | caller or callee | `{call}`; `404` for anyone else. |
 | `POST /:id/accept` `{device_id?}` | callee | `ringing` → `connecting` with a compare-and-set (first answer wins); stamps `connected_at`, `answered_at`, `answered_device_id`; stops the callee's other phones; `{call}`. `409 not_ringing` with `{call}` when it is no longer ringing. |
-| `POST /:id/rang` `{device_id?, platform}` | callee | This phone or tab of the callee shows the ring. `platform` ∈ `ios | android | web`, `device_id` at most 128 characters. While the call is `ringing`, the first `rang` stamps `rang_at` (server time), `rang_device_id` and `rang_platform` and publishes the `team_call` event with `rang_at` to both; later ones change nothing. Either way `200 {call}`. No longer `ringing` (a ring past its end is marked missed first): `409 not_ringing` with `{call}`, nothing written. `403 forbidden` for the caller, `404 not_found` for anyone else, `400 invalid_params` for a bad body. Never changes the state, `expires_at`, billing or the ring timers. Rate limit: 60 a minute per member (`429 too_many_requests`). |
+| `POST /:id/rang` `{device_id?, platform}` | callee | This phone or tab of the callee shows the ring. `platform` ∈ `ios | android | web` (`push` is the server's own stamp and refused here), `device_id` at most 128 characters. While the call is `ringing`, the first `rang` stamps `rang_at` (server time), `rang_device_id` and `rang_platform` and publishes the `team_call` event with `rang_at` to both; later ones change nothing. Either way `200 {call}`. No longer `ringing` (a ring past its end is marked missed first): `409 not_ringing` with `{call}`, nothing written. `403 forbidden` for the caller, `404 not_found` for anyone else, `400 invalid_params` for a bad body. Never changes the state, `expires_at`, billing or the ring timers. Rate limit: 60 a minute per member (`429 too_many_requests`). |
 | `POST /:id/decline` | callee | `ringing` → ended, outcome `declined`. Idempotent. |
 | `POST /:id/cancel` | caller | `ringing` → `cancelled`, outcome `cancelled`; missed-call notification to the callee. Idempotent. |
 | `POST /:id/hangup` | either | ends the call (outcome `completed` once answered); idempotent. |
@@ -163,9 +165,57 @@ On every surface (iPhone, Android, web panel):
 
 Each callee surface sends `POST /:id/rang` once per call per device, at its
 moment (iOS, Android and Web panel below). A failed `rang` is retried twice,
-a few seconds apart, then dropped; a `409`, `403` or `404` is final. Older
-app versions never send it: their callers stay at "Calling…" until the
-answer or the ring's end (accepted: no users yet).
+a few seconds apart, then dropped; a `409`, `403` or `404` is final.
+
+#### Ringback for old builds (owner, 2026-11-05)
+
+Older app builds never send `rang`, and the owner's own phones ran them
+(WebYar 1.8 from Cafe Bazaar, the iPhone built from `main` before the iOS call
+branch): every caller sat on a silent "Calling…" for the whole ring. So the
+server stamps for them (`server/services/push/teamCallRing.ts`):
+
+- `teamCallRingTargets` reads each phone's `app_version` (what the app
+  registers, `"<name> (<build>)"` on both apps: Android's versionName and
+  versionCode, iOS's CFBundleShortVersionString and CFBundleVersion).
+- A ring push **stamps** a phone (`teamCallPushStampsRang`,
+  `TEAM_CALL_PUSH_STAMP_BUILDS`) only when its build rings for colleague calls
+  but cannot say `rang`: **floor ≤ build < first**.
+
+  | Phone | Floor (first with colleague calls) | First that says `rang` | Stamped |
+  |---|---|---|---|
+  | Android, WebYar (edition `iran`) | versionCode 28 (1.7) | 30 (1.9, #412) | 1.7 (28), 1.8 (29) |
+  | Android, RESPOK (edition `international`) | versionCode 4 (1.0.3) | 6 (1.0.5) | 1.0.3 (4), 1.0.4 (5) |
+  | iOS, both brands | build 3 (#382) | build 6 | 3, 4, 5 |
+
+  - Below the floor the app has no handler for the ring, yet the push is
+    accepted: a stamp would show "Ringing…" while nothing rings, so it
+    never stamps (the caller sees an honest "Calling…").
+  - No `app_version`, or none with a build number: never stamped, for the
+    same reason (it could as well predate colleague calls).
+  - Edition unreadable: WebYar's numbers, which stamp only 1.7 and 1.8 (no
+    RESPOK build was ever numbered 28 or 29), so no RESPOK phone is stamped.
+  - iOS: #414 brought `rang` with the project still at build 5, and every
+    upload before it (the App Store archive of 2026-11-03 included) is 5 or
+    below, so `ios/Webyar/project.yml` went to `CURRENT_PROJECT_VERSION` 6
+    with this rule (one base setting, both targets): every build cut from
+    `main` since says `rang` and is not stamped. **The next iOS archive must
+    be build 6 or above**, and none below 6 may be uploaded again
+    (`teamCallRingbackFallback.test.ts` checks the project against the rule).
+- When the transport accepts the ring (APNs for the VoIP push, FCM for the
+  data message) for such a phone, the server stamps the call as `rang` does:
+  `rang_at` now, `rang_device_id` that phone, `rang_platform` **`push`**, and
+  the `team_call` event with `rang_at` to both members. Once per call,
+  whichever old phone was first; a refused push stamps nothing; a phone that
+  sends `rang` is never stamped by its push. The stamp runs beside the ring,
+  not inside it: when the ring ran out meanwhile, the stamp marks the call
+  missed, and that stop waits for the ring to be sent.
+- It is a **best effort**: an accepted push says nothing of the phone being
+  on or in signal, so for old builds "Ringing…" means "the ring was sent".
+  A real `rang` that came first wins, a push stamp that came first stays (the
+  first stamp, as always), and neither changes the state, `expires_at`,
+  billing or the ring timers. `push` is the server's own: `POST /:id/rang`
+  refuses it (`400 invalid_params`).
+- Guards: `src/test/teamCalls/teamCallRingbackFallback.test.ts`.
 
 Call-centre rings on iOS are off (`server/services/push/callRing.ts`): an
 iPhone that registers a VoIP token for colleague calls is never rung, and
@@ -350,12 +400,23 @@ uncounted time.
   3 s apart on a failure, then dropped.
 - The caller's `rang_at` only goes from null to a time: a read of the call
   that left before the stamp and answers after a newer one never takes it
-  back; the realtime event's own `rang_at` is used at once. A tab's call screen stays above the panel as the
+  back; the realtime event's own `rang_at` is used at once, also when it
+  arrives while the tab is still placing the call (its id not known yet: the
+  placement's answer takes it). A tab's call screen stays above the panel as the
   member moves around in it; closing the tab ends the call through the
   webhook.
 - Ending follows the apps' rule: the caller hangs up (`/hangup`); the callee
   declines while it rings and hangs up once its answer went through.
-- Missed: a toast in the open tabs (the push is the phones').
+- Missed: one toast across the member's open tabs (the push is the phones'):
+  the tabs claim the call over a BroadcastChannel (`team-call-missed:<user>`,
+  keyed by call id, each claim saying whether its tab is visible;
+  `src/features/teamCalls/missedCallOnce.ts`) and only one shows it, in a tab
+  visible at that moment (a hidden tab's toast would close unseen). A visible
+  claim beats any hidden one; the winner may show it from the end of its
+  window, every other claimant from a grace later (by which the winner's
+  `shown` has arrived), each at once if visible then, else when next seen.
+  So a winner that went hidden or closed never leaves it unshown, and `shown`
+  keeps it to one. Where BroadcastChannel is missing, each tab shows its own.
 - Busy: a member in a visitor call in the panel is busy (the existing
   `operator_call_availability` rule).
 
@@ -571,6 +632,9 @@ list no relay. Server, firewall, probe and changes:
    change: the answers are the ones this table lists.
 9. "Ringing" only once it rings (owner, 2026-11-04): no migration (the stamp
    is in `metadata`). The backends and the panel with the merge; the apps
-   with their next builds, which send `rang` and read `rang_at`. Until then a
-   caller on any surface sees "Calling…" for the whole ring of a callee whose
-   app does not send `rang`.
+   with their next builds, which send `rang` and read `rang_at`. A callee
+   whose app does not send `rang` is stamped by the server when its ring push
+   is accepted (2026-11-05, "Ringback for old builds"; no migration either:
+   `push` is a value in the same `metadata`), so its callers hear the
+   ringback. The iOS project is at build 6 since then: the next archive
+   must be 6 or above, and an iPhone of 6 or above is never stamped.

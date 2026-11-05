@@ -32,9 +32,12 @@ settings:
     # Store record (marketing_version / build_number). An archive can set
     # them without an edit: `xcodebuild archive MARKETING_VERSION=1.1.0
     # CURRENT_PROJECT_VERSION=7`; every upload needs a build number above the
-    # last one.
+    # last one. Build 6 is the first numbered after colleague calls say
+    # `rang` (#414): the server stamps the ring for builds 3-5 from their push
+    # (server/services/push/teamCallRing.ts, TEAM_CALL_PUSH_STAMP_BUILDS), so
+    # never upload a build below 6 again.
     MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "5"
+    CURRENT_PROJECT_VERSION: "6"
 
 packages:
   # The one external dependency in this app, and it earns its place: a call

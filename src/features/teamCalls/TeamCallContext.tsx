@@ -81,6 +81,7 @@ import {
 } from './teamCallState';
 import { teamCallErrorKey } from './teamCallErrors';
 import { askNotificationPermissionOnce, watchRingNotification } from './teamCallNotify';
+import { createMissedCallOnce, type MissedCallOnce } from './missedCallOnce';
 
 /** How often a ringing call is read again, and a call that is on. */
 export const TEAM_CALL_RING_POLL_MS = 2_000;
@@ -157,6 +158,14 @@ export function TeamCallProvider({
   const doneRef = useRef<Set<string>>(new Set());
   /** Missed calls already told, so two events never make two toasts. */
   const toldRef = useRef<Set<string>>(new Set());
+  /**
+   * `rang_at` heard on the channel for a call this tab is still placing (its
+   * id not known yet): kept for the placement's answer, so "Ringing…" does
+   * not wait for the next read.
+   */
+  const earlyRangRef = useRef<Map<string, string>>(new Map());
+  /** One missed-call toast per call across this member's tabs (missedCallOnce.ts). */
+  const missedOnceRef = useRef<MissedCallOnce | null>(null);
   /** Calls this tab has said `rang` for (once per call per tab). */
   const rangSentRef = useRef<Set<string>>(new Set());
   /** The call whose ringing card is on screen in this tab. */
@@ -193,10 +202,24 @@ export function TeamCallProvider({
     if (toldRef.current.has(call.id)) return;
     toldRef.current.add(call.id);
     const name = peerDisplayName(peer ?? call.peer, fallbackName());
-    toast.info(tRef.current(call.channel === 'video' ? 'teamCall.missedVideo' : 'teamCall.missedVoice'), {
-      description: tRef.current('teamCall.missedFrom', { name }),
-    });
+    const show = () => {
+      toast.info(tRef.current(call.channel === 'video' ? 'teamCall.missedVideo' : 'teamCall.missedVoice'), {
+        description: tRef.current('teamCall.missedFrom', { name }),
+      });
+    };
+    if (missedOnceRef.current) missedOnceRef.current.tell(call.id, show);
+    else show();
   }, [fallbackName]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const once = createMissedCallOnce(`team-call-missed:${userId}`);
+    missedOnceRef.current = once;
+    return () => {
+      if (missedOnceRef.current === once) missedOnceRef.current = null;
+      once.close();
+    };
+  }, [userId]);
 
   /** Ends the session's call on screen (the window says why), or closes it at once. */
   const finish = useCallback((s: TeamCallSession, call: TeamCall | null, notice: TeamCallSession['notice']) => {
@@ -350,6 +373,13 @@ export function TeamCallProvider({
       }
       if (s.phase !== 'ended') void refresh(callId);
       return;
+    }
+    if (s?.phase === 'placing' && !s.call && typeof payload.rang_at === 'string' && payload.rang_at) {
+      // Possibly the call this tab is placing, before its id is known: its
+      // placement's answer picks the stamp up (placeCall).
+      const early = earlyRangRef.current;
+      if (!early.has(callId)) early.set(callId, payload.rang_at);
+      if (early.size > 20) early.delete(early.keys().next().value as string);
     }
     if (doneRef.current.has(callId)) return;
     if (state === 'ringing' || state === 'missed' || state === 'cancelled') void consider(callId, state);
@@ -624,7 +654,9 @@ export function TeamCallProvider({
         return;
       }
       const peer = call.peer?.name || call.peer?.avatar_url ? call.peer : input.peer;
-      setSession({ ...s, call, peer, phase: 'outgoing' });
+      const earlyRang = earlyRangRef.current.get(call.id) ?? null;
+      earlyRangRef.current.clear();
+      setSession({ ...s, call: { ...call, rang_at: call.rang_at ?? earlyRang }, peer, phase: 'outgoing' });
       if (call.state !== 'ringing') apply(call);
     } catch (err) {
       stopTeamRingback('place_failed');

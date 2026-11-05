@@ -567,6 +567,60 @@ describe('the caller\'s "Ringing…" never goes back', () => {
   });
 });
 
+describe('a rang_at that comes while the call is still being placed', () => {
+  it('is kept for the placement\'s answer: "Ringing…" at once, not at the next read', async () => {
+    const rangAt = new Date().toISOString();
+    let answerPlace: (() => void) | null = null;
+    const placed = new Promise<void>((resolve) => { answerPlace = resolve; });
+    h.route = (r) => {
+      if (r.method === 'POST' && r.path === '/api/team-calls') return { status: 201, body: { call: call({ role: 'caller' }) } };
+      // Every read fails: only the event's own stamp can say "Ringing…".
+      return { status: 503, body: { error: 'unavailable' } };
+    };
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init: RequestInit = {}) => {
+      if ((init.method || 'GET').toUpperCase() === 'POST' && String(input) === '/api/team-calls') await placed;
+      return realFetch(input, init);
+    }));
+    mount();
+    await waitFor(() => expect(h.channels.has(CHANNEL)).toBe(true));
+    fireEvent.click(screen.getByTestId('place'));
+    await waitFor(() => expect(screen.getByTestId('place')).toHaveTextContent('placing'));
+    // An old phone's push stamped the ring before the placement answered.
+    act(() => {
+      h.channels.get(CHANNEL)!.onEvent?.({ kind: 'team_call', workspace_id: 'ws-1', call_id: 'c1', state: 'ringing', outcome: null, rang_at: rangAt });
+    });
+    act(() => { answerPlace!(); });
+    expect(await screen.findByText('Ringing…')).toBeInTheDocument();
+    expect(sound.startTeamRingback).toHaveBeenCalledTimes(1);
+  });
+
+  it('a stamp of another call heard while placing is not taken', async () => {
+    let answerPlace: (() => void) | null = null;
+    const placed = new Promise<void>((resolve) => { answerPlace = resolve; });
+    h.route = (r) => {
+      if (r.method === 'POST' && r.path === '/api/team-calls') return { status: 201, body: { call: call({ role: 'caller' }) } };
+      return { status: 503, body: { error: 'unavailable' } };
+    };
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init: RequestInit = {}) => {
+      if ((init.method || 'GET').toUpperCase() === 'POST' && String(input) === '/api/team-calls') await placed;
+      return realFetch(input, init);
+    }));
+    mount();
+    await waitFor(() => expect(h.channels.has(CHANNEL)).toBe(true));
+    fireEvent.click(screen.getByTestId('place'));
+    await waitFor(() => expect(screen.getByTestId('place')).toHaveTextContent('placing'));
+    act(() => {
+      h.channels.get(CHANNEL)!.onEvent?.({ kind: 'team_call', workspace_id: 'ws-1', call_id: 'other', state: 'ringing', outcome: null, rang_at: new Date().toISOString() });
+    });
+    act(() => { answerPlace!(); });
+    expect(await screen.findByText('Calling…')).toBeInTheDocument();
+    expect(screen.queryByText('Ringing…')).toBeNull();
+    expect(sound.startTeamRingback).not.toHaveBeenCalled();
+  });
+});
+
 describe('answer and decline', () => {
   it('Answer sends this tab\'s device id, then joins with the call\'s own token', async () => {
     let answeredBy = '';
@@ -655,6 +709,38 @@ describe('the first answer wins', () => {
     await emit('missed');
     await new Promise((r) => setTimeout(r, 30));
     expect(toastSpy.info).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the missed-call toast across tabs', () => {
+  it('another tab of the member that already told it: this tab stays quiet (BroadcastChannel, by call id)', async () => {
+    const open = new Set<{ name: string; onmessage: ((e: MessageEvent) => void) | null }>();
+    class Bus {
+      onmessage: ((e: MessageEvent) => void) | null = null;
+      constructor(readonly name: string) { open.add(this); }
+      postMessage(data: unknown) {
+        for (const o of open) if (o !== this && o.name === this.name) queueMicrotask(() => o.onmessage?.({ data } as MessageEvent));
+      }
+      close() { open.delete(this); }
+    }
+    vi.stubGlobal('BroadcastChannel', Bus);
+    const { createMissedCallOnce } = await import('@/features/teamCalls/missedCallOnce');
+    const otherTab = createMissedCallOnce('team-call-missed:me');
+    let over = false;
+    h.route = () => ({ status: 200, body: { call: over ? call({ state: 'missed', outcome: 'missed' }) : call() } });
+    mount();
+    await emit('ringing');
+    await screen.findByRole('alertdialog');
+    const otherToast = vi.fn();
+    otherTab.tell('c1', otherToast);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(otherToast).toHaveBeenCalledTimes(1);
+    over = true;
+    await emit('missed');
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    await new Promise((r) => setTimeout(r, 250));
+    expect(toastSpy.info).not.toHaveBeenCalled();
+    otherTab.close();
   });
 });
 

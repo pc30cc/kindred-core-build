@@ -46,6 +46,8 @@ import { sendVoipPush, isVoipConfigured } from './apnsVoip.js';
 import { sendFcmData, isPushConfigured } from './fcm.js';
 import { disableToken, forgetVoipToken } from './devices.js';
 import { mobileAppAllowed } from '../mobileApp/planGate.js';
+import { getPlatformEditionOrNull } from '../platformRegion.js';
+import type { Edition } from '../../../shared/edition.js';
 import {
   TEAM_CALL_RING_SECONDS,
   type TeamCallCancelReason,
@@ -59,6 +61,8 @@ export interface TeamCallIosDevice {
   /** The install's own id (`mobile_push_devices.device_id`). */
   deviceId: string;
   voipToken: string;
+  /** Whether its app says `rang` itself (teamCallDeviceSendsRang); if not, an accepted ring stamps it. */
+  sendsRang: boolean;
 }
 
 /** An Android phone of the callee, rung over FCM. */
@@ -66,6 +70,8 @@ export interface TeamCallAndroidDevice {
   rowId: string;
   deviceId: string;
   token: string;
+  /** As on TeamCallIosDevice. */
+  sendsRang: boolean;
 }
 
 export interface TeamCallRingTargets {
@@ -147,6 +153,59 @@ interface DeviceRow {
   device_id: string | null;
   voip_token?: string | null;
   push_token?: string | null;
+  app_version?: string | null;
+}
+
+/**
+ * The first build of each app that says `POST /:id/rang` itself
+ * (docs/operations/TEAM_CALLS.md, "Ringback for old builds"):
+ *
+ *   - Android, WebYar (`iran`): versionCode 30, WebYar 1.9 — the first build
+ *     from a tree with #412 (1.8, versionCode 29, is the one on Cafe Bazaar).
+ *   - Android, RESPOK (`international`): versionCode 6, RESPOK 1.0.5, built
+ *     from the same tree as WebYar 1.9 (docs/ANDROID_RELEASE.md).
+ *   - iOS, both brands: build 6. Every build up to now (`main` and the iOS
+ *     call branch, #414, both CURRENT_PROJECT_VERSION 5) is 5 or below, and
+ *     only #414 sends `rang`; the first build that carries it is the first
+ *     one numbered 6 (ios/Webyar/project.yml), which must not be cut before
+ *     #414 is in.
+ *
+ * When the edition cannot be read, WebYar's Android number applies: a
+ * RESPOK 1.0.5 phone is then stamped by its push as well, which only starts
+ * the ringback a moment early; the other way would leave a WebYar 1.8
+ * caller silent.
+ */
+export const TEAM_CALL_FIRST_RANG_BUILD = {
+  android: { iran: 30, international: 6 },
+  ios: 6,
+} as const;
+
+/**
+ * The build number in an `app_version` as both apps register it:
+ * `"<name> (<build>)"` (Android's versionName and versionCode, iOS's
+ * CFBundleShortVersionString and CFBundleVersion). Null when there is none.
+ */
+export function teamCallAppBuild(appVersion: string | null | undefined): number | null {
+  const match = /\((\d{1,9})\)\s*$/.exec(appVersion ?? '');
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Whether a phone's app says `rang` itself. A phone that registered no
+ * app_version, or one without a build number in it, cannot be told apart
+ * from an old build and counts as one.
+ */
+export function teamCallDeviceSendsRang(
+  platform: 'ios' | 'android',
+  appVersion: string | null | undefined,
+  edition: Edition | null,
+): boolean {
+  const build = teamCallAppBuild(appVersion);
+  if (build === null) return false;
+  const first = platform === 'ios'
+    ? TEAM_CALL_FIRST_RANG_BUILD.ios
+    : TEAM_CALL_FIRST_RANG_BUILD.android[edition ?? 'iran'];
+  return build >= first;
 }
 
 /**
@@ -173,7 +232,7 @@ export async function teamCallRingTargets(
       voip
         ? sb
           .from('mobile_push_devices')
-          .select('id, device_id, voip_token')
+          .select('id, device_id, voip_token, app_version')
           .eq('user_id', calleeId)
           .eq('platform', 'ios')
           .eq('enabled', true)
@@ -182,7 +241,7 @@ export async function teamCallRingTargets(
       fcm
         ? sb
           .from('mobile_push_devices')
-          .select('id, device_id, push_token')
+          .select('id, device_id, push_token, app_version')
           .eq('user_id', calleeId)
           .eq('platform', 'android')
           .eq('transport', 'fcm')
@@ -190,12 +249,21 @@ export async function teamCallRingTargets(
           .not('push_token', 'is', null)
         : Promise.resolve({ data: [] as DeviceRow[], error: null }),
     ]);
-    const ios = ((iosRead.data ?? []) as DeviceRow[])
-      .filter((r) => !!r.voip_token && !!r.device_id)
-      .map((r) => ({ rowId: String(r.id), deviceId: String(r.device_id), voipToken: String(r.voip_token) }));
-    const android = ((androidRead.data ?? []) as DeviceRow[])
-      .filter((r) => !!r.push_token && !!r.device_id)
-      .map((r) => ({ rowId: String(r.id), deviceId: String(r.device_id), token: String(r.push_token) }));
+    const iosRows = ((iosRead.data ?? []) as DeviceRow[]).filter((r) => !!r.voip_token && !!r.device_id);
+    const androidRows = ((androidRead.data ?? []) as DeviceRow[]).filter((r) => !!r.push_token && !!r.device_id);
+    const edition = androidRows.length ? await getPlatformEditionOrNull(config) : null;
+    const ios = iosRows.map((r) => ({
+      rowId: String(r.id),
+      deviceId: String(r.device_id),
+      voipToken: String(r.voip_token),
+      sendsRang: teamCallDeviceSendsRang('ios', r.app_version, edition),
+    }));
+    const android = androidRows.map((r) => ({
+      rowId: String(r.id),
+      deviceId: String(r.device_id),
+      token: String(r.push_token),
+      sendsRang: teamCallDeviceSendsRang('android', r.app_version, edition),
+    }));
     return { ios, android };
   } catch (err) {
     console.warn('[team-call-ring] device lookup failed:', err instanceof Error ? err.message : err);
@@ -257,6 +325,14 @@ async function sendRing(
     if (!(await stillRinging(config, input.callId))) return { sent: 0, devices };
     const payload = teamCallVoipPayload(input);
     const data = teamCallAndroidRingData(input);
+    // The first accepted ring of a phone that cannot say `rang` stamps it
+    // for that phone (once per call; markTeamCallRang keeps the first stamp).
+    let stamping: Promise<void> | null = null;
+    const accepted = (device: { deviceId: string; sendsRang: boolean }): Promise<void> => {
+      if (device.sendsRang) return Promise.resolve();
+      stamping ??= stampRangFromPush(config, input.callId, device.deviceId);
+      return stamping;
+    };
     const outcomes = await Promise.all([
       ...targets.ios.map(async (device) => {
         const outcome = await sendVoipPush({
@@ -267,14 +343,42 @@ async function sendRing(
         });
         if (outcome.unregistered) await forgetVoipToken(config, device.rowId);
         else if (!outcome.ok) console.warn('[team-call-ring] voip send failed', { reason: outcome.reason, status: outcome.status });
+        if (outcome.ok) await accepted(device);
         return outcome.ok;
       }),
-      ...targets.android.map((device) => sendAndroid(config, device.token, data, input.callId)),
+      ...targets.android.map(async (device) => {
+        const ok = await sendAndroid(config, device.token, data, input.callId);
+        if (ok) await accepted(device);
+        return ok;
+      }),
     ]);
     return { sent: outcomes.filter(Boolean).length, devices };
   } catch (err) {
     console.warn('[team-call-ring] ring failed:', err instanceof Error ? err.message : err);
     return { sent: 0, devices };
+  }
+}
+
+/**
+ * The ring stamp for an old build (platform `push`): the call, if still
+ * ringing with no stamp, gets `rang_at` now and both members hear it, as from
+ * `POST /:id/rang`. A best effort: the transport took the push, which says
+ * nothing of the phone being on. A real `rang` that came first wins, and so
+ * does this over a later one; neither changes the state or the ring's end.
+ * Never throws.
+ *
+ * The lifecycle is imported when needed: it imports this file for the
+ * ring's stop.
+ */
+async function stampRangFromPush(config: ServerConfig, callId: string, deviceId: string): Promise<void> {
+  try {
+    const { loadTeamCall, markTeamCallRang } = await import('../calls/teamCallLifecycle.js');
+    const row = await loadTeamCall(config, callId);
+    if (!row) return;
+    const rang = await markTeamCallRang(config, row, { deviceId, platform: 'push' });
+    await rang.effects;
+  } catch (err) {
+    console.warn('[team-call-ring] push stamp failed:', err instanceof Error ? err.message : err);
   }
 }
 

@@ -151,7 +151,10 @@ const fullEff = () => ({
 });
 
 function device(row: Row): Row {
-  return { enabled: true, voip_token: null, push_token: null, transport: 'fcm', ...row };
+  // Builds that say `rang` themselves (teamCallDeviceSendsRang), so no ring
+  // stamps the call for them: teamCallRingbackFallback.test.ts covers old ones.
+  const appVersion = row.platform === 'ios' ? '1.0.0 (6)' : '1.9 (30)';
+  return { enabled: true, voip_token: null, push_token: null, transport: 'fcm', app_version: appVersion, ...row };
 }
 
 beforeEach(() => {
@@ -844,7 +847,8 @@ describe('POST /api/team-calls/:id/rang', () => {
 
   it('refuses a malformed body', async () => {
     const id = ringingCall(5);
-    for (const body of [{}, { platform: 'windows' }, { platform: 'ios', device_id: 'x'.repeat(129) }, { platform: 'ios', device_id: 42 }]) {
+    // `push` is the server's own stamp for old builds (teamCallRing.ts): never a client's word.
+    for (const body of [{}, { platform: 'windows' }, { platform: 'push' }, { platform: 'ios', device_id: 'x'.repeat(129) }, { platform: 'ios', device_id: 42 }]) {
       const res = await rang(id, CALLEE, body);
       expect(res.status, JSON.stringify(body)).toBe(400);
       expect(res.body).toEqual({ error: 'invalid_params' });

@@ -63,7 +63,7 @@ import { areHiddenFromEachOther } from '../services/teamVisibility.js';
 import { issueParticipantToken } from '../services/calls/participantToken.js';
 import {
   TEAM_CALL_COLUMNS,
-  TEAM_CALL_RANG_PLATFORMS,
+  TEAM_CALL_CLIENT_RANG_PLATFORMS,
   isRingingNow,
   readTeamCallMeta,
   teamCallExpiresAt,
@@ -518,7 +518,7 @@ teamCallsRouter.post('/:id/accept', async (req, res) => {
 // billing or the timers.
 const rangSchema = z.object({
   device_id: z.string().min(1).max(128).optional(),
-  platform: z.enum(TEAM_CALL_RANG_PLATFORMS as unknown as ['ios', 'android', 'web']),
+  platform: z.enum(TEAM_CALL_CLIENT_RANG_PLATFORMS),
 });
 
 teamCallsRouter.post('/:id/rang', rangLimiter, async (req, res) => {

@@ -226,9 +226,11 @@ uncounted time.
   made in memory, `TeamCallRingback`, held fuller and longer, every 3 s). A
   voice call rings out on the loudspeaker away from the ear and on the
   earpiece at it (proximity), until the Speaker control picks, and never
-  on the loudspeaker by itself while a headset, AirPods or a car is
-  connected; the ringback is full on the loudspeaker and soft at the ear or
-  in a headset. Answered, it goes to the earpiece unless the speaker was
+  on the loudspeaker by itself while the sound is routed to a headset,
+  AirPods or a car (the route decides, not a device merely connected); a
+  device arriving takes the sound even from a chosen loudspeaker; CallKit's
+  own Speaker button is followed. The ringback is full where the sound comes
+  out of the loudspeaker and soft at the ear or in a headset. Answered, it goes to the earpiece unless the speaker was
   picked; the override is dropped when the call ends. CallKit: started
   connecting at the start action, connected only when both are in the room.
 - One end signal: a ring that ended unanswered on this phone (missed, or the

@@ -195,6 +195,9 @@ final class CallManager {
     /// The output override last set (`applyRoute`), so it is set only when
     /// it changes: setting it posts a route change, which reads it again.
     @ObservationIgnored private var appliedSpeaker: Bool?
+    /// Whether the sound goes to a headset, AirPods or a car, as last read
+    /// from the route while no loudspeaker override of ours hid it.
+    @ObservationIgnored private var externalAudio = false
     /// The call this phone last told the server it rings for (`POST /rang`):
     /// once per call.
     @ObservationIgnored private var rangSent: String?
@@ -853,6 +856,7 @@ final class CallManager {
         audioActive = true
         // A session (re)activated has no override of ours on it.
         appliedSpeaker = nil
+        externalAudio = TeamCallAudio.routeIsExternal
         defer { syncRingback() }
         do {
             try TeamCallAudio.activated()
@@ -988,8 +992,10 @@ final class CallManager {
         guard var call, !call.phase.isOver else { return }
         let ringingOut = call.direction == .outgoing && call.isRinging && !call.answered
         // A headset, AirPods or a car keeps the sound: nothing is switched
-        // to the phone's loudspeaker by itself then.
-        let external = TeamCallAudio.hasExternalAudio
+        // to the phone's loudspeaker by itself then. Read from the route
+        // while it is ours unforced; kept from then while the loudspeaker is.
+        if appliedSpeaker == false { externalAudio = TeamCallAudio.routeIsExternal }
+        let external = externalAudio
         let automatic = call.channel == .audio && ringingOut && !call.speakerChosen
         if call.channel == .audio {
             if automatic {
@@ -1002,10 +1008,9 @@ final class CallManager {
             }
             setSpeaker(call.isSpeakerOn)
         }
-        // The ringback's level follows the output: full on the loudspeaker,
-        // soft at the ear or in a headset.
-        let onLoudspeaker = call.channel == .video ? !external : call.isSpeakerOn
-        ringback.setLoud(onLoudspeaker)
+        // The ringback's level follows where the sound really goes: full on
+        // the loudspeaker, soft at the ear or in a headset.
+        ringback.setLoud(TeamCallAudio.playsOnLoudspeaker)
         // The screen goes dark at the ear whenever a voice call is not on the
         // loudspeaker, or while the ringback still follows the phone.
         let sensing = call.channel == .audio && (!call.isSpeakerOn || (automatic && !external))
@@ -1018,20 +1023,47 @@ final class CallManager {
     /// gives way to a device that arrived (the override would keep the sound
     /// on the phone), and the route is decided again.
     fileprivate func audioRouteChanged(_ reason: AVAudioSession.RouteChangeReason?) {
-        // Our own override is not news.
-        guard reason != .override, let call, !call.phase.isOver else { return }
-        // Any other change may have dropped the override: set it again.
-        appliedSpeaker = nil
-        if reason == .newDeviceAvailable, call.channel == .audio, !call.speakerChosen, call.isSpeakerOn {
-            self.call?.isSpeakerOn = false
-            setSpeaker(false)
+        guard let call, !call.phase.isOver else { return }
+        switch reason {
+        case .override?:
+            // Ours, or the system's: CallKit's own Speaker button (the lock
+            // screen's call screen) changes the route the same way. Ours set
+            // `appliedSpeaker` first, so a route that disagrees is the
+            // member's choice made there: the app follows it.
+            let actual = TeamCallAudio.playsOnLoudspeaker
+            if call.channel == .audio, let applied = appliedSpeaker, applied != actual {
+                self.call?.isSpeakerOn = actual
+                self.call?.speakerChosen = true
+                appliedSpeaker = actual
+            }
+            applyRoute()
+        case .newDeviceAvailable?:
+            // A headset, AirPods or a car arrived: it takes the sound, as in
+            // the Phone app, even over a loudspeaker the member chose.
+            if call.channel == .audio, call.isSpeakerOn {
+                self.call?.isSpeakerOn = false
+                setSpeaker(false)
+            }
+            externalAudio = TeamCallAudio.routeIsExternal
+            applyRoute()
+        case .categoryChange?, .routeConfigurationChange?:
+            // These drop the override without a new device: set it again.
+            if appliedSpeaker != true { externalAudio = TeamCallAudio.routeIsExternal }
+            appliedSpeaker = nil
+            applyRoute()
+        default:
+            // A device left, or anything else: read the route again.
+            if appliedSpeaker != true { externalAudio = TeamCallAudio.routeIsExternal }
+            applyRoute()
         }
-        applyRoute()
     }
 
+    /// Sets the loudspeaker override when it changes — and not at all when
+    /// the route already is what is asked, so a re-apply never posts a change.
     private func setSpeaker(_ speaker: Bool) {
         guard appliedSpeaker != speaker else { return }
         appliedSpeaker = speaker
+        guard TeamCallAudio.playsOnLoudspeaker != speaker else { return }
         TeamCallAudio.route(toSpeaker: speaker)
     }
 

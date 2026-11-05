@@ -80,17 +80,20 @@ enum TeamCallAudio {
         try? AVAudioSession.sharedInstance().overrideOutputAudioPort(toSpeaker ? .speaker : .none)
     }
 
-    /// A headset, AirPods, a car or another outside device carries the
-    /// call's sound, or is there to: the phone's own speaker is never
-    /// chosen for it automatically. Read from what plays now and from the
-    /// microphones on offer, which name a Bluetooth or wired headset even
-    /// while the loudspeaker is forced.
-    static var hasExternalAudio: Bool {
-        let session = AVAudioSession.sharedInstance()
+    /// The call's sound plays somewhere other than the phone itself — a
+    /// headset, AirPods in the ears, a car — as iOS routes it now. Read from
+    /// the route only, never from the devices on offer: AirPods connected but
+    /// lying on the desk are offered, and are not where the sound goes. Only
+    /// meaningful while no loudspeaker override of ours hides the route
+    /// (`CallManager.externalAudio` keeps the last such reading).
+    static var routeIsExternal: Bool {
         let builtIn: Set<AVAudioSession.Port> = [.builtInReceiver, .builtInSpeaker]
-        if session.currentRoute.outputs.contains(where: { !builtIn.contains($0.portType) }) { return true }
-        let external: Set<AVAudioSession.Port> = [.bluetoothHFP, .headsetMic, .carAudio, .bluetoothLE, .usbAudio]
-        return (session.availableInputs ?? []).contains { external.contains($0.portType) }
+        return AVAudioSession.sharedInstance().currentRoute.outputs.contains { !builtIn.contains($0.portType) }
+    }
+
+    /// The sound comes out of the phone's loudspeaker now, whoever chose it.
+    static var playsOnLoudspeaker: Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .builtInSpeaker }
     }
 }
 

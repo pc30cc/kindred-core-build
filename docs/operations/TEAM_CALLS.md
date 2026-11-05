@@ -236,7 +236,12 @@ uncounted time.
   in front of the face, Speaker is on, or the call is video, and on the
   earpiece only once the proximity sensor says the phone is at the ear;
   Speaker and the sensor move it while it plays (owner, 2026-11-05: on the
-  earpiece in front of the face it was not heard).
+  earpiece in front of the face it was not heard). With a headset,
+  Bluetooth (A2DP, SCO, LE), USB audio or a car connected it plays there
+  (the media stream), never on the loudspeaker over it, re-checked as
+  devices come and go. At the ear it is the old ringback's level, on the
+  loudspeaker louder. It forces no route (no speakerphone, communication
+  device or audio mode), so nothing carries into the next call.
 - One end signal for a ring nobody answered here (owner, 2026-11-05, both
   apps): a ring screen whose call ends cancelled or missed closes at once and
   leaves only the missed-call notification; one declined here (on the screen

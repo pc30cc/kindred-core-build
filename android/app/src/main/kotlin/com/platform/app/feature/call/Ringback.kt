@@ -1,7 +1,13 @@
 package com.platform.app.feature.call
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.os.Handler
+import android.os.Looper
 
 /**
  * The tone a caller hears while the other phone rings — the "brr… brr…"
@@ -48,32 +54,69 @@ enum class RingbackOutput {
             if (!video && !speakerOn && atEar) EARPIECE else LOUDSPEAKER
 
         /**
-         * The stream each output plays on. Before the call's room exists the
-         * phone is in its normal audio mode, where the voice-call stream is
-         * the earpiece and the media stream the loudspeaker (or a headset,
-         * which then carries the tone either way).
+         * The stream and the level (ToneGenerator's 0–100, a share of the
+         * stream's own volume) a tone plays at. Before the call's room exists
+         * the phone is in its normal audio mode, where the voice-call stream
+         * is the earpiece and the media stream the loudspeaker. Nothing here
+         * forces a route: no speakerphone, no communication device, no audio
+         * mode, so nothing is left to undo when the call ends.
+         *
+         * [external]: a headset, Bluetooth (A2DP, SCO, LE), USB audio or a
+         * car is connected. The tone then always takes the media stream,
+         * which the system sends there, at the quiet level — it is at the
+         * ear — and never the loudspeaker over it. Otherwise the earpiece is
+         * the old ringback's level and the loudspeaker clearly louder.
          */
-        fun stream(output: RingbackOutput): Int = when (output) {
-            EARPIECE -> AudioManager.STREAM_VOICE_CALL
-            LOUDSPEAKER -> AudioManager.STREAM_MUSIC
+        fun sound(output: RingbackOutput, external: Boolean): Sound = when {
+            external -> Sound(AudioManager.STREAM_MUSIC, QUIET)
+            output == EARPIECE -> Sound(AudioManager.STREAM_VOICE_CALL, QUIET)
+            else -> Sound(AudioManager.STREAM_MUSIC, LOUD)
         }
 
+        /** At the ear: the level the ringback always had. */
+        const val QUIET = 70
+
+        /** In front of the face: heard across a desk, not startling. */
+        const val LOUD = 90
+
         /**
-         * Of ToneGenerator's 0–100, a share of the stream's own volume: the
-         * earpiece is quiet and wants more of its stream; the loudspeaker is
-         * present without startling.
+         * Whether an output device is a headset, Bluetooth (A2DP, SCO, LE),
+         * USB audio or a hearing aid — what [sound] calls external; a car
+         * (Android Auto) connects as one of these. A list of what counts,
+         * not of what does not: some phones list built-in outputs of other
+         * types at all times, which must not keep the tone off the
+         * loudspeaker.
          */
-        fun volume(output: RingbackOutput): Int = when (output) {
-            EARPIECE -> 90
-            LOUDSPEAKER -> 75
-        }
+        fun isExternal(type: Int): Boolean = type in EXTERNAL
+
+        // Constants newer than an old phone are only numbers there, which
+        // its devices never report.
+        @SuppressLint("InlinedApi")
+        private val EXTERNAL = setOf(
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_LINE_ANALOG,
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_USB_ACCESSORY,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_HEARING_AID,
+            AudioDeviceInfo.TYPE_BLE_HEADSET,
+            AudioDeviceInfo.TYPE_BLE_SPEAKER,
+            AudioDeviceInfo.TYPE_BLE_BROADCAST,
+        )
     }
+
+    /** What a tone is played as. */
+    data class Sound(val stream: Int, val volume: Int)
 }
 
 /**
  * The platform's own ringback ([ToneGenerator.TONE_SUP_RINGTONE], the
  * call-progress tone a dialler plays: two soft notes together, on and off),
- * on the stream [RingbackOutput.stream] picks for where it plays.
+ * on the stream and at the level [RingbackOutput.sound] picks for where it
+ * plays and what is connected.
  *
  * A generator is made per ring — and per move, since a generator's stream is
  * fixed — and released at [stop]: the system has few, and one held for a
@@ -81,35 +124,64 @@ enum class RingbackOutput {
  * audio service refusing, which happens — leaves the ring silent rather
  * than the call failed.
  */
-class ToneRingback : Ringback {
+class ToneRingback(context: Context) : Ringback {
+    private val audio = context.getSystemService(AudioManager::class.java)
     private var tone: ToneGenerator? = null
+    private var playing: RingbackOutput.Sound? = null
     private var output = RingbackOutput.LOUDSPEAKER
+
+    /** A headset or a car connected or gone while it plays: the tone moves with it. */
+    private val devices = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>?) = replay()
+        override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>?) = replay()
+    }
 
     override fun start() {
         if (tone != null) return
-        tone = play(output)
+        runCatching { audio?.registerAudioDeviceCallback(devices, Handler(Looper.getMainLooper())) }
+        play()
     }
 
     override fun stop() {
-        val playing = tone ?: return
+        runCatching { audio?.unregisterAudioDeviceCallback(devices) }
+        val generator = tone ?: return
         tone = null
-        release(playing)
+        playing = null
+        release(generator)
     }
 
     override fun route(output: RingbackOutput) {
         if (output == this.output) return
         this.output = output
-        val playing = tone ?: return
-        // The tone starts again where it is now heard: the old generator
-        // goes first, so the two never sound together.
-        release(playing)
-        tone = play(output)
+        replay()
     }
 
-    private fun play(output: RingbackOutput): ToneGenerator? = runCatching {
-        ToneGenerator(RingbackOutput.stream(output), RingbackOutput.volume(output))
-            .also { it.startTone(ToneGenerator.TONE_SUP_RINGTONE) }
-    }.getOrNull()
+    /**
+     * The tone starts again where, and as loud as, it is now heard — only
+     * when that changed. The old generator goes first, so two never sound
+     * together.
+     */
+    private fun replay() {
+        val generator = tone ?: return
+        if (sound() == playing) return
+        tone = null
+        release(generator)
+        play()
+    }
+
+    private fun sound(): RingbackOutput.Sound = RingbackOutput.sound(output, external = externalConnected())
+
+    private fun externalConnected(): Boolean = runCatching {
+        audio?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.any { RingbackOutput.isExternal(it.type) } == true
+    }.getOrDefault(false)
+
+    private fun play() {
+        val sound = sound()
+        tone = runCatching {
+            ToneGenerator(sound.stream, sound.volume).also { it.startTone(ToneGenerator.TONE_SUP_RINGTONE) }
+        }.getOrNull()
+        playing = sound.takeIf { tone != null }
+    }
 
     private fun release(generator: ToneGenerator) {
         runCatching {

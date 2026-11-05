@@ -92,7 +92,7 @@ fun TeamCallRoute(
                 room = LiveKitRoom(app),
                 deviceId = { graph?.push?.deviceId() },
                 nudges = graph?.teamCallNudges ?: emptyFlow(),
-                ringback = ToneRingback(),
+                ringback = ToneRingback(app),
                 foreground = ServiceCallForeground(app),
                 rang = { id -> graph?.teamCallRang?.report(id) },
             )

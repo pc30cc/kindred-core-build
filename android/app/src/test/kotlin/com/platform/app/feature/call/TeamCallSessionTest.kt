@@ -1,5 +1,6 @@
 package com.platform.app.feature.call
 
+import android.media.AudioDeviceInfo
 import com.platform.app.core.model.CallChannel
 import com.platform.app.core.model.CallToken
 import com.platform.app.core.model.EffectiveBool
@@ -920,10 +921,40 @@ class TeamCallSessionTest {
         assertEquals(RingbackOutput.LOUDSPEAKER, RingbackOutput.of(video = true, speakerOn = false, atEar = true))
         assertEquals(RingbackOutput.LOUDSPEAKER, RingbackOutput.of(video = true, speakerOn = true, atEar = false))
         // AudioManager's constants: the voice-call stream (0) is the
-        // earpiece, the media stream (3) the loudspeaker.
-        assertEquals(0, RingbackOutput.stream(RingbackOutput.EARPIECE))
-        assertEquals(3, RingbackOutput.stream(RingbackOutput.LOUDSPEAKER))
-        assertTrue(RingbackOutput.volume(RingbackOutput.LOUDSPEAKER) in 60..100)
+        // earpiece, the media stream (3) the loudspeaker or what is connected.
+        val earpiece = RingbackOutput.sound(RingbackOutput.EARPIECE, external = false)
+        val loudspeaker = RingbackOutput.sound(RingbackOutput.LOUDSPEAKER, external = false)
+        assertEquals(RingbackOutput.Sound(stream = 0, volume = RingbackOutput.QUIET), earpiece)
+        assertEquals(3, loudspeaker.stream)
+        assertTrue("much quieter at the ear", loudspeaker.volume - earpiece.volume >= 15)
+        assertEquals(70, RingbackOutput.QUIET) // The old ringback's level.
+        // A headset, Bluetooth or a car: the media stream, which goes there,
+        // at the ear's level, never the loudspeaker over it.
+        for (output in RingbackOutput.entries) {
+            assertEquals(RingbackOutput.Sound(stream = 3, volume = RingbackOutput.QUIET), RingbackOutput.sound(output, external = true))
+        }
+    }
+
+    @Test
+    fun `only the phone's own earpiece and loudspeaker are built in`() {
+        assertFalse(RingbackOutput.isExternal(AudioDeviceInfo.TYPE_BUILTIN_EARPIECE))
+        assertFalse(RingbackOutput.isExternal(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER))
+        val connected = listOf(
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+            AudioDeviceInfo.TYPE_BLE_HEADSET,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_HEARING_AID,
+        )
+        for (type in connected) {
+            assertTrue("type $type", RingbackOutput.isExternal(type))
+        }
+        // Outputs some phones list at all times keep the loudspeaker.
+        for (type in listOf(AudioDeviceInfo.TYPE_TELEPHONY, AudioDeviceInfo.TYPE_BUS, AudioDeviceInfo.TYPE_IP, AudioDeviceInfo.TYPE_REMOTE_SUBMIX)) {
+            assertFalse("type $type", RingbackOutput.isExternal(type))
+        }
     }
 
     @Test

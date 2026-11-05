@@ -74,9 +74,16 @@ then the URLs in Super Admin.
 WebYar's backend reads `app_runtime_config.call_rtc_endpoints.turn`, which
 Super Admin → Voice & Video → Channels and recording → RTC and TURN endpoints
 writes (`saveRtcEndpoints`, `server/services/calls/rtcResolver.ts`). WebYar's
-values (2026-11-04):
+values (2026-11-04; the TCP URL since 2026-11-05):
 
-- **TURN URLs**: `turn:185.213.167.216:3478?transport=udp`. Never LiveKit's
+- **TURN URLs**: `turn:185.213.167.216:3478?transport=udp` and
+  `turn:185.213.167.216:3478?transport=tcp`. The phone tries both and keeps
+  UDP when it can. TCP is the way through for a network that lets no UDP
+  out: on 2026-11-05 19:02 UTC a phone in Iran on mobile data found no path
+  at all (not even its public address) with only the UDP URL listed, though
+  the same phone had used the relay on Wi-Fi that morning (knowledge base,
+  `05-reports/2026-11-05-mojtaba-mahmod-call.md`). The relay already listens
+  on TCP 3478 and the probe checks both. Never LiveKit's
   own TURN (`turn.webyar.ai`): LiveKit gives each participant credentials for
   it over signalling, and a URL here would have none.
 - **Shared secret**: the relay's. Stored encrypted under

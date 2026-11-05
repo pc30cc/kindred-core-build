@@ -72,7 +72,12 @@ enum CallOutcome: Equatable, Sendable {
 @Observable
 final class CallSession {
 
-    private(set) var phase: CallPhase = .waiting
+    /// Followed by `VisitorCallScreens` from here, not from the screen, so the
+    /// busy rule sees each change even while SwiftUI defers its updates in
+    /// the background.
+    private(set) var phase: CallPhase = .waiting {
+        didSet { VisitorCallScreens.shared.changed(invitationID, phase: phase) }
+    }
     /// The visitor, once they are actually in the room.
     private(set) var visitorPresent = false
     private(set) var isMuted = false
@@ -116,14 +121,21 @@ final class CallSession {
     private var callSessionID: String?
     private var pollTask: Task<Void, Never>?
     private var roomDelegate: RoomObserver?
+    /// Whether a colleague call holds this phone's audio. A visitor who
+    /// answered while the app was suspended is never joined beside one: the
+    /// two rooms would share LiveKit's engine, which CallKit owns for the
+    /// colleague call (`CallManager.isOnCall`).
+    private let colleagueCallOn: @MainActor () -> Bool
 
     init(
         invitation: CallInvitation,
         contactName: String,
         contactAvatarURL: String?,
         visitor: VisitorProfile? = nil,
-        api: any WebyarAPI = Backend.current
+        api: any WebyarAPI = Backend.current,
+        colleagueCallOn: @escaping @MainActor () -> Bool = { CallManager.shared.isOnCall }
     ) {
+        self.colleagueCallOn = colleagueCallOn
         self.invitationID = invitation.id
         self.channel = invitation.kind
         self.isCameraOn = invitation.kind == .video
@@ -148,12 +160,31 @@ final class CallSession {
         }
     }
 
+    /// Why a visitor call ended because a colleague call holds the audio:
+    /// the operator is told in its own words (`CallOutcome.title`).
+    nonisolated static let colleagueCallReason = "colleague_call"
+
     private func waitForVisitor() async {
         while !Task.isCancelled, phase == .waiting {
+            // A colleague call on meanwhile: the offer is withdrawn before the
+            // visitor can answer it (`finish` cancels the invitation while
+            // there is no session yet).
+            if callSessionID == nil, colleagueCallOn() {
+                await finish(.failed(Self.colleagueCallReason))
+                return
+            }
             do {
                 let invitation = try await api.invitation(id: invitationID)
                 if let sessionID = invitation.callSessionId, invitation.isJoined {
                     callSessionID = sessionID
+                    // A colleague call started meanwhile (the app was asleep
+                    // while the visitor answered): this call ends, failed,
+                    // and the server is told — never a second room on the
+                    // colleague call's audio.
+                    guard !colleagueCallOn() else {
+                        await finish(.failed(Self.colleagueCallReason))
+                        return
+                    }
                     await join(callSessionID: sessionID)
                     return
                 }
@@ -194,6 +225,12 @@ final class CallSession {
             // otherwise a hang-up during "connecting" is followed a second
             // later by the microphone going live in a call nobody is on.
             guard phase == .connecting else { return }
+            // The same, should a colleague call have begun while the token
+            // was on its way.
+            guard !colleagueCallOn() else {
+                await finish(.failed(Self.colleagueCallReason))
+                return
+            }
             relayWarning = credentials.warnings?.contains("turn_missing") == true
 
             // RESPOK never joins a call on a WebYar server, whatever its own names (`AppBrand`).
@@ -245,6 +282,7 @@ final class CallSession {
             if channel == .video {
                 do {
                     try await room.localParticipant.setCamera(enabled: true)
+                    CallCamera.allowWhileMultitasking(room.localParticipant)
                 } catch {
                     isCameraOn = false
                     if degraded == nil { degraded = .noCamera }
@@ -312,7 +350,10 @@ final class CallSession {
         guard let room, channel == .video else { return }
         let next = !isCameraOn
         isCameraOn = next
-        Task { try? await room.localParticipant.setCamera(enabled: next) }
+        Task {
+            _ = try? await room.localParticipant.setCamera(enabled: next)
+            if next { CallCamera.allowWhileMultitasking(room.localParticipant) }
+        }
     }
 
     /// Earpiece or loudspeaker. A voice call starts on the loudspeaker

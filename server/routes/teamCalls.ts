@@ -441,8 +441,11 @@ teamCallsRouter.post('/', callerLimiter, async (req, res) => {
     const caller = peers.get(callerId);
     // Started before the answer leaves, so that anything stopping the call —
     // which needs the call's id from this answer — finds the ring under way
-    // and sends its stop after it (teamCallRing.ts). Never rejects.
-    void ringTeamCall(config, {
+    // and sends its stop after it (teamCallRing.ts). Never rejects. Only
+    // while the call, as the room's write read it back, still rings: one
+    // ended meanwhile (the caller's account deleted while it was being
+    // placed) rings nobody.
+    if (row.state === 'ringing') void ringTeamCall(config, {
       callId: row.id,
       workspaceId,
       workspaceName,

@@ -118,6 +118,10 @@ protocol WebyarAPI: SupportAPI, EmailAPI {
     /// `deviceID` is the id this phone registers for push with: the one the
     /// callee's other phones compare `answered_device_id` against.
     func acceptTeamCall(id: String, deviceID: String) async throws -> TeamCallAcceptance
+    /// The callee's phone is actually ringing (`POST /:id/rang`): CallKit
+    /// took the ring. Too late (`409 not_ringing`) and a server without the
+    /// route (`404`/`405`) are not errors.
+    func markTeamCallRang(id: String, deviceID: String) async throws
     /// The callee's phone while it rings; a no-op on an answered call.
     func declineTeamCall(id: String) async throws
     /// Everything else: the server makes it a cancel while the call rings

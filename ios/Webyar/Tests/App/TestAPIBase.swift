@@ -69,6 +69,7 @@ extension TestAPIBase {
     func startTeamCall(workspaceID: String, calleeID: String, channel: CallChannel) async throws -> TeamCall { throw APIError.transport }
     func teamCall(id: String) async throws -> TeamCall { throw APIError.transport }
     func acceptTeamCall(id: String, deviceID: String) async throws -> TeamCallAcceptance { throw APIError.transport }
+    func markTeamCallRang(id: String, deviceID: String) async throws { throw APIError.transport }
     func declineTeamCall(id: String) async throws { throw APIError.transport }
     func hangUpTeamCall(id: String) async throws { throw APIError.transport }
     func teamCallToken(id: String) async throws -> CallToken { throw APIError.transport }

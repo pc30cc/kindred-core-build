@@ -79,6 +79,22 @@ enum TeamCallAudio {
     static func route(toSpeaker: Bool) {
         try? AVAudioSession.sharedInstance().overrideOutputAudioPort(toSpeaker ? .speaker : .none)
     }
+
+    /// The call's sound plays somewhere other than the phone itself — a
+    /// headset, AirPods in the ears, a car — as iOS routes it now. Read from
+    /// the route only, never from the devices on offer: AirPods connected but
+    /// lying on the desk are offered, and are not where the sound goes. Only
+    /// meaningful while no loudspeaker override of ours hides the route
+    /// (`CallManager.externalAudio` keeps the last such reading).
+    static var routeIsExternal: Bool {
+        let builtIn: Set<AVAudioSession.Port> = [.builtInReceiver, .builtInSpeaker]
+        return AVAudioSession.sharedInstance().currentRoute.outputs.contains { !builtIn.contains($0.portType) }
+    }
+
+    /// The sound comes out of the phone's loudspeaker now, whoever chose it.
+    static var playsOnLoudspeaker: Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .builtInSpeaker }
+    }
 }
 
 /// The room of one colleague call: joining it, the microphone and camera,
@@ -159,6 +175,7 @@ final class TeamCallRoom {
         guard let room else { return false }
         do {
             try await room.localParticipant.setCamera(enabled: enabled)
+            if enabled { CallCamera.allowWhileMultitasking(room.localParticipant) }
             return true
         } catch {
             return false

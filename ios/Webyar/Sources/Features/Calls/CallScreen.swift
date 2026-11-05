@@ -20,9 +20,14 @@ struct CallScreen: View {
     /// Where the header, the controls and the safe area are over the
     /// picture, for the small picture to settle clear of them.
     @State private var frames = CallScreenFrames()
+    @ScaledMetric(relativeTo: .largeTitle) private var scaledFace: CGFloat = 152
 
     var body: some View {
         ZStack {
+            // Opaque from the first layer: nothing of the conversation under
+            // the cover shows through (owner, 2026-11-04).
+            CallBackdrop(photoURL: session.contactAvatarURL)
+
             if isFullScreenVideo {
                 // The safe area, measured: what the small picture keeps
                 // inside while the controls are away.
@@ -44,11 +49,13 @@ struct CallScreen: View {
                     visitor: session.visitor,
                     freeArea: frames.free(chromeVisible: chromeVisible)
                 )
+                // iOS's picture-in-picture takes the visitor's picture over
+                // when the operator leaves the app (`CallPictureInPicture`).
+                .background(CallPiPSource(call: pictureInPicture))
                 .ignoresSafeArea()
                 .callScreenFrame { frames.stage = $0 }
                 .onTapGesture { revealChrome() }
             } else {
-                backdrop
                 portrait
             }
 
@@ -66,9 +73,15 @@ struct CallScreen: View {
         // A video call is watched, not touched. Left to Auto-Lock the screen
         // locks, the app goes to the background and iOS stops the camera.
         .onChange(of: keepsScreenAwake, initial: true) { _, awake in
-            UIApplication.shared.isIdleTimerDisabled = awake
+            CallScreenAwake.set(.visitorCall, awake: awake)
         }
-        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .onDisappear {
+            CallScreenAwake.set(.visitorCall, awake: false)
+            CallPictureInPicture.shared.end(owner: pictureInPictureOwner)
+        }
+        .onChange(of: isFullScreenVideo) { _, video in
+            if !video { CallPictureInPicture.shared.end(owner: pictureInPictureOwner) }
+        }
         .onChange(of: session.phase) { _, phase in
             // An ended call lingers for a moment so the outcome can be read,
             // then gets out of the way on its own. Nobody wants to dismiss a
@@ -102,18 +115,45 @@ struct CallScreen: View {
         session.channel == .video && session.phase.isLive
     }
 
-    /// The audio layout, and every layout before the picture arrives: name at
-    /// the top, face in the middle, controls at the bottom.
+    private var faceSize: CGFloat { min(scaledFace, 200) }
+
+    /// This call's claim on the shared PiP: only its own end closes it.
+    private var pictureInPictureOwner: String {
+        "visitor-\(ObjectIdentifier(session).hashValue)"
+    }
+
+    private var pictureInPicture: CallPictureInPicture.Call {
+        CallPictureInPicture.Call(
+            track: session.remoteVideoTrack,
+            name: session.contactName,
+            avatarURL: session.contactAvatarURL,
+            subject: .person,
+            owner: pictureInPictureOwner,
+            // The cover is still up under PiP: coming back is enough.
+            restore: {}
+        )
+    }
+
+    /// The audio layout, and every layout before the picture arrives: the
+    /// kind of call at the top, the face in the middle with the name and the
+    /// state under it, the controls on their tray at the bottom — the
+    /// colleague call's layout (`TeamCallScreen`).
     private var portrait: some View {
         VStack(spacing: 0) {
-            header
+            CallPill(
+                text: session.channel == .video ? Str.teamCallLogVideo(language) : Str.teamCallLogVoice(language),
+                icon: session.channel.icon
+            )
+            .padding(.top, Theme.Space.sm)
             Spacer(minLength: Theme.Space.lg)
             stage
+            header
+                .padding(.top, Theme.Space.xxl)
             Spacer(minLength: Theme.Space.lg)
-            controls
+            CallControlTray { controls }
         }
-        .padding(.horizontal, Theme.Space.xl)
-        .padding(.vertical, Theme.Space.xxl)
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.bottom, Theme.Space.lg)
     }
 
     /// What floats over the picture: the same header and controls, with just
@@ -174,26 +214,17 @@ struct CallScreen: View {
 
     // MARK: - Pieces
 
-    private var backdrop: some View {
-        LinearGradient(
-            colors: [Color(uiColor: .systemIndigo).opacity(0.5), .black],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
-    }
-
     private var header: some View {
-        VStack(spacing: Theme.Space.xs) {
+        VStack(spacing: Theme.Space.sm) {
             Text(session.contactName)
-                .font(.app(.title2, .semibold))
+                .font(.app(.title, .bold))
                 .foregroundStyle(.white)
-                .lineLimit(1)
+                .multilineTextAlignment(.center)
+                .lineLimit(isFullScreenVideo ? 1 : 2)
+                .minimumScaleFactor(0.75)
+                .accessibilityAddTraits(.isHeader)
 
             statusLine
-                .font(.app(.subheadline, design: .rounded))
-                .foregroundStyle(.white.opacity(0.75))
-                .monospacedDigit()
 
             // Two different warnings, both worth saying out loud rather than
             // only in a log: one explains why a call fails on a train, the
@@ -218,41 +249,46 @@ struct CallScreen: View {
     private var statusLine: some View {
         switch session.phase {
         case .waiting:
-            Text(Str.inviteSent(language))
+            statusText(Str.inviteSent(language))
         case .connecting:
-            Text(Str.connectingCall(language))
+            statusText(Str.connectingCall(language))
         case .connected:
             if let connectedAt = session.connectedAt {
                 TimelineView(.periodic(from: connectedAt, by: 1)) { context in
-                    Text(Format.callDuration(from: connectedAt, to: context.date, locale: language.locale))
+                    CallPill(text: Format.callDuration(from: connectedAt, to: context.date, locale: language.locale))
+                        .monospacedDigit()
                 }
             }
         case .ended(let outcome):
-            Text(outcome.title(language))
+            statusText(outcome.title(language))
         }
+    }
+
+    private func statusText(_ text: String) -> some View {
+        Text(text)
+            .font(.app(.headline, .regular))
+            .foregroundStyle(.white.opacity(0.78))
+            .multilineTextAlignment(.center)
+            .contentTransition(.opacity)
     }
 
     /// The middle of the audio layout: their face, and a ring while the
     /// invitation is still out.
     private var stage: some View {
-        Avatar(
-            name: session.contactName,
-            imageURL: session.contactAvatarURL,
-            size: 140,
-            os: session.visitor?.device?.os,
-            device: session.visitor?.device?.device,
-            countryCode: session.visitor?.geo?.countryCode
-        )
-        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
-        .overlay(alignment: .bottom) {
-            if session.phase == .waiting {
-                PulsingRing()
-            }
+        CallHalo(diameter: faceSize, ringing: session.phase == .waiting) {
+            Avatar(
+                name: session.contactName,
+                imageURL: session.contactAvatarURL,
+                size: faceSize,
+                os: session.visitor?.device?.os,
+                device: session.visitor?.device?.device,
+                countryCode: session.visitor?.geo?.countryCode
+            )
         }
     }
 
     private var controls: some View {
-        HStack(spacing: Theme.Space.xl) {
+        HStack(alignment: .top, spacing: Theme.Space.xl) {
             if session.phase.isLive {
                 CallButton(
                     icon: session.isMuted ? "mic.slash.fill" : "mic.fill",
@@ -560,64 +596,85 @@ extension View {
     }
 }
 
-/// A slow ring while the invitation is out — the visual equivalent of a
-/// ringing tone, so the wait does not look like a frozen screen.
-struct PulsingRing: View {
-    @State private var expanded = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Circle()
-            .stroke(.white.opacity(0.35), lineWidth: 2)
-            .frame(width: 150, height: 150)
-            .scaleEffect(expanded ? 1.25 : 1)
-            .opacity(expanded ? 0 : 1)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) {
-                    expanded = true
-                }
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-}
-
 /// One round control with its label, sized for a thumb.
 ///
 /// The label has a width of its own and may take two lines, so four of these
 /// in a row — a colleague's video call — still fit the narrowest iPhone in
 /// every language ("Kamerayı değiştir").
+///
+/// `prominent` is a ring's Answer and Decline: larger, so neither is missed
+/// and neither is hit by mistake; `beckons` makes Answer breathe gently (not
+/// under Reduce Motion).
 struct CallButton: View {
     let icon: String
     let title: String
     var isOn: Bool = false
     var tint: Color?
+    var prominent: Bool = false
+    var beckons: Bool = false
     let action: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
+
+    private var diameter: CGFloat { prominent ? 78 : 62 }
 
     var body: some View {
         VStack(spacing: Theme.Space.sm) {
             Button(action: action) {
                 Image(systemName: icon)
-                    .font(.system(size: 24, weight: .medium))
+                    .font(.system(size: prominent ? 30 : 23, weight: .semibold))
                     .foregroundStyle(tint == nil && isOn ? .black : .white)
-                    .frame(width: 66, height: 66)
+                    .frame(width: diameter, height: diameter)
                     .background(
-                        Circle().fill(tint ?? (isOn ? .white : .white.opacity(0.18)))
+                        Circle().fill(tint ?? (isOn ? .white : .white.opacity(0.16)))
                     )
+                    .overlay(
+                        Circle().strokeBorder(.white.opacity(tint == nil && !isOn ? 0.12 : 0), lineWidth: 1)
+                    )
+                    .shadow(color: (tint ?? .clear).opacity(prominent ? 0.45 : 0), radius: 14, y: 6)
+                    .modifier(Beckon(active: beckons && !reduceMotion))
+                    .opacity(isEnabled ? 1 : 0.45)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(CallButtonPress())
 
             Text(title)
-                .font(Theme.Typo.meta)
-                .foregroundStyle(.white.opacity(0.8))
+                .font(prominent ? .app(.subheadline, .semibold) : Theme.Typo.meta)
+                .foregroundStyle(.white.opacity(prominent ? 0.95 : 0.8))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
-                .frame(width: 76)
+                .minimumScaleFactor(0.75)
+                .frame(width: prominent ? 96 : 78)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(title)
         .accessibilityAddTraits(isOn ? [.isSelected, .isButton] : .isButton)
+    }
+}
+
+/// A press shrinks the control a little, as the system's call buttons do.
+private struct CallButtonPress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.92 : 1)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+/// Answer's slow breath while a call rings.
+private struct Beckon: ViewModifier {
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        if active {
+            content.phaseAnimator([false, true]) { view, up in
+                view.scaleEffect(up ? 1.07 : 1)
+            } animation: { _ in
+                .easeInOut(duration: 0.9)
+            }
+        } else {
+            content
+        }
     }
 }
 
@@ -627,6 +684,8 @@ extension CallOutcome {
         case .hungUp, .visitorLeft: Str.callEnded(language)
         case .declined: Str.callDeclined(language)
         case .expired: Str.callNoAnswer(language)
+        case .failed(let reason) where reason == CallSession.colleagueCallReason:
+            Str.callEndedForColleagueCall(language)
         case .failed: Str.callFailed(language)
         }
     }
@@ -654,6 +713,7 @@ struct CallHost: View {
     ) {
         self.language = language
         self.onClose = onClose
+        self.invitation = invitation
         _session = State(
             initialValue: CallSession(
                 invitation: invitation,
@@ -664,14 +724,17 @@ struct CallHost: View {
         )
     }
 
-    /// This screen in `VisitorCallScreens`, for as long as it is up.
-    @State private var presence = UUID()
+    /// The invitation this screen is for, its key in `VisitorCallScreens`.
+    private let invitation: CallInvitation
 
     var body: some View {
         CallScreen(session: session, language: language, onClose: onClose)
-            .onAppear { VisitorCallScreens.shared.opened(presence) }
+            .onAppear { VisitorCallScreens.shared.opened(invitation, phase: session.phase) }
+            .onChange(of: session.phase) { _, phase in
+                VisitorCallScreens.shared.changed(invitation.id, phase: phase)
+            }
             .onDisappear {
-                VisitorCallScreens.shared.closed(presence)
+                VisitorCallScreens.shared.closed(invitation.id)
                 // Taken off screen from outside (a workspace switch or a sign-out pops the
                 // conversation it was presented from): nothing would be left to hang up with,
                 // the room and microphone would stay open and the server would keep the call.
@@ -694,10 +757,102 @@ struct CallHost: View {
 final class VisitorCallScreens {
     static let shared = VisitorCallScreens()
 
-    private(set) var open: Set<UUID> = []
+    /// One visitor call, from its invitation request to its screen closing.
+    struct Entry: Equatable {
+        var phase: CallPhase
+        /// When the invitation runs out; nil while it is being requested.
+        var expiresAt: Date?
+        /// A screen has taken this entry over (`CallHost`).
+        var claimed = false
+    }
 
-    var isOn: Bool { !open.isEmpty }
+    /// What a visitor call means for a colleague's ring
+    /// (`CallManager.reportIncoming`, docs/operations/TEAM_CALLS.md, "iOS").
+    enum Busy: Equatable {
+        /// No visitor call this phone is in: the ring rings.
+        case none
+        /// The visitor is being invited (the request, or a screen still
+        /// waiting, even past the invitation's expiry: the visitor may have
+        /// answered while the app was suspended, and the screen learns it at
+        /// its next poll): the ring is ended on this phone only — no room,
+        /// no audio yet, and the member's other phones may still answer.
+        case inviting
+        /// Joining or in the visitor's room: the ring is declined.
+        case live
+    }
 
-    func opened(_ screen: UUID) { _ = open.insert(screen) }
-    func closed(_ screen: UUID) { _ = open.remove(screen) }
+    private(set) var calls: [String: Entry] = [:]
+
+    /// How long past its invitation's expiry a waiting screen still counts:
+    /// enough for a suspended app to wake and poll. A join later than this
+    /// fails safely anyway — the token route refuses a finished call.
+    static let lateJoinGrace: TimeInterval = 5 * 60
+
+    /// A visitor call's screen is up, or about to be: what the plan lock
+    /// waits on (`SignedInRoot`).
+    var isOn: Bool { !calls.isEmpty }
+
+    /// Busy, for a colleague's ring arriving `now`. An ended screen left
+    /// behind is not a call. A waiting one is, whatever its expiry says: an
+    /// invitation answered before it ran out never expires, and a suspended
+    /// app has not polled to find out — at worst one ring on this phone is
+    /// lost while the screen clears itself at its next poll.
+    func busy(now: Date) -> Busy {
+        var result = Busy.none
+        for entry in calls.values {
+            switch entry.phase {
+            case .connecting, .connected:
+                return .live
+            case .waiting:
+                if entry.expiresAt.map({ now < $0.addingTimeInterval(Self.lateJoinGrace) }) ?? true {
+                    result = .inviting
+                }
+            case .ended:
+                break
+            }
+        }
+        return result
+    }
+
+    /// The invitation request is on its way (`ConversationActionsModel.invite`).
+    func requesting(_ key: String) {
+        calls[key] = Entry(phase: .waiting, expiresAt: nil)
+    }
+
+    /// The request came back with an invitation: the mark moves to its id,
+    /// for the screen to take over. A screen that never comes (the cover was
+    /// not presented) lets it go after a few seconds.
+    func handOver(_ key: String, to invitation: CallInvitation) {
+        calls[key] = nil
+        let id = invitation.id
+        calls[id] = calls[id] ?? Entry(
+            phase: .waiting,
+            expiresAt: invitation.expiresAt ?? Date().addingTimeInterval(120)
+        )
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard let self, let entry = self.calls[id], !entry.claimed else { return }
+            self.calls[id] = nil
+        }
+    }
+
+    func dropped(_ key: String) {
+        calls[key] = nil
+    }
+
+    /// A screen for the invitation is up, in `phase`.
+    func opened(_ invitation: CallInvitation, phase: CallPhase) {
+        var entry = calls[invitation.id] ?? Entry(phase: phase, expiresAt: invitation.expiresAt)
+        entry.phase = phase
+        entry.claimed = true
+        calls[invitation.id] = entry
+    }
+
+    func changed(_ invitationID: String, phase: CallPhase) {
+        calls[invitationID]?.phase = phase
+    }
+
+    func closed(_ invitationID: String) {
+        calls[invitationID] = nil
+    }
 }

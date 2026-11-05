@@ -38,6 +38,7 @@ import { storageUploadAllowed } from '../services/billing/planStops.js';
 import { findIdentityById } from '../services/auth/identity.js';
 import { hashPassword, verifyPassword, InvalidPasswordError } from '../services/auth/password.js';
 import { SESSION_COOKIE_NAME, validateSessionToken, revokeSession, revokeAllSessions, listActiveSessions } from '../services/auth/sessions.js';
+import { endTeamCallsOfMember } from '../services/calls/teamCallLifecycle.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
 import { disableOtherDevices } from '../services/push/devices.js';
 import { storeWebsite, websiteEdit } from '../services/ownerWebsite.js';
@@ -1091,6 +1092,18 @@ accountRouter.delete('/', async (req: Request, res: Response) => {
         error: 'owns_workspaces',
         workspaces: (owned as Array<{ id: string; name: string }>).map((w) => w.name),
       });
+    }
+
+    // Their colleague calls end now, while the account the calls name still
+    // exists: the colleague's phones stop ringing, or the colleague is not
+    // left in an empty room (docs/operations/TEAM_CALLS.md). After the
+    // password and owner checks, so a refused deletion never touches a call.
+    // Best effort: a failed read never keeps an account somebody asked to
+    // delete.
+    try {
+      await endTeamCallsOfMember(config, user.id);
+    } catch (err) {
+      console.warn('[account] delete: ending team calls failed', errorMessage(err, 'unknown'));
     }
 
     // Sessions first. If the delete then fails, the operator is signed out of

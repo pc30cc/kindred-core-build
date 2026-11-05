@@ -73,10 +73,10 @@ struct CallScreen: View {
         // A video call is watched, not touched. Left to Auto-Lock the screen
         // locks, the app goes to the background and iOS stops the camera.
         .onChange(of: keepsScreenAwake, initial: true) { _, awake in
-            UIApplication.shared.isIdleTimerDisabled = awake
+            CallScreenAwake.set(.visitorCall, awake: awake)
         }
         .onDisappear {
-            UIApplication.shared.isIdleTimerDisabled = false
+            CallScreenAwake.set(.visitorCall, awake: false)
             CallPictureInPicture.shared.end(owner: pictureInPictureOwner)
         }
         .onChange(of: isFullScreenVideo) { _, video in
@@ -684,6 +684,8 @@ extension CallOutcome {
         case .hungUp, .visitorLeft: Str.callEnded(language)
         case .declined: Str.callDeclined(language)
         case .expired: Str.callNoAnswer(language)
+        case .failed(let reason) where reason == CallSession.colleagueCallReason:
+            Str.callEndedForColleagueCall(language)
         case .failed: Str.callFailed(language)
         }
     }
@@ -781,6 +783,11 @@ final class VisitorCallScreens {
 
     private(set) var calls: [String: Entry] = [:]
 
+    /// How long past its invitation's expiry a waiting screen still counts:
+    /// enough for a suspended app to wake and poll. A join later than this
+    /// fails safely anyway — the token route refuses a finished call.
+    static let lateJoinGrace: TimeInterval = 5 * 60
+
     /// A visitor call's screen is up, or about to be: what the plan lock
     /// waits on (`SignedInRoot`).
     var isOn: Bool { !calls.isEmpty }
@@ -797,7 +804,9 @@ final class VisitorCallScreens {
             case .connecting, .connected:
                 return .live
             case .waiting:
-                result = .inviting
+                if entry.expiresAt.map({ now < $0.addingTimeInterval(Self.lateJoinGrace) }) ?? true {
+                    result = .inviting
+                }
             case .ended:
                 break
             }

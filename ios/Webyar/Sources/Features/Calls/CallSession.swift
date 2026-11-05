@@ -72,7 +72,12 @@ enum CallOutcome: Equatable, Sendable {
 @Observable
 final class CallSession {
 
-    private(set) var phase: CallPhase = .waiting
+    /// Followed by `VisitorCallScreens` from here, not from the screen, so the
+    /// busy rule sees each change even while SwiftUI defers its updates in
+    /// the background.
+    private(set) var phase: CallPhase = .waiting {
+        didSet { VisitorCallScreens.shared.changed(invitationID, phase: phase) }
+    }
     /// The visitor, once they are actually in the room.
     private(set) var visitorPresent = false
     private(set) var isMuted = false
@@ -155,8 +160,19 @@ final class CallSession {
         }
     }
 
+    /// Why a visitor call ended because a colleague call holds the audio:
+    /// the operator is told in its own words (`CallOutcome.title`).
+    nonisolated static let colleagueCallReason = "colleague_call"
+
     private func waitForVisitor() async {
         while !Task.isCancelled, phase == .waiting {
+            // A colleague call on meanwhile: the offer is withdrawn before the
+            // visitor can answer it (`finish` cancels the invitation while
+            // there is no session yet).
+            if callSessionID == nil, colleagueCallOn() {
+                await finish(.failed(Self.colleagueCallReason))
+                return
+            }
             do {
                 let invitation = try await api.invitation(id: invitationID)
                 if let sessionID = invitation.callSessionId, invitation.isJoined {
@@ -166,7 +182,7 @@ final class CallSession {
                     // and the server is told — never a second room on the
                     // colleague call's audio.
                     guard !colleagueCallOn() else {
-                        await finish(.failed("colleague_call"))
+                        await finish(.failed(Self.colleagueCallReason))
                         return
                     }
                     await join(callSessionID: sessionID)
@@ -212,7 +228,7 @@ final class CallSession {
             // The same, should a colleague call have begun while the token
             // was on its way.
             guard !colleagueCallOn() else {
-                await finish(.failed("colleague_call"))
+                await finish(.failed(Self.colleagueCallReason))
                 return
             }
             relayWarning = credentials.warnings?.contains("turn_missing") == true

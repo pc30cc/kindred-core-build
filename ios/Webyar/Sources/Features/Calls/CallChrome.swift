@@ -185,3 +185,20 @@ struct CallCornerButton: View {
         .accessibilityLabel(label)
     }
 }
+
+/// The one owner of Auto-Lock while a call is on screen: a video call keeps
+/// the screen awake (left to Auto-Lock, the app goes to the background and
+/// iOS stops the camera). The colleague call's screen and a visitor call's
+/// each hold their own claim, so one ending never lets the phone lock under
+/// the other.
+@MainActor
+enum CallScreenAwake {
+    enum Holder: Hashable { case colleagueCall, visitorCall }
+
+    private static var holders: Set<Holder> = []
+
+    static func set(_ holder: Holder, awake: Bool) {
+        if awake { holders.insert(holder) } else { holders.remove(holder) }
+        UIApplication.shared.isIdleTimerDisabled = !holders.isEmpty
+    }
+}

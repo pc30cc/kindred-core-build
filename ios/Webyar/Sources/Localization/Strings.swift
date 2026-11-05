@@ -2377,6 +2377,16 @@ extension Str {
         }
     }
 
+    /// A visitor call ended because a colleague call holds the phone.
+    static func callEndedForColleagueCall(_ l: Language) -> String {
+        switch l {
+        case .en: "Ended: you're on a colleague call"
+        case .fa: "تماس پایان یافت: شما در تماس با همکار هستید"
+        case .tr: "Sonlandı: bir iş arkadaşıyla görüşmedesiniz"
+        case .ar: "انتهت المكالمة: أنت في مكالمة مع زميل"
+        }
+    }
+
     /// A visitor call asked for while a colleague call is on.
     static func callAlreadyOn(_ l: Language) -> String {
         switch l {

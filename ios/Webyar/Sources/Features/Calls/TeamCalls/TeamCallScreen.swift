@@ -91,9 +91,9 @@ struct TeamCallScreen: View {
         // locks and iOS stops the camera. A voice call has the proximity
         // sensor (`CallManager`) instead.
         .onChange(of: keepsScreenAwake, initial: true) { _, awake in
-            UIApplication.shared.isIdleTimerDisabled = awake
+            CallScreenAwake.set(.colleagueCall, awake: awake)
         }
-        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .onDisappear { CallScreenAwake.set(.colleagueCall, awake: false) }
         .onChange(of: isFullScreenVideo) { _, _ in revealChrome() }
     }
 

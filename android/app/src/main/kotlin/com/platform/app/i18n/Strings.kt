@@ -10,7 +10,7 @@ package com.platform.app.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 464 of 484 strings are generated.
+// 465 of 485 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -1552,6 +1552,13 @@ object Str {
         Language.EN -> "Minimize"
         Language.FA -> "کوچک کردن"
         Language.TR -> "Küçült"
+    }
+
+    /** A visitor call ended because a colleague call holds the phone. */
+    fun callEndedForColleagueCall(l: Language): String = when (l) {
+        Language.EN -> "Ended: you're on a colleague call"
+        Language.FA -> "تماس پایان یافت: شما در تماس با همکار هستید"
+        Language.TR -> "Sonlandı: bir iş arkadaşıyla görüşmedesiniz"
     }
 
     /** A visitor call asked for while a colleague call is on. */

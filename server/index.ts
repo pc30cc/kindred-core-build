@@ -103,6 +103,7 @@ import { platformSupportRouter } from './routes/platformSupport.js';
 import { startInProcessSourceWorker } from './services/ai-agent/sourceWorker.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startStaleConnectingSweep } from './services/calls/staleConnectingSweep.js';
+import { startStaleActiveSweep } from './services/calls/staleActiveSweep.js';
 import { startInvitationExpirySweeper } from './services/calls/invitations.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startDispatchLogJanitor } from './services/push/logRetention.js';
@@ -991,6 +992,7 @@ const httpServer = app.listen(config.port, () => {
   // queue costs one index-only read per tick (see queueTicker.ts).
   startCallQueueTicker(config);
   startStaleConnectingSweep(config);
+  startStaleActiveSweep(config);
 
   // MaxMind GeoLite2 auto-update ticker. No-ops unless Map & Geo has
   // maxmind_local enabled + auto mode + credentials. Never blocks startup and

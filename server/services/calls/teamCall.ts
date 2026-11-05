@@ -35,10 +35,20 @@ export type TeamCallOutcome = 'completed' | 'declined' | 'cancelled' | 'missed' 
 /** Why an Android phone that was rung is told to stop (`team_call_cancel`). */
 export type TeamCallCancelReason = 'answered_elsewhere' | 'declined' | 'cancelled' | 'missed' | 'ended';
 
-/** Which kind of the callee's surfaces said it rang (`POST /:id/rang`). */
-export type TeamCallRangPlatform = 'ios' | 'android' | 'web';
+/**
+ * What stamped the ring: one of the callee's surfaces saying it rang
+ * (`POST /:id/rang`: `ios`, `android`, `web`), or `push`, the server itself
+ * when a ring push was accepted for a phone whose app cannot send `rang`
+ * (server/services/push/teamCallRing.ts, teamCallPushStampsRang): a best
+ * effort for old builds, so their callers are not left on a silent
+ * "Calling…".
+ */
+export type TeamCallRangPlatform = 'ios' | 'android' | 'web' | 'push';
 
-export const TEAM_CALL_RANG_PLATFORMS: readonly TeamCallRangPlatform[] = ['ios', 'android', 'web'];
+export const TEAM_CALL_RANG_PLATFORMS: readonly TeamCallRangPlatform[] = ['ios', 'android', 'web', 'push'];
+
+/** The platforms a client may name in `POST /:id/rang`; `push` is the server's own. */
+export const TEAM_CALL_CLIENT_RANG_PLATFORMS = ['ios', 'android', 'web'] as const;
 
 /** The states in which a colleague call holds both of its members. */
 export const TEAM_CALL_LIVE_STATES: readonly TeamCallState[] = ['ringing', 'connecting', 'active'];

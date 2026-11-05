@@ -146,7 +146,7 @@ export function isEligible(row: AvailabilityRow, channel: 'audio' | 'video'): bo
  * Clear the in-call marker of every operator whose marker still points at
  * this call (a compare-and-set on `active_call_session_id`): a marker that
  * has moved on to a newer call is left alone. For the system's late ends
- * (staleConnectingSweep.ts), which come long after the operator may have
+ * (staleConnectingSweep.ts, staleActiveSweep.ts), which come long after the operator may have
  * taken another call. Never throws.
  */
 export async function clearInCallOf(

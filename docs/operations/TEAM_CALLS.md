@@ -236,10 +236,13 @@ uncounted time.
   in front of the face, Speaker is on, or the call is video, and on the
   earpiece only once the proximity sensor says the phone is at the ear;
   Speaker and the sensor move it while it plays (owner, 2026-11-05: on the
-  earpiece in front of the face it was not heard). With a headset,
-  Bluetooth (A2DP, SCO, LE), USB audio or a car connected it plays there
+  earpiece in front of the face it was not heard). When media goes to a
+  headset, Bluetooth media (A2DP, LE), USB audio or a car (Android 13+: the
+  devices media is routed to; below, the connected outputs) it plays there
   (the media stream), never on the loudspeaker over it, re-checked as
-  devices come and go. At the ear it is the old ringback's level, on the
+  devices come and go. Bluetooth for calls only (HFP/SCO: a watch, a car
+  kit) does not count: media never takes it before the room exists, so the
+  earpiece and loudspeaker rule holds. At the ear it is the old ringback's level, on the
   loudspeaker louder. It forces no route (no speakerphone, communication
   device or audio mode), so nothing carries into the next call.
 - One end signal for a ring nobody answered here (owner, 2026-11-05, both

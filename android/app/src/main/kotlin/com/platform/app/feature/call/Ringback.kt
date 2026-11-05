@@ -2,10 +2,12 @@ package com.platform.app.feature.call
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 
@@ -61,8 +63,9 @@ enum class RingbackOutput {
          * forces a route: no speakerphone, no communication device, no audio
          * mode, so nothing is left to undo when the call ends.
          *
-         * [external]: a headset, Bluetooth (A2DP, SCO, LE), USB audio or a
-         * car is connected. The tone then always takes the media stream,
+         * [external]: the media stream goes to a headset, Bluetooth (A2DP,
+         * LE), USB audio or a car ([mediaGoesExternal]). The tone then always
+         * takes the media stream,
          * which the system sends there, at the quiet level — it is at the
          * ear — and never the loudspeaker over it. Otherwise the earpiece is
          * the old ringback's level and the loudspeaker clearly louder.
@@ -80,14 +83,25 @@ enum class RingbackOutput {
         const val LOUD = 90
 
         /**
-         * Whether an output device is a headset, Bluetooth (A2DP, SCO, LE),
-         * USB audio or a hearing aid — what [sound] calls external; a car
-         * (Android Auto) connects as one of these. A list of what counts,
-         * not of what does not: some phones list built-in outputs of other
-         * types at all times, which must not keep the tone off the
-         * loudspeaker.
+         * Whether an output device is one the media stream can play on that
+         * is not the phone's own: a headset, Bluetooth media (A2DP, LE), USB
+         * audio or a hearing aid; a car (Android Auto) connects as one of
+         * these. A list of what counts, not of what does not: some phones
+         * list built-in outputs of other types at all times, which must not
+         * keep the tone off the loudspeaker. Bluetooth for calls only
+         * (HFP/SCO: a watch, a car kit, a headset with media audio off) is
+         * not: before the room exists the phone is in its normal mode, whose
+         * media never goes over SCO, so with it the tone keeps the earpiece
+         * at the ear and the loudspeaker in front of the face.
          */
         fun isExternal(type: Int): Boolean = type in EXTERNAL
+
+        /**
+         * Whether media plays on an external device, from the output types
+         * the system lists: on Android 13+ the devices media is routed to
+         * now, below it every connected output.
+         */
+        fun mediaGoesExternal(types: Collection<Int>): Boolean = types.any(::isExternal)
 
         // Constants newer than an old phone are only numbers there, which
         // its devices never report.
@@ -96,7 +110,6 @@ enum class RingbackOutput {
             AudioDeviceInfo.TYPE_WIRED_HEADSET,
             AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
             AudioDeviceInfo.TYPE_LINE_ANALOG,
-            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
             AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
             AudioDeviceInfo.TYPE_USB_DEVICE,
             AudioDeviceInfo.TYPE_USB_ACCESSORY,
@@ -171,9 +184,24 @@ class ToneRingback(context: Context) : Ringback {
 
     private fun sound(): RingbackOutput.Sound = RingbackOutput.sound(output, external = externalConnected())
 
+    /**
+     * Where media really goes: on Android 13+ the devices the system routes
+     * media to now; below it, every connected output (with SCO, which media
+     * never takes in the normal mode, not counted).
+     */
     private fun externalConnected(): Boolean = runCatching {
-        audio?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.any { RingbackOutput.isExternal(it.type) } == true
+        val manager = audio ?: return@runCatching false
+        val types = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            manager.getAudioDevicesForAttributes(MEDIA).map { it.type }
+        } else {
+            manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { it.type }
+        }
+        RingbackOutput.mediaGoesExternal(types)
     }.getOrDefault(false)
+
+    private companion object {
+        val MEDIA: AudioAttributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build()
+    }
 
     private fun play() {
         val sound = sound()

@@ -944,6 +944,30 @@ class TeamCallSessionTest {
     }
 
     @Test
+    fun `a Bluetooth device for calls only keeps the earpiece at the ear and the loudspeaker in front`() {
+        // A watch or a car kit on HFP, beside the phone's own outputs.
+        val scoOnly = listOf(
+            AudioDeviceInfo.TYPE_BUILTIN_EARPIECE,
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        )
+        val external = RingbackOutput.mediaGoesExternal(scoOnly)
+        assertFalse(external)
+        // At the ear: the voice-call stream, the earpiece.
+        assertEquals(
+            RingbackOutput.Sound(stream = 0, volume = RingbackOutput.QUIET),
+            RingbackOutput.sound(RingbackOutput.of(video = false, speakerOn = false, atEar = true), external),
+        )
+        // In front of the face: the loudspeaker, at its level.
+        assertEquals(
+            RingbackOutput.Sound(stream = 3, volume = RingbackOutput.LOUD),
+            RingbackOutput.sound(RingbackOutput.of(video = false, speakerOn = false, atEar = false), external),
+        )
+        // Bluetooth media too: the tone goes there.
+        assertTrue(RingbackOutput.mediaGoesExternal(scoOnly + AudioDeviceInfo.TYPE_BLUETOOTH_A2DP))
+    }
+
+    @Test
     fun `only the phone's own earpiece and loudspeaker are built in`() {
         assertFalse(RingbackOutput.isExternal(AudioDeviceInfo.TYPE_BUILTIN_EARPIECE))
         assertFalse(RingbackOutput.isExternal(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER))
@@ -951,7 +975,6 @@ class TeamCallSessionTest {
             AudioDeviceInfo.TYPE_WIRED_HEADSET,
             AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
             AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
-            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
             AudioDeviceInfo.TYPE_BLE_HEADSET,
             AudioDeviceInfo.TYPE_USB_HEADSET,
             AudioDeviceInfo.TYPE_HEARING_AID,
@@ -959,8 +982,10 @@ class TeamCallSessionTest {
         for (type in connected) {
             assertTrue("type $type", RingbackOutput.isExternal(type))
         }
-        // Outputs some phones list at all times keep the loudspeaker.
-        for (type in listOf(AudioDeviceInfo.TYPE_TELEPHONY, AudioDeviceInfo.TYPE_BUS, AudioDeviceInfo.TYPE_IP, AudioDeviceInfo.TYPE_REMOTE_SUBMIX)) {
+        // Outputs some phones list at all times keep the loudspeaker, and
+        // Bluetooth for calls only (HFP/SCO), which media never takes before
+        // the room exists.
+        for (type in listOf(AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_TELEPHONY, AudioDeviceInfo.TYPE_BUS, AudioDeviceInfo.TYPE_IP, AudioDeviceInfo.TYPE_REMOTE_SUBMIX)) {
             assertFalse("type $type", RingbackOutput.isExternal(type))
         }
     }

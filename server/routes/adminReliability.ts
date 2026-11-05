@@ -5,6 +5,8 @@
 import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { readRows } from '../lib/pagedRows.js';
+import { serverConfigOf } from '../lib/workspaceAuth.js';
 import { z } from 'zod';
 
 export const adminReliabilityRouter = Router();
@@ -23,73 +25,79 @@ function rangeSince(range: string): string {
 // ─── SLA / reliability rollups ─────────────────────────────────────────────
 adminReliabilityRouter.get('/sla', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const range = String(req.query.range || '24h');
     const scopeType = String(req.query.scope_type || 'platform');
     const since = rangeSince(range);
     const sb = getServiceClient(config);
-    const { data, error } = await sb
+    // Up to 2000 rows, page by page: the data layer caps a single read at
+    // DATABASE_MAX_ROWS (1000). (bucket_hour, scope_key) is unique here.
+    const { data, error } = await readRows<Record<string, unknown>>((from, to) => sb
       .from('sla_reliability_hourly')
       .select('*')
       .eq('scope_type', scopeType)
       .gte('bucket_hour', since)
       .order('bucket_hour', { ascending: false })
-      .limit(2000);
+      .order('scope_key', { ascending: true })
+      .range(from, to), 2000);
     if (error) return res.status(500).json({ error: error.message });
     const rows = data || [];
     const summary = {
-      uptime_pct: avg(rows.map((r: any) => Number(r.uptime_pct))),
-      realtime_availability_pct: avg(rows.map((r: any) => Number(r.realtime_availability_pct))),
-      degraded_minutes: sum(rows.map((r: any) => Number(r.degraded_minutes))),
-      forced_polling_minutes: sum(rows.map((r: any) => Number(r.forced_polling_minutes))),
-      critical_alert_count: sum(rows.map((r: any) => Number(r.critical_alert_count))),
-      warn_alert_count: sum(rows.map((r: any) => Number(r.warn_alert_count))),
-      failover_count: sum(rows.map((r: any) => Number(r.failover_count))),
-      recovery_count: sum(rows.map((r: any) => Number(r.recovery_count))),
+      uptime_pct: avg(rows.map((r) => Number(r.uptime_pct))),
+      realtime_availability_pct: avg(rows.map((r) => Number(r.realtime_availability_pct))),
+      degraded_minutes: sum(rows.map((r) => Number(r.degraded_minutes))),
+      forced_polling_minutes: sum(rows.map((r) => Number(r.forced_polling_minutes))),
+      critical_alert_count: sum(rows.map((r) => Number(r.critical_alert_count))),
+      warn_alert_count: sum(rows.map((r) => Number(r.warn_alert_count))),
+      failover_count: sum(rows.map((r) => Number(r.failover_count))),
+      recovery_count: sum(rows.map((r) => Number(r.recovery_count))),
       mean_failover_recovery_seconds: avg(
-        rows.map((r: any) => Number(r.mean_failover_recovery_seconds)).filter((n: number) => n > 0),
+        rows.map((r) => Number(r.mean_failover_recovery_seconds)).filter((n: number) => n > 0),
       ),
     };
     res.json({ range, since, scope_type: scopeType, summary, rows });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Failed to load SLA data' });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error | null)?.message || 'Failed to load SLA data' });
   }
 });
 
 // ─── Business metrics rollups ──────────────────────────────────────────────
 adminReliabilityRouter.get('/business', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const range = String(req.query.range || '24h');
     const since = rangeSince(range);
     const sb = getServiceClient(config);
-    const { data, error } = await sb
+    // Up to 5000 rows, page by page: the data layer caps a single read at
+    // DATABASE_MAX_ROWS (1000). (bucket_hour, workspace_id) is the key.
+    const { data, error } = await readRows<Record<string, unknown>>((from, to) => sb
       .from('business_metrics_hourly')
       .select('*')
       .gte('bucket_hour', since)
       .order('bucket_hour', { ascending: false })
-      .limit(5000);
+      .order('workspace_id', { ascending: true })
+      .range(from, to), 5000);
     if (error) return res.status(500).json({ error: error.message });
     const rows = data || [];
     const summary = {
-      new_conversations: sum(rows.map((r: any) => r.new_conversations)),
-      resolved_conversations: sum(rows.map((r: any) => r.resolved_conversations)),
-      unanswered_conversations: sum(rows.map((r: any) => r.unanswered_conversations)),
-      stale_open_conversations: sum(rows.map((r: any) => r.stale_open_conversations)),
-      messages_sent: sum(rows.map((r: any) => r.messages_sent)),
+      new_conversations: sum(rows.map((r) => Number(r.new_conversations))),
+      resolved_conversations: sum(rows.map((r) => Number(r.resolved_conversations))),
+      unanswered_conversations: sum(rows.map((r) => Number(r.unanswered_conversations))),
+      stale_open_conversations: sum(rows.map((r) => Number(r.stale_open_conversations))),
+      messages_sent: sum(rows.map((r) => Number(r.messages_sent))),
       avg_first_response_p50: avg(
-        rows.map((r: any) => Number(r.first_response_time_p50)).filter((n: number) => n > 0),
+        rows.map((r) => Number(r.first_response_time_p50)).filter((n: number) => n > 0),
       ),
       avg_first_response_p95: avg(
-        rows.map((r: any) => Number(r.first_response_time_p95)).filter((n: number) => n > 0),
+        rows.map((r) => Number(r.first_response_time_p95)).filter((n: number) => n > 0),
       ),
       avg_resolution_seconds: avg(
-        rows.map((r: any) => Number(r.avg_resolution_time_seconds)).filter((n: number) => n > 0),
+        rows.map((r) => Number(r.avg_resolution_time_seconds)).filter((n: number) => n > 0),
       ),
     };
     res.json({ range, since, summary, rows });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Failed to load business metrics' });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error | null)?.message || 'Failed to load business metrics' });
   }
 });
 
@@ -112,7 +120,7 @@ adminReliabilityRouter.get('/workspace-health', async (_req, res) => {
 // ─── SLO definitions ───────────────────────────────────────────────────────
 adminReliabilityRouter.get('/slos', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const sb = getServiceClient(config);
     const { data, error } = await sb
       .from('slo_definitions')
@@ -120,8 +128,8 @@ adminReliabilityRouter.get('/slos', async (req, res) => {
       .order('slug', { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
     res.json({ slos: data || [] });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Failed to load SLOs' });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error | null)?.message || 'Failed to load SLOs' });
   }
 });
 
@@ -133,7 +141,7 @@ const sloPatchSchema = z.object({
 
 adminReliabilityRouter.patch('/slos/:id', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const id = String(req.params.id);
     const patch = sloPatchSchema.parse(req.body);
     const sb = getServiceClient(config);
@@ -145,18 +153,18 @@ adminReliabilityRouter.patch('/slos/:id', async (req, res) => {
       .maybeSingle();
     if (error) return res.status(400).json({ error: error.message });
     res.json({ slo: data });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'Failed to update SLO' });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error | null)?.message || 'Failed to update SLO' });
   }
 });
 
 // ─── Manual rollup trigger (admin only) ────────────────────────────────────
 adminReliabilityRouter.post('/rollup', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const sb = getServiceClient(config);
-    const sla = await (sb as any).rpc('sla_reliability_rollup_and_prune');
-    const biz = await (sb as any).rpc('business_metrics_rollup_and_prune');
+    const sla = await sb.rpc('sla_reliability_rollup_and_prune');
+    const biz = await sb.rpc('business_metrics_rollup_and_prune');
     res.json({
       ok: true,
       sla: sla.error ? { error: sla.error.message } : sla.data,
@@ -165,8 +173,8 @@ adminReliabilityRouter.post('/rollup', async (req, res) => {
       // so the admin client's response shape is unchanged.
       health: null,
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Rollup failed' });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error | null)?.message || 'Rollup failed' });
   }
 });
 

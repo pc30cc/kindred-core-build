@@ -32,6 +32,17 @@ import com.platform.app.feature.team.ColleaguesState
 import com.platform.app.feature.team.TeamThreadScreen
 import com.platform.app.feature.team.TeamThreadState
 import com.platform.app.core.model.CallChannel
+import com.platform.app.feature.call.ActiveCallIdentity
+import com.platform.app.feature.call.ActiveCallStage
+import com.platform.app.feature.call.ActiveCallState
+import com.platform.app.feature.call.CallPhase
+import com.platform.app.feature.call.CallScreen
+import com.platform.app.feature.call.PipVoiceContent
+import com.platform.app.feature.call.TeamCallPhase
+import com.platform.app.feature.call.TeamCallScreen
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
 import com.platform.app.feature.email.EmailInboxScreen
 import com.platform.app.feature.email.EmailInboxState
 import com.platform.app.feature.analytics.AnalyticsRange
@@ -368,5 +379,122 @@ class ScreenshotTest {
     @Test
     fun loginEnDark() = shot("login_en_dark", Language.EN, dark = true) {
         LoginScreen(Language.EN, onSubmit = { _, _ -> Result.success(Unit) })
+    }
+
+    // MARK: - Calls: the ring, the call, its picture-in-picture window
+
+    @Test
+    fun teamCallIncomingVoiceFa() = shot("team_call_incoming_voice_fa", Language.FA, dark = true) {
+        TeamCallScreen(
+            phase = TeamCallPhase.Ringing,
+            incoming = true,
+            channel = CallChannel.AUDIO,
+            peerName = "مهسا رضایی",
+            peerAvatarUrl = null,
+            language = Language.FA,
+        )
+    }
+
+    @Test
+    fun teamCallIncomingVideoEn() = shot("team_call_incoming_video_en", Language.EN, dark = false) {
+        TeamCallScreen(
+            phase = TeamCallPhase.Ringing,
+            incoming = true,
+            channel = CallChannel.VIDEO,
+            peerName = "Daniel Carter",
+            peerAvatarUrl = null,
+            language = Language.EN,
+            onAnswerVoiceOnly = {},
+        )
+    }
+
+    @Test
+    fun teamCallCallingEn() = shot("team_call_calling_en", Language.EN, dark = false) {
+        TeamCallScreen(
+            phase = TeamCallPhase.Calling,
+            incoming = false,
+            channel = CallChannel.AUDIO,
+            peerName = "Daniel Carter",
+            peerAvatarUrl = null,
+            language = Language.EN,
+            onMinimise = {},
+        )
+    }
+
+    @Test
+    fun teamCallLiveFa() = shot("team_call_live_fa", Language.FA, dark = true) {
+        TeamCallScreen(
+            phase = TeamCallPhase.Live(Instant.now().minusSeconds(83)),
+            incoming = false,
+            channel = CallChannel.AUDIO,
+            peerName = "مهسا رضایی",
+            peerAvatarUrl = null,
+            language = Language.FA,
+            muted = true,
+            onMinimise = {},
+        )
+    }
+
+    @Test
+    fun callCenterRingingFa() = shot("call_center_ringing_fa", Language.FA, dark = false) {
+        CallScreen(
+            phase = CallPhase.Ringing,
+            channel = CallChannel.AUDIO,
+            contactName = "بازدیدکننده ۴۲۱",
+            language = Language.FA,
+        )
+    }
+
+    @Test
+    fun visitorCallConnectedEn() = shot("visitor_call_connected_en", Language.EN, dark = true) {
+        CallScreen(
+            phase = CallPhase.Connected,
+            channel = CallChannel.VIDEO,
+            contactName = "Emma Wilson",
+            language = Language.EN,
+            connectedAt = Instant.now().minusSeconds(312),
+            cameraOn = true,
+            onMinimise = {},
+        )
+    }
+
+    /** The picture-in-picture window of a voice call, at about the size the system gives it. */
+    @Test
+    fun pipVoiceFa() = shot("pip_voice_fa", Language.FA, dark = true) {
+        Box(Modifier.size(180.dp, 240.dp)) {
+            PipVoiceContent(
+                colleague = true,
+                identity = ActiveCallIdentity(name = "مهسا رضایی"),
+                state = ActiveCallState(ActiveCallStage.LIVE, since = Instant.now().minusSeconds(95)),
+                language = Language.FA,
+            )
+        }
+    }
+
+    /** A phone on its side: no face, the red button whole. */
+    @Test
+    @Config(qualifiers = "+land")
+    fun teamCallLiveLandFa() = shot("team_call_live_land_fa", Language.FA, dark = true) {
+        TeamCallScreen(
+            phase = TeamCallPhase.Live(Instant.now().minusSeconds(83)),
+            incoming = false,
+            channel = CallChannel.VIDEO,
+            peerName = "مهسا رضایی",
+            peerAvatarUrl = null,
+            language = Language.FA,
+            onMinimise = {},
+        )
+    }
+
+    /** The ring on a small phone: Decline and Answer whole, with their names. */
+    @Test
+    @Config(qualifiers = "w320dp-h569dp-port")
+    fun callCenterRingingSmallEn() = shot("call_center_ringing_small_en", Language.EN, dark = true) {
+        CallScreen(
+            phase = CallPhase.Ringing,
+            channel = CallChannel.VIDEO,
+            contactName = "Visitor 421",
+            language = Language.EN,
+        )
     }
 }

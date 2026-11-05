@@ -8,8 +8,18 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import type { Chunk } from './chunker.js';
 import { chunkHash } from './hash.js';
+import { readRowsByKey, keyPage } from '../../../lib/pagedRows.js';
 import { resolveEmbeddingProvider, isUsableEmbeddingProvider, type EmbeddingProvider } from '../embeddings/index.js';
 
+
+/** A chunk of the source as stored. */
+interface ExistingChunkRow {
+  id: string;
+  chunk_index: number;
+  content_hash: string | null;
+  embedding: unknown;
+  status: string;
+}
 export type SourceType = 'kb_article' | 'qna' | 'learned_qna' | 'web_page' | 'file' | 'business_profile';
 
 export interface IndexSourceInput {
@@ -117,20 +127,22 @@ export async function indexSource(
     return result;
   }
 
-  // Load existing chunks for this source.
-  const { data: existing, error: existingError } = await sb
+  // Load existing chunks for this source, page by page: the data layer caps a
+  // read at DATABASE_MAX_ROWS, and a chunk missing here would be re-embedded
+  // (and billed) on every sync and never retired as an orphan.
+  const { data: existing, error: existingError } = await readRowsByKey<ExistingChunkRow>('id', (after, size) => keyPage(sb
     .from('ai_knowledge_chunks')
     .select('id, chunk_index, content_hash, embedding, status')
     .eq('workspace_id', input.workspaceId)
     .eq('source_type', input.sourceType)
-    .eq('source_id', input.sourceId);
+    .eq('source_id', input.sourceId), 'id', after, size));
   if (existingError) {
     result.ok = false;
     result.errorCode = 'chunk_read_failed';
     result.retryable = true;
     return result;
   }
-  const existingByIndex = new Map<number, any>();
+  const existingByIndex = new Map<number, ExistingChunkRow>();
   for (const row of existing || []) existingByIndex.set(row.chunk_index, row);
 
   // Decide which chunks need (re)embedding.
@@ -171,7 +183,7 @@ export async function indexSource(
   // value produces a silently unusable index row, so anything that is not a
   // finite vector of the provider's exact dimensionality is counted as an
   // embedding FAILURE and never persisted.
-  let vectors: Map<number, number[]> = new Map();
+  const vectors: Map<number, number[]> = new Map();
   if (toEmbed.length && embedder && isUsableEmbeddingProvider(embedder)) {
     const budget = opts?.remainingEmbedBudget ?? toEmbed.length;
     const slice = toEmbed.slice(0, Math.max(0, budget));
@@ -195,8 +207,8 @@ export async function indexSource(
             JSON.stringify({ expected, requested: slice.length, accepted: vectors.size }),
           );
         }
-      } catch (err: any) {
-        console.warn('[knowledgeIndex.indexer] embedding batch failed:', err?.message);
+      } catch (err) {
+        console.warn('[knowledgeIndex.indexer] embedding batch failed:', (err as Error | null)?.message);
         result.embeddingFailures += slice.length;
       } finally {
         // Settle only the Run we opened ourselves; a caller-owned Run is
@@ -206,8 +218,8 @@ export async function indexSource(
             const billing = await import('../../ai-billing/runContext.js');
             if (ownCtx.stepSeq > 0) await billing.settleAiRun(config, ownCtx);
             else await billing.failAiRun(config, ownCtx, 'no_billable_usage');
-          } catch (e: any) {
-            console.warn('[ai-billing] kb index run not closed:', e?.message);
+          } catch (e) {
+            console.warn('[ai-billing] kb index run not closed:', (e as Error | null)?.message);
           }
         }
       }
@@ -218,9 +230,9 @@ export async function indexSource(
   for (const row of upserts) {
     const v = vectors.get(row.chunk_index as number);
     if (v) {
-      (row as any).embedding = vectorToSql(v);
-      (row as any).embedding_provider = embedder?.name ?? null;
-      (row as any).embedding_model = embedder?.model ?? null;
+      row.embedding = vectorToSql(v);
+      row.embedding_provider = embedder?.name ?? null;
+      row.embedding_model = embedder?.model ?? null;
     }
   }
 

@@ -22,6 +22,7 @@ import {
   INVITE_TTL_MAX_SECONDS,
 } from '../services/calls/invitations.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
+import { checkPlanConcurrencyCeiling, planConcurrencyDenialBody } from '../services/calls/concurrencyLimit.js';
 import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const callInvitationsRouter = Router();
@@ -87,6 +88,14 @@ callInvitationsRouter.post('/', async (req, res) => {
       capability: channel === 'audio' ? 'voice' : 'video',
       upgrade_required: true,
     });
+  }
+  // The plan's max_concurrent_calls, refused up front as /api/calls/create
+  // refuses it, so a visitor is not invited into a call their accept would
+  // be refused (the accept checks again under the workspace's lock,
+  // widgetCallInvitations.ts).
+  const conc = await checkPlanConcurrencyCeiling(config, workspace_id);
+  if (!conc.allowed) {
+    return res.status(conc.reason === 'plan_limit_reached' ? 429 : 403).json(planConcurrencyDenialBody(conc));
   }
   const result = await createInvitation(config, {
     workspaceId: workspace_id,

@@ -39,6 +39,7 @@ interface FakeBuilder {
   in: (col: string, vals: unknown[]) => FakeBuilder;
   order: (col: string, opts?: { ascending?: boolean }) => FakeBuilder;
   limit: (n: number) => FakeBuilder;
+  range: (from: number, to: number) => FakeBuilder;
   insert: (payload: Row) => {
     select: () => { single: () => Promise<Resolved> };
     then: (resolve: Resolve) => unknown;
@@ -65,6 +66,7 @@ function fakeClient() {
       let orderCol: string | null = null;
       let orderAsc = true;
       let limitN: number | null = null;
+      let offsetN = 0;
       const builder: FakeBuilder = {
         select: () => builder,
         eq(col: string, val: unknown) { filters.push((r: Row) => r[col] === val); return builder; },
@@ -75,6 +77,7 @@ function fakeClient() {
         in(col: string, vals: unknown[]) { filters.push((r: Row) => vals.includes(r[col])); return builder; },
         order(col: string, opts?: { ascending?: boolean }) { orderCol = col; orderAsc = opts?.ascending ?? true; return builder; },
         limit(n: number) { limitN = n; return builder; },
+        range(from: number, to: number) { offsetN = from; limitN = to - from + 1; return builder; },
         insert(payload: Row) {
           const inserted = { id: payload.id ?? crypto.randomUUID(), created_at: new Date().toISOString(), ...payload };
           rows.push(inserted);
@@ -119,7 +122,7 @@ function fakeClient() {
             const c = orderCol;
             matched = [...matched].sort((a, b) => (a[c] === b[c] ? 0 : (a[c] > b[c] ? 1 : -1) * (orderAsc ? 1 : -1)));
           }
-          if (limitN != null) matched = matched.slice(0, limitN);
+          if (limitN != null) matched = matched.slice(offsetN, offsetN + limitN);
           return { data: matched[0] ?? null, error: null };
         },
         then(resolve: Resolve) {
@@ -128,7 +131,7 @@ function fakeClient() {
             const c = orderCol;
             matched = [...matched].sort((a, b) => (a[c] === b[c] ? 0 : (a[c] > b[c] ? 1 : -1) * (orderAsc ? 1 : -1)));
           }
-          if (limitN != null) matched = matched.slice(0, limitN);
+          if (limitN != null) matched = matched.slice(offsetN, offsetN + limitN);
           return resolve({ data: matched, error: null });
         },
       };

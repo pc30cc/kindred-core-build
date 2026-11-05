@@ -569,7 +569,12 @@ describe('POST …/transcript', () => {
     message(cid, 'system', 'Sara joined the conversation.', { metadata: { kind: 'routing_agent_joined' } }, 240_000);
     const fileMsg = message(cid, 'contact', '', { metadata: { attachment_id: 'att-1' } }, 200_000);
     (state.db.tables.conversation_attachments ||= []).push({
-      id: 'att-1', workspace_id: WS, message_id: fileMsg, file_name: 'invoice <1>.pdf', mime_type: 'application/pdf', size_bytes: 10, status: 'attached',
+      id: 'att-1', workspace_id: WS, conversation_id: cid, message_id: fileMsg, file_name: 'invoice <1>.pdf', mime_type: 'application/pdf', size_bytes: 10, status: 'attached',
+    });
+    // A message naming another conversation's file: never described here.
+    message(cid, 'contact', '', { metadata: { attachment_id: 'att-other' } }, 150_000);
+    state.db.tables.conversation_attachments.push({
+      id: 'att-other', workspace_id: WS, conversation_id: 'another-conversation', message_id: 'm-elsewhere', file_name: 'secret-contract.pdf', mime_type: 'application/pdf', size_bytes: 10, status: 'attached',
     });
     message(cid, 'agent', 'سلام علی، بفرمایید', {}, 100_000);
     closed(cid);
@@ -593,6 +598,7 @@ describe('POST …/transcript', () => {
     expect(html).toContain('قیمت $&amp; و $1 و {brand} و {transcript_text} &lt;script&gt;alert(1)&lt;/script&gt;');
     expect(html).not.toContain('<script>');
     expect(html).toContain('📎 invoice &lt;1&gt;.pdf');
+    expect(html).not.toContain('secret-contract');
     expect(html).not.toMatch(/https?:/);
     expect(html).toContain('شما · ');
     expect(html).toContain('Sara · ');

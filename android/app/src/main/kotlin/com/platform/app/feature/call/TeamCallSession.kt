@@ -62,6 +62,12 @@ class TeamCallSession(
     private val nudges: Flow<TeamCallNudge>,
     private val ringback: Ringback,
     private val foreground: CallForeground,
+    /**
+     * Tells the server this phone is ringing for a call (`POST rang`), once
+     * per call per phone however often it is asked: the in-app ring screen
+     * asks as it shows ([TeamCallRangReporter][com.platform.app.core.push.TeamCallRangReporter]).
+     */
+    private val rang: (callId: String) -> Unit = {},
     private val clock: () -> Instant = Instant::now,
 ) : ViewModel() {
 
@@ -214,6 +220,7 @@ class TeamCallSession(
         this.callId = callId
         ringStartedAt = clock()
         _phase.value = TeamCallPhase.Ringing
+        rang(callId)
         listen()
         viewModelScope.launch {
             myDeviceId = deviceId()
@@ -246,9 +253,12 @@ class TeamCallSession(
      * a later one hears who did — or that the call is already over — and
      * says exactly that.
      */
-    fun answer() {
+    fun answer(withVideo: Boolean = true) {
         if (direction != Direction.INCOMING || _phase.value != TeamCallPhase.Ringing) return
         val id = callId ?: return
+        // A video call answered with "Audio only": the camera stays off until
+        // the member turns it on, which the call's own button still can.
+        if (channel == CallChannel.VIDEO && !withVideo) _cameraOn.value = false
         _phase.value = TeamCallPhase.Connecting
         answeredAt = clock()
         foreground.show(ongoing())
@@ -380,7 +390,11 @@ class TeamCallSession(
         }
         when {
             call.state == TeamCallState.RINGING -> {
-                if (_phase.value == TeamCallPhase.Calling) {
+                // "Calling…" with no ringback until one of the colleague's
+                // phones says it rings (`rang_at`); "Ringing…" and the
+                // ringback from then on. A server that never sets it leaves
+                // the caller on "Calling…" until the answer or the end.
+                if (_phase.value == TeamCallPhase.Calling && call.rangAt != null) {
                     _phase.value = TeamCallPhase.Ringing
                     ringback.start()
                 }
@@ -447,7 +461,8 @@ class TeamCallSession(
         }
         // Where the sound starts, said before the room exists.
         room.setSpeaker(_speakerOn.value)
-        when (val result = room.connect(url, credentials, wantsVideo = channel == CallChannel.VIDEO)) {
+        val wantsVideo = channel == CallChannel.VIDEO && _cameraOn.value
+        when (val result = room.connect(url, credentials, wantsVideo = wantsVideo)) {
             is CallRoom.Result.Failed -> finish(TeamCallEnd.FAILED, detail = result.reason, tell = true)
             is CallRoom.Result.Joined -> {
                 // Best-effort, as on a visitor's call: a camera that will
@@ -456,8 +471,13 @@ class TeamCallSession(
                 if (!result.microphone) {
                     _muted.value = true
                     _degraded.value = CallDegradation.NO_MICROPHONE
+                } else if (_muted.value) {
+                    // Muted before the call connected (from the small window):
+                    // the room joins with the microphone on, so the choice
+                    // made then is applied now — never shown muted and sending.
+                    room.setMicrophone(enabled = false)
                 }
-                if (channel == CallChannel.VIDEO && !result.camera) {
+                if (wantsVideo && !result.camera) {
                     _cameraOn.value = false
                     if (_degraded.value == null) _degraded.value = CallDegradation.NO_CAMERA
                 }
@@ -494,17 +514,57 @@ class TeamCallSession(
 
     // MARK: - Controls
 
+    /**
+     * The latest mute and camera presses: a late answer from the room for an
+     * earlier press (on, off, on in quick succession) changes nothing.
+     */
+    private var micPress = 0
+    private var cameraPress = 0
+
     fun toggleMute() {
+        // Over: a microphone grant that arrives after the end changes nothing.
+        if (_phase.value.isOver) return
         val next = !_muted.value
         _muted.value = next
-        viewModelScope.launch { room.setMicrophone(enabled = !next) }
+        val press = ++micPress
+        viewModelScope.launch {
+            val ok = room.setMicrophone(enabled = !next)
+            // Before the call is live there is no microphone in a room yet:
+            // the choice is applied when it joins.
+            if (press != micPress || !(_phase.value is TeamCallPhase.Live) || next) return@launch
+            if (!ok) {
+                // A microphone that would not start: shown muted, never live
+                // and silent.
+                _muted.value = true
+            } else {
+                if (_degraded.value == CallDegradation.NO_MICROPHONE) _degraded.value = null
+                // The service gains the microphone type it may not have had.
+                (_phase.value as? TeamCallPhase.Live)?.let { foreground.show(ongoing(it.since)) }
+            }
+        }
     }
 
     fun toggleCamera() {
-        if (channel != CallChannel.VIDEO) return
+        if (channel != CallChannel.VIDEO || !(_phase.value is TeamCallPhase.Live)) return
         val next = !_cameraOn.value
         _cameraOn.value = next
-        viewModelScope.launch { room.setCamera(enabled = next) }
+        // The service holds the camera only while it is on.
+        (_phase.value as? TeamCallPhase.Live)?.let { foreground.show(ongoing(it.since)) }
+        val press = ++cameraPress
+        viewModelScope.launch {
+            val ok = room.setCamera(enabled = next)
+            if (press != cameraPress || !(_phase.value is TeamCallPhase.Live) || !next) return@launch
+            if (!ok) {
+                // A camera that would not start (no permission, another app
+                // has it): the button and the service say so, rather than
+                // showing a camera on that nobody sees.
+                _cameraOn.value = false
+                (_phase.value as? TeamCallPhase.Live)?.let { foreground.show(ongoing(it.since)) }
+            } else if (_degraded.value == CallDegradation.NO_CAMERA) {
+                // Turned on after all (asked for and granted mid-call).
+                _degraded.value = null
+            }
+        }
     }
 
     /**
@@ -616,7 +676,7 @@ class TeamCallSession(
         callId = callId.orEmpty(),
         peerName = _peer.value.name?.takeIf { it.isNotBlank() } ?: "",
         peerAvatarUrl = _peer.value.avatarUrl,
-        video = channel == CallChannel.VIDEO,
+        video = channel == CallChannel.VIDEO && _cameraOn.value,
         language = language,
         since = since,
     )

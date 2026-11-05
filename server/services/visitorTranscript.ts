@@ -255,7 +255,9 @@ export async function buildVisitorTranscript(
       time: String(m.created_at),
       metadata: m.metadata,
     }));
-  const withFiles = await enrichMessagesWithAttachments(config, input.workspaceId, base);
+  // Scoped to this conversation: a message naming another conversation's
+  // file never describes it in the visitor's transcript.
+  const withFiles = await enrichMessagesWithAttachments(config, input.workspaceId, base, { conversationId: input.conversationId });
   const messages = (await enrichMessagesWithSender(config, sb, withFiles, input.workspaceId)) as TranscriptMessage[];
 
   const fmt = intlLocale(input.locale, input.edition);

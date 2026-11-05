@@ -34,6 +34,8 @@ import type { CallProviderId } from '../services/calls/providers/types.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import {
   checkPlanConcurrencyCeiling,
+  insertCallSessionWithinCeiling,
+  planConcurrencyLimitReached,
   planConcurrencyDenialBody,
 } from '../services/calls/concurrencyLimit.js';
 import {
@@ -1359,9 +1361,14 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   let callErr = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const r = await sb.from('call_sessions').insert(insertPayload).select('*').maybeSingle();
-      call = r.data;
-      callErr = r.error;
+      // Race-free against the plan ceiling (migration 302): counted and
+      // written under the workspace's lock.
+      const r = await insertCallSessionWithinCeiling(sb, insertPayload, planConc.limit);
+      if (r.verdict === 'limit_reached') {
+        return res.status(429).json(planConcurrencyDenialBody(planConcurrencyLimitReached(planConc, r)));
+      }
+      call = r.verdict === 'created' ? r.call : null;
+      callErr = r.verdict === 'error' ? { message: r.message } : null;
       if (!callErr && call) break;
       if (callErr && /fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|UND_ERR/i.test(String(callErr.message || ''))) {
         console.warn('[call-widget/calls/request] transient insert error, retrying:', callErr.message);

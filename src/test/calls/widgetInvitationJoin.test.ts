@@ -43,6 +43,26 @@ const client = {
     return q;
   },
 };
+/** The plan's max_concurrent_calls for these tests (-1: none). */
+const plan = vi.hoisted(() => ({ limit: -1 }));
+vi.mock('../../../server/services/calls/concurrencyLimit.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../server/services/calls/concurrencyLimit.js')>();
+  const { db: tables, fakeClient: fc } = await import('../callWidget/fakeDb');
+  const live = () => (tables.call_sessions || []).filter((s) => ['pending', 'ringing', 'connecting', 'active'].includes(String(s.state))).length;
+  return {
+    ...real,
+    checkPlanConcurrencyCeiling: async () => (plan.limit >= 0 && live() >= plan.limit
+      ? { allowed: false, reason: 'plan_limit_reached', limit: plan.limit, used: live(), plan: 'small' }
+      : { allowed: true, limit: plan.limit, plan: 'small' }),
+    // The SQL (migration 302) is proven in serverRowCaps.pg.test.ts; here
+    // the same verdicts over the fake tables.
+    insertCallSessionWithinCeiling: async (_sb: unknown, row: Record<string, unknown>, limit: number | undefined) => {
+      if (typeof limit === 'number' && limit >= 0 && live() >= limit) return { verdict: 'limit_reached', used: live(), max: limit };
+      const r = await fc.from('call_sessions').insert(row).select('*').maybeSingle();
+      return r.data ? { verdict: 'created', call: r.data } : { verdict: 'error', message: 'insert_returned_no_row' };
+    },
+  };
+});
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => client }));
 vi.mock('../../../server/services/widget/security.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../server/services/widget/security.js')>()),
@@ -124,6 +144,7 @@ beforeEach(() => {
   db.visitor_sessions = [{ id: SESSION, workspace_id: WS, visitor_id: VISITOR }];
   db.call_sessions = [];
   db.conversation_events = [];
+  plan.limit = -1;
 });
 
 describe('widgetapi-4: only the signed visitor proves the conversation is theirs', () => {
@@ -145,6 +166,21 @@ describe('widgetapi-4: only the signed visitor proves the conversation is theirs
     expect(r.status).toBe(200);
     expect(r.body.call_id).toBeTruthy();
     expect(db.call_invitations[0]).toMatchObject({ status: 'joined', call_session_id: r.body.call_id });
+  });
+});
+
+describe('the plan\'s max_concurrent_calls (migration 302)', () => {
+  it('at the limit the accept is refused with the plan\'s numbers; nothing is made and the invitation stays open', async () => {
+    plan.limit = 1;
+    db.call_sessions = [{ id: 'other-call', workspace_id: WS, state: 'active' }];
+    const r = await join(signedAs(VISITOR));
+    expect(r.status).toBe(503);
+    expect(r.body).toMatchObject({ error: 'provider_not_ready', details: { kind: 'plan_limit_reached', limit: 1, used: 1 } });
+    expect(db.call_sessions.map((s) => s.id)).toEqual(['other-call']);
+    expect(db.call_invitations[0]).toMatchObject({ status: 'pending', call_session_id: null });
+    // A call freed, and the same invitation joins.
+    db.call_sessions[0].state = 'ended';
+    expect((await join(signedAs(VISITOR))).status).toBe(200);
   });
 });
 

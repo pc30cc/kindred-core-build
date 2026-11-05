@@ -152,7 +152,7 @@ object CallNotifications {
         language: Language,
         photo: Bitmap?,
         nowMillis: Long = System.currentTimeMillis(),
-    ) {
+    ): Boolean {
         val name = ring.displayName(language)
         val video = ring.channel == CallChannel.VIDEO
         val caller = Person.Builder()
@@ -192,6 +192,7 @@ object CallNotifications {
         if (posted) {
             unansweredColleagues[ring.callId] = MissedColleague(name, ring.workspaceId, ring.callerUserId, ring.channel)
         }
+        return posted
     }
 
     /** Whether a ring was posted at all: not without permission, nor past its expiry. */

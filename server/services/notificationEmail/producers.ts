@@ -14,6 +14,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { readRows } from '../../lib/pagedRows.js';
 import { resolveWorkspaceAppUrl } from '../auth-email.js';
 import { enqueueNotificationEmail, isMissingColumn, windowKey } from './queue.js';
 import { isTypeEnabled, loadNotificationEmailSettings } from './settings.js';
@@ -566,6 +567,9 @@ export async function sweepWeeklySummary(
   return out;
 }
 
+/** Conversation ids per message count of the weekly summary. */
+const MESSAGE_COUNT_BATCH = 500;
+
 /**
  * The week, counted.
  *
@@ -577,8 +581,8 @@ export async function sweepWeeklySummary(
  *
  * `conversation_messages` carries no workspace of its own — it belongs to a
  * conversation, which belongs to a workspace — so the message count goes
- * through the conversations touched in the window. Bounded at a thousand,
- * which is a busy week for one workspace and cheap for a job that runs once.
+ * through the conversations touched in the window: all of them, read page by
+ * page, and counted in batches of MESSAGE_COUNT_BATCH.
  */
 export async function weekCounts(
   config: ServerConfig,
@@ -613,24 +617,27 @@ export async function weekCounts(
       .or('metadata->>closed_from.is.null,metadata->>closed_from.neq.resolved')
       .gte('updated_at', iso(since))
       .lt('updated_at', iso(until)),
-    client
+    // Every conversation touched since, page by page: the data layer caps a
+    // single read at DATABASE_MAX_ROWS (1000).
+    readRows<{ id: string }>((from, to) => client
       .from('conversations')
       .select('id')
       .eq('workspace_id', workspaceId)
       .gte('updated_at', iso(since))
-      .limit(1000),
+      .order('id', { ascending: true })
+      .range(from, to)),
   ]);
 
-  const ids = ((touched.data ?? []) as Array<{ id: string }>).map((r) => String(r.id));
+  const ids = touched.data.map((r) => String(r.id));
   let messages = 0;
-  if (ids.length) {
+  for (let i = 0; i < ids.length; i += MESSAGE_COUNT_BATCH) {
     const { count } = await client
       .from('conversation_messages')
       .select('id', { count: 'exact', head: true })
-      .in('conversation_id', ids)
+      .in('conversation_id', ids.slice(i, i + MESSAGE_COUNT_BATCH))
       .gte('created_at', iso(since))
       .lt('created_at', iso(until));
-    messages = count ?? 0;
+    messages += count ?? 0;
   }
 
   return {

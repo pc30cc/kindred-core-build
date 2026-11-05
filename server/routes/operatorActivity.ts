@@ -62,6 +62,7 @@
 import express, { Router } from 'express';
 import { z } from 'zod';
 import { getServiceClient } from '../supabase.js';
+import { readRows } from '../lib/pagedRows.js';
 import {
   authorizeWorkspaceAccess,
   serverConfigOf,
@@ -265,12 +266,15 @@ export async function ratingsByOperator(
   sinceIso: string,
 ): Promise<Map<string, { sum: number; count: number }>> {
   const out = new Map<string, { sum: number; count: number }>();
-  const { data, error } = await sb
+  // Up to 5000 ratings, page by page: the data layer caps a single read at
+  // DATABASE_MAX_ROWS (1000).
+  const { data, error } = await readRows<{ id: string; operator_id: string | null; score: number }>((from, to) => sb
     .from('conversation_ratings')
-    .select('operator_id, score')
+    .select('id, operator_id, score')
     .eq('workspace_id', workspaceId)
     .gte('created_at', sinceIso)
-    .limit(5000);
+    .order('id', { ascending: true })
+    .range(from, to), 5000);
   if (error) {
     if (!isRelationMissing(error, 'conversation_ratings')) {
       console.warn('[operator-activity] ratings read failed:', error.message);
@@ -300,13 +304,14 @@ export async function aiRatings(
   sinceIso: string,
 ): Promise<{ sum: number; count: number }> {
   const out = { sum: 0, count: 0 };
-  const { data, error } = await sb
+  const { data, error } = await readRows<{ id: string; score: number }>((from, to) => sb
     .from('conversation_ratings')
-    .select('score')
+    .select('id, score')
     .eq('workspace_id', workspaceId)
     .eq('subject', 'ai')
     .gte('created_at', sinceIso)
-    .limit(5000);
+    .order('id', { ascending: true })
+    .range(from, to), 5000);
   if (error) {
     const missing = isRelationMissing(error, 'conversation_ratings') || error.code === '42703' || error.code === 'PGRST204';
     if (!missing) console.warn('[operator-activity] AI ratings read failed:', error.message);
@@ -364,24 +369,31 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
     // Conversations assigned + operator messages in the window. How a closed
     // one ended (the close markers, migration 284) tells an operator's close
     // from the system's after the quiet period.
-    const { data: convs } = await sb
+    //
+    // Both reads are paged up to their bounds (5000 conversations, 10000
+    // operator messages): the data layer caps a single read at
+    // DATABASE_MAX_ROWS (1000), so `.limit()` alone returned 1000.
+    const { data: convs } = await readRows<{ id: string; assigned_to: string | null; status: string; created_at: string; closed_reason: string | null; closed_from: string | null }>((from, to) => sb
       .from('conversations')
       .select('id, assigned_to, status, created_at, closed_reason:metadata->>closed_reason, closed_from:metadata->>closed_from')
       .eq('workspace_id', workspaceId)
       .gte('created_at', sinceIso)
-      .limit(5000);
+      .order('id', { ascending: true })
+      .range(from, to), 5000);
 
-    const convIds = (convs || []).map((c) => c.id);
+    const convIds = convs.map((c) => c.id);
     let messages: Array<{ sender_id: string | null; sender_type: string; conversation_id: string }> = [];
-    if (convIds.length) {
-      const { data: msgs } = await sb
+    for (let i = 0; i < convIds.length && messages.length < 10000; i += 500) {
+      const part = convIds.slice(i, i + 500);
+      const { data: msgs } = await readRows<{ id: string; sender_id: string | null; sender_type: string; conversation_id: string }>((from, to) => sb
         .from('conversation_messages')
-        .select('sender_id, sender_type, conversation_id')
-        .in('conversation_id', convIds.slice(0, 500))
+        .select('id, sender_id, sender_type, conversation_id')
+        .in('conversation_id', part)
         .eq('sender_type', 'agent')
         .gte('created_at', sinceIso)
-        .limit(10000);
-      messages = msgs || [];
+        .order('id', { ascending: true })
+        .range(from, to), 10000 - messages.length);
+      messages = messages.concat(msgs);
     }
 
     const [ratings, aiRated, presence] = await Promise.all([

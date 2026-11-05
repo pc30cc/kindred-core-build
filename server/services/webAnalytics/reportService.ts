@@ -15,11 +15,22 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { readRows, type PagedRowsRead } from '../../lib/pagedRows.js';
 import { classifyChannel, referrerDomain, type Channel } from './channels.js';
 import { continentForCountry, CONTINENT_NAMES } from './continents.js';
 import { getCrawlPages } from '../seo/canonicalRepository.js';
 
 const ROW_CAP = 20_000;
+
+/**
+ * Up to ROW_CAP rows of a range read, page by page, and whether there were
+ * more. The data layer caps a single read at DATABASE_MAX_ROWS (1000), so a
+ * plain `.limit(ROW_CAP)` returned 1000 rows and never set `truncated`.
+ */
+export async function readCapped<T>(read: PagedRowsRead<T>, cap: number = ROW_CAP): Promise<{ rows: T[]; truncated: boolean; error: { message?: string } | null }> {
+  const { data, error } = await readRows(read, cap + 1);
+  return { rows: data.slice(0, cap), truncated: data.length > cap, error };
+}
 
 export interface DateRange {
   /** Inclusive, YYYY-MM-DD. */
@@ -72,31 +83,31 @@ async function loadRangeData(config: ServerConfig, workspaceId: string, range: D
   const { startIso, endIso } = rangeToTimestamps(range);
 
   const [sessionsRes, pageViewsRes] = await Promise.all([
-    sb.from('visitor_sessions')
+    readCapped<SessionRow>((from, to) => sb.from('visitor_sessions')
       .select('id, referrer, utm_source, utm_medium, utm_campaign, browser, os, device, language, country, city, geo_country_code, geo_country_name, geo_city, started_at, last_seen_at')
       .eq('workspace_id', workspaceId)
       .gte('started_at', startIso)
       .lte('started_at', endIso)
       .order('started_at', { ascending: true })
-      .limit(ROW_CAP),
-    sb.from('visitor_page_views')
+      .order('id', { ascending: true })
+      .range(from, to)),
+    readCapped<PageViewRow>((from, to) => sb.from('visitor_page_views')
       .select('visitor_session_id, url, title, viewed_at')
       .eq('workspace_id', workspaceId)
       .gte('viewed_at', startIso)
       .lte('viewed_at', endIso)
       .order('viewed_at', { ascending: true })
-      .limit(ROW_CAP),
+      .order('id', { ascending: true })
+      .range(from, to)),
   ]);
   if (sessionsRes.error) throw new Error(`web_analytics_sessions_query_failed: ${sessionsRes.error.message}`);
   if (pageViewsRes.error) throw new Error(`web_analytics_page_views_query_failed: ${pageViewsRes.error.message}`);
 
-  const sessions = (sessionsRes.data || []) as SessionRow[];
-  const pageViews = (pageViewsRes.data || []) as PageViewRow[];
   return {
-    sessions,
-    pageViews,
-    truncatedSessions: sessions.length >= ROW_CAP,
-    truncatedPageViews: pageViews.length >= ROW_CAP,
+    sessions: sessionsRes.rows,
+    pageViews: pageViewsRes.rows,
+    truncatedSessions: sessionsRes.truncated,
+    truncatedPageViews: pageViewsRes.truncated,
   };
 }
 
@@ -382,14 +393,16 @@ export async function getPages(
   const sb = getServiceClient(config);
   const { startIso } = rangeToTimestamps(range);
 
-  const { data: earlierViews, error } = await sb
+  const { rows: earlierViews, truncated: truncatedEarlier, error } = await readCapped<{ url: string }>((from, to) => sb
     .from('visitor_page_views')
     .select('url, viewed_at')
     .eq('workspace_id', workspaceId)
     .lt('viewed_at', startIso)
-    .limit(ROW_CAP);
+    .order('viewed_at', { ascending: false })
+    .order('id', { ascending: false })
+    .range(from, to));
   if (error) throw new Error(`web_analytics_new_pages_query_failed: ${error.message}`);
-  const seenBefore = new Set((earlierViews || []).map((r) => normalizePath((r as { url: string }).url)));
+  const seenBefore = new Set(earlierViews.map((r) => normalizePath(r.url)));
 
   const counts = new Map<string, number>();
   for (const pv of pageViews) {
@@ -398,7 +411,7 @@ export async function getPages(
     counts.set(path, (counts.get(path) || 0) + 1);
   }
   const rows = Array.from(counts.entries()).map(([path, views]) => ({ path, views })).sort((a, b) => b.views - a.views);
-  return { rows, truncated: truncatedPageViews };
+  return { rows, truncated: truncatedPageViews || truncatedEarlier };
 }
 
 // ─── Cloned pages ───────────────────────────────────────────────────────

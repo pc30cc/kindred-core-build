@@ -2,7 +2,10 @@ package com.platform.app.ui.nav
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
@@ -34,8 +37,41 @@ class Navigator internal constructor(
     /** The stack in front. */
     val current: NavBackStack<NavKey> get() = stack(tab)
 
+    /**
+     * A call's screen taken off the display with the call still on (its
+     * minimise button, or Back during the call). It stays where it was on its
+     * stack — which is what keeps its session, and so the call, alive — but
+     * is not drawn ([displayed]), not on top ([top]) and not popped by Back:
+     * the rest of the app is used as if it were not there, with the call in
+     * a bubble over it, until the bubble (or the picture-in-picture window)
+     * brings it back with [raise]. One at a time: a second call is not placed
+     * while one is on ([holdsCall]).
+     */
+    var minimised: Screen? by mutableStateOf(null)
+        private set
+
     /** The screen on top of the stack in front. */
-    val top: Screen? get() = current.lastOrNull() as? Screen
+    val top: Screen? get() = current.lastOrNull { it != minimised } as? Screen
+
+    /** [tab]'s stack as it is drawn: everything but a minimised call. */
+    fun displayed(tab: AppTab): List<NavKey> = stack(tab).filter { it != minimised }
+
+    /**
+     * Takes [screen], a call, off the display and leaves its call on. The
+     * screen under it shows again; with nothing under it but the tab's root,
+     * the root.
+     */
+    fun minimise(screen: Screen) {
+        if (!screen.isCall() || screen !in stack(screen.tab)) return
+        minimised = screen
+    }
+
+    /** A minimised call that ended: off its stack, which ends its session too. */
+    fun dropMinimised() {
+        val screen = minimised ?: return
+        minimised = null
+        stack(screen.tab).remove(screen)
+    }
 
     /**
      * Whether a call's screen — ringing, or on — is on any stack, whichever
@@ -57,10 +93,13 @@ class Navigator internal constructor(
         if (screen.isCall()) callsThisProcess += screen
         if (screen.tab != tab) selectTab(screen.tab)
         val stack = stack(screen.tab)
-        val last = stack.lastOrNull()
+        // What is drawn on top: a minimised call is never replaced by a
+        // screen of its own kind, which would end it.
+        val at = stack.indexOfLast { it != minimised }
+        val last = stack.getOrNull(at)
         when {
             last == screen -> Unit
-            last != null && last::class == screen::class && !screen.isRoot() -> stack[stack.lastIndex] = screen
+            last != null && last::class == screen::class && !screen.isRoot() -> stack[at] = screen
             else -> stack.add(screen)
         }
     }
@@ -76,6 +115,7 @@ class Navigator internal constructor(
         val stack = stack(screen.tab)
         val at = stack.indexOf(screen)
         if (at < 0) return
+        if (screen == minimised) minimised = null
         if (screen.tab != tab) selectTab(screen.tab)
         if (at == stack.lastIndex) return
         Snapshot.withMutableSnapshot {
@@ -99,7 +139,12 @@ class Navigator internal constructor(
 
     fun popToRoot(tab: AppTab) {
         val stack = stack(tab)
-        while (stack.size > 1) stack.removeAt(stack.lastIndex)
+        // A minimised call stays: going back to the root is not hanging up.
+        Snapshot.withMutableSnapshot {
+            for (i in stack.lastIndex downTo 1) {
+                if (stack[i] != minimised) stack.removeAt(i)
+            }
+        }
     }
 
     /**
@@ -109,9 +154,11 @@ class Navigator internal constructor(
      */
     fun back(): Boolean {
         val stack = current
+        // The last screen drawn, never a minimised call under it.
+        val last = stack.indexOfLast { it != minimised }
         return when {
-            stack.size > 1 -> {
-                stack.removeAt(stack.lastIndex)
+            last > 0 -> {
+                stack.removeAt(last)
                 true
             }
             tab != AppTab.INBOX -> {
@@ -129,7 +176,7 @@ class Navigator internal constructor(
  */
 private val callsThisProcess = mutableSetOf<Screen>()
 
-private fun Screen.isCall(): Boolean = this is CallKey || this is IncomingCallKey || this is TeamCallKey
+internal fun Screen.isCall(): Boolean = this is CallKey || this is IncomingCallKey || this is TeamCallKey
 
 @Composable
 fun rememberNavigator(currentTab: () -> AppTab, selectTab: (AppTab) -> Unit): Navigator {

@@ -317,6 +317,9 @@ actor SampleAPI: WebyarAPI {
         .notRinging(sampleTeamCalls[id])
     }
 
+    /// Nothing rings a sample phone.
+    func markTeamCallRang(id: String, deviceID: String) async throws {}
+
     func declineTeamCall(id: String) async throws { sampleTeamCalls[id] = nil }
     func hangUpTeamCall(id: String) async throws { sampleTeamCalls[id] = nil }
 

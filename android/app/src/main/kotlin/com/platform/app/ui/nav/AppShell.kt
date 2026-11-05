@@ -478,7 +478,9 @@ fun AppShell(
                 answerRequested = key.callId != null && key.callId == answerHere,
                 onAnswerTaken = { answerHere = null },
                 ringInFront = ringInFront,
-                onDone = { leaveCall { navigator.back() } },
+                // This screen, not whatever is on top: it also closes on its
+                // own once the call is over, when something else may be.
+                onDone = { leaveCall { navigator.close(key) } },
                 onMinimise = { leaveCall { navigator.minimise(key) } },
             )
         }

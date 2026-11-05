@@ -68,6 +68,12 @@ struct TeamCall: Decodable, Identifiable, Equatable, Sendable {
     let endedAt: Date?
     /// When the ring stops (`TEAM_CALL_RING_SECONDS` after it started).
     let expiresAt: Date?
+    /// When one of the callee's phones (or panel tabs) said it is actually
+    /// ringing (`POST /:id/rang`); nil until then. The caller's phone shows
+    /// "Calling…" without a ringback until it is set, and "Ringing…" with
+    /// one after (owner, 2026-11-04: not "ringing" before the other phone
+    /// rings). A server without the field yet leaves it nil.
+    let rangAt: Date?
 
     struct Peer: Decodable, Equatable, Sendable {
         let userID: String
@@ -89,6 +95,7 @@ struct TeamCall: Decodable, Identifiable, Equatable, Sendable {
         case answeredAt = "answered_at"
         case endedAt = "ended_at"
         case expiresAt = "expires_at"
+        case rangAt = "rang_at"
     }
 
     init(
@@ -103,7 +110,8 @@ struct TeamCall: Decodable, Identifiable, Equatable, Sendable {
         createdAt: Date? = nil,
         answeredAt: Date? = nil,
         endedAt: Date? = nil,
-        expiresAt: Date? = nil
+        expiresAt: Date? = nil,
+        rangAt: Date? = nil
     ) {
         self.id = id
         self.workspaceID = workspaceID
@@ -117,6 +125,7 @@ struct TeamCall: Decodable, Identifiable, Equatable, Sendable {
         self.answeredAt = answeredAt
         self.endedAt = endedAt
         self.expiresAt = expiresAt
+        self.rangAt = rangAt
     }
 
     init(from decoder: Decoder) throws {
@@ -135,6 +144,7 @@ struct TeamCall: Decodable, Identifiable, Equatable, Sendable {
         answeredAt = try c.decodeIfPresent(Date.self, forKey: .answeredAt)
         endedAt = try c.decodeIfPresent(Date.self, forKey: .endedAt)
         expiresAt = try c.decodeIfPresent(Date.self, forKey: .expiresAt)
+        rangAt = try c.decodeIfPresent(Date.self, forKey: .rangAt)
     }
 
     /// Answered on the phone `deviceID` names, as the callee: this phone's
@@ -385,6 +395,16 @@ enum TeamCallEnd: Equatable, Sendable {
             }
         }
     }
+
+    /// Whether a ring on this phone that ended with this before it was
+    /// answered here closes its screen at once: one visible signal for the
+    /// member, never the screen and a notification saying the same (owner,
+    /// 2026-11-05: "two end screens"). Cancelled and missed are said by the
+    /// missed-call notification; a decline here was the member's own move,
+    /// with nothing to tell them. Anything else (answered or declined on
+    /// another phone) is said on the screen, which lingers a moment. The same
+    /// rule as the Android app's `TeamCallEnd.closesRingAtOnce`.
+    var closesRingAtOnce: Bool { self == .hungUp || self == .cancelled || self == .missed }
 
     /// Why `POST /api/team-calls` refused to ring, from its status and the
     /// `error` code in its body.

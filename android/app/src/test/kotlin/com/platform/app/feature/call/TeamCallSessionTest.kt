@@ -1,5 +1,6 @@
 package com.platform.app.feature.call
 
+import android.media.AudioDeviceInfo
 import com.platform.app.core.model.CallChannel
 import com.platform.app.core.model.CallToken
 import com.platform.app.core.model.EffectiveBool
@@ -98,8 +99,11 @@ class TeamCallSessionTest {
     private class FakeRingback : Ringback {
         var playing = false; private set
         var starts = 0; private set
+        /** Where the tone was last told to play. */
+        var output: RingbackOutput? = null; private set
         override fun start() { playing = true; starts++ }
         override fun stop() { playing = false }
+        override fun route(output: RingbackOutput) { this.output = output }
     }
 
     private class FakeForeground : CallForeground {
@@ -850,6 +854,262 @@ class TeamCallSessionTest {
 
         assertEquals(TeamCallEnd.HUNG_UP, ended(call))
         assertTrue(api.declined.isEmpty())
+    }
+
+    // MARK: - Where the ringback plays (owner, 2026-11-05: "I don't hear it ring")
+
+    @Test
+    fun `the ringback plays on the loudspeaker in front of the face, the earpiece at the ear`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING))
+        val call = session(api)
+        call.placing()
+        // Placed with the phone in front of the face: heard there.
+        assertEquals(RingbackOutput.LOUDSPEAKER, ringback.output)
+        runCurrent()
+        assertTrue(ringback.playing)
+        assertEquals(RingbackOutput.LOUDSPEAKER, ringback.output)
+
+        call.setAtEar(true)
+        assertEquals(RingbackOutput.EARPIECE, ringback.output)
+        call.setAtEar(false)
+        assertEquals(RingbackOutput.LOUDSPEAKER, ringback.output)
+        call.hangUp() // Ended, so its watcher stops and the test ends.
+        runCurrent()
+    }
+
+    @Test
+    fun `Speaker moves the ringback while it rings, before there is a room`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING))
+        val call = session(api)
+        call.placing()
+        runCurrent()
+        call.setAtEar(true)
+        assertEquals(RingbackOutput.EARPIECE, ringback.output)
+
+        call.toggleSpeaker()
+        assertEquals(RingbackOutput.LOUDSPEAKER, ringback.output)
+        assertFalse(room.connected)
+        call.toggleSpeaker()
+        assertEquals(RingbackOutput.EARPIECE, ringback.output)
+        call.hangUp() // Ended, so its watcher stops and the test ends.
+        runCurrent()
+    }
+
+    @Test
+    fun `Speaker chosen while calling, before the ring, is where the tone starts`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, rangAt = null))
+        val call = session(api)
+        call.placing()
+        call.setAtEar(true)
+        call.toggleSpeaker()
+        runCurrent()
+        assertEquals(TeamCallPhase.Calling, call.phase.value)
+        assertEquals(RingbackOutput.LOUDSPEAKER, ringback.output)
+        call.hangUp() // Ended, so its watcher stops and the test ends.
+        runCurrent()
+    }
+
+    @Test
+    fun `a video call's ringback stays on the loudspeaker, even at the ear`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, channel = CallChannel.VIDEO))
+        val call = session(api)
+        call.placing(CallChannel.VIDEO)
+        runCurrent()
+        call.setAtEar(true)
+        assertEquals(RingbackOutput.LOUDSPEAKER, ringback.output)
+        call.hangUp() // Ended, so its watcher stops and the test ends.
+        runCurrent()
+    }
+
+    @Test
+    fun `where the ringback plays, and on which stream`() {
+        assertEquals(RingbackOutput.EARPIECE, RingbackOutput.of(video = false, speakerOn = false, atEar = true))
+        assertEquals(RingbackOutput.LOUDSPEAKER, RingbackOutput.of(video = false, speakerOn = false, atEar = false))
+        assertEquals(RingbackOutput.LOUDSPEAKER, RingbackOutput.of(video = false, speakerOn = true, atEar = true))
+        assertEquals(RingbackOutput.LOUDSPEAKER, RingbackOutput.of(video = true, speakerOn = false, atEar = true))
+        assertEquals(RingbackOutput.LOUDSPEAKER, RingbackOutput.of(video = true, speakerOn = true, atEar = false))
+        // AudioManager's constants: the voice-call stream (0) is the
+        // earpiece, the media stream (3) the loudspeaker or what is connected.
+        val earpiece = RingbackOutput.sound(RingbackOutput.EARPIECE, external = false)
+        val loudspeaker = RingbackOutput.sound(RingbackOutput.LOUDSPEAKER, external = false)
+        assertEquals(RingbackOutput.Sound(stream = 0, volume = RingbackOutput.QUIET), earpiece)
+        assertEquals(3, loudspeaker.stream)
+        assertTrue("much quieter at the ear", loudspeaker.volume - earpiece.volume >= 15)
+        assertEquals(70, RingbackOutput.QUIET) // The old ringback's level.
+        // A headset, Bluetooth or a car: the media stream, which goes there,
+        // at the ear's level, never the loudspeaker over it.
+        for (output in RingbackOutput.entries) {
+            assertEquals(RingbackOutput.Sound(stream = 3, volume = RingbackOutput.QUIET), RingbackOutput.sound(output, external = true))
+        }
+    }
+
+    @Test
+    fun `a Bluetooth device for calls only keeps the earpiece at the ear and the loudspeaker in front`() {
+        // A watch or a car kit on HFP, beside the phone's own outputs.
+        val scoOnly = listOf(
+            AudioDeviceInfo.TYPE_BUILTIN_EARPIECE,
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        )
+        val external = RingbackOutput.mediaGoesExternal(scoOnly)
+        assertFalse(external)
+        // At the ear: the voice-call stream, the earpiece.
+        assertEquals(
+            RingbackOutput.Sound(stream = 0, volume = RingbackOutput.QUIET),
+            RingbackOutput.sound(RingbackOutput.of(video = false, speakerOn = false, atEar = true), external),
+        )
+        // In front of the face: the loudspeaker, at its level.
+        assertEquals(
+            RingbackOutput.Sound(stream = 3, volume = RingbackOutput.LOUD),
+            RingbackOutput.sound(RingbackOutput.of(video = false, speakerOn = false, atEar = false), external),
+        )
+        // Bluetooth media too: the tone goes there.
+        assertTrue(RingbackOutput.mediaGoesExternal(scoOnly + AudioDeviceInfo.TYPE_BLUETOOTH_A2DP))
+    }
+
+    @Test
+    fun `only the phone's own earpiece and loudspeaker are built in`() {
+        assertFalse(RingbackOutput.isExternal(AudioDeviceInfo.TYPE_BUILTIN_EARPIECE))
+        assertFalse(RingbackOutput.isExternal(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER))
+        val connected = listOf(
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+            AudioDeviceInfo.TYPE_BLE_HEADSET,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_HEARING_AID,
+        )
+        for (type in connected) {
+            assertTrue("type $type", RingbackOutput.isExternal(type))
+        }
+        // Outputs some phones list at all times keep the loudspeaker, and
+        // Bluetooth for calls only (HFP/SCO), which media never takes before
+        // the room exists.
+        for (type in listOf(AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_TELEPHONY, AudioDeviceInfo.TYPE_BUS, AudioDeviceInfo.TYPE_IP, AudioDeviceInfo.TYPE_REMOTE_SUBMIX)) {
+            assertFalse("type $type", RingbackOutput.isExternal(type))
+        }
+    }
+
+    @Test
+    fun `a proximity reading is near only close to the glass`() {
+        // Binary sensors: 0 near, their maximum range far.
+        assertTrue(isNear(0f, 1f))
+        assertFalse(isNear(1f, 1f))
+        assertTrue(isNear(0f, 5f))
+        assertFalse(isNear(5f, 5f))
+        // Centimetre sensors.
+        assertTrue(isNear(3f, 10f))
+        assertFalse(isNear(8f, 10f))
+    }
+
+    // MARK: - One end signal (owner, 2026-11-05: "two end screens")
+
+    @Test
+    fun `a ring cancelled under its screen ends silently, for the missed call to say`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, role = TeamCallRole.CALLEE))
+        val call = session(api)
+        call.ringing()
+        runCurrent()
+
+        nudges.tryEmit(TeamCallNudge.RingStopped(CALL, TeamCallCancel.Reason.CANCELLED))
+        runCurrent()
+
+        val end = call.phase.value as TeamCallPhase.Ended
+        assertEquals(TeamCallEnd.CANCELLED, end.end)
+        assertTrue(end.silent)
+        assertEquals(0L, end.closesAfterMs)
+    }
+
+    @Test
+    fun `a ring missed under its screen ends silently`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, role = TeamCallRole.CALLEE))
+        val call = session(api)
+        call.ringing()
+        runCurrent()
+
+        api.reads += serverCall(TeamCallState.MISSED, role = TeamCallRole.CALLEE, outcome = TeamCallOutcome.MISSED)
+        poll()
+
+        val end = call.phase.value as TeamCallPhase.Ended
+        assertEquals(TeamCallEnd.MISSED, end.end)
+        assertTrue(end.silent)
+    }
+
+    @Test
+    fun `a ring that runs out with no word from the server ends silently as missed`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, role = TeamCallRole.CALLEE))
+        val call = session(api)
+        call.ringing()
+        runCurrent()
+
+        now = START.plusSeconds(61)
+        poll()
+
+        val end = call.phase.value as TeamCallPhase.Ended
+        assertEquals(TeamCallEnd.MISSED, end.end)
+        assertTrue(end.silent)
+    }
+
+    @Test
+    fun `declined from the notification with its screen open, the screen closes at once`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, role = TeamCallRole.CALLEE))
+        val call = session(api)
+        call.ringing()
+        runCurrent()
+
+        nudges.tryEmit(TeamCallNudge.DeclinedHere(CALL))
+        runCurrent()
+
+        assertEquals(0L, call.phase.value.closesAfterMs)
+    }
+
+    @Test
+    fun `what only the screen can say stays a moment, then closes on its own`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, role = TeamCallRole.CALLEE))
+        val call = session(api)
+        call.ringing()
+        runCurrent()
+
+        api.reads += serverCall(TeamCallState.CONNECTING, role = TeamCallRole.CALLEE, answeredDeviceId = "ios-1")
+        poll()
+
+        val end = call.phase.value as TeamCallPhase.Ended
+        assertEquals(TeamCallEnd.ANSWERED_ELSEWHERE, end.end)
+        assertFalse(end.silent)
+        assertEquals(TeamCallPhase.ENDED_LINGER_MS, end.closesAfterMs)
+        assertEquals(2_000L, TeamCallPhase.ENDED_LINGER_MS)
+    }
+
+    @Test
+    fun `an answered call that ends is said, then closes on its own, on either side`() = runTest(dispatcher) {
+        val api = TeamApi(created = serverCall(TeamCallState.RINGING, role = TeamCallRole.CALLEE))
+        val call = session(api)
+        call.ringing()
+        runCurrent()
+        call.answer()
+        runCurrent()
+        assertNull(call.phase.value.closesAfterMs)
+
+        call.hangUp()
+        runCurrent()
+        val end = call.phase.value as TeamCallPhase.Ended
+        assertEquals(TeamCallEnd.HUNG_UP, end.end)
+        assertFalse("hung up after the answer: not a ring", end.silent)
+        assertEquals(TeamCallPhase.ENDED_LINGER_MS, end.closesAfterMs)
+
+        // The caller's own cancel: a call placed here is never silent.
+        val placed = session(TeamApi(created = serverCall(TeamCallState.RINGING)))
+        placed.placing()
+        runCurrent()
+        placed.hangUp()
+        runCurrent()
+        assertFalse((placed.phase.value as TeamCallPhase.Ended).silent)
+    }
+
+    @Test
+    fun `which unanswered ends close the ring screen at once`() {
+        val atOnce = TeamCallEnd.entries.filter { TeamCallEnd.closesRingAtOnce(it) }.toSet()
+        assertEquals(setOf(TeamCallEnd.CANCELLED, TeamCallEnd.MISSED, TeamCallEnd.HUNG_UP), atOnce)
     }
 
     /** The member's own channel says the call moved: it is read at once, not at the next tick. */

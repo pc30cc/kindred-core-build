@@ -59,6 +59,46 @@ final class TeamCallTests: XCTestCase {
         XCTAssertEqual(expires.timeIntervalSince(created), 45, accuracy: 0.001)
     }
 
+    /// `rang_at`: nil until a phone of the callee's says it rings, and absent
+    /// on a server that does not send it yet — the caller's phone then stays
+    /// on "Calling…" with no ringback, never on "Ringing…" too early.
+    func testRangAtIsReadAndMayBeAbsent() throws {
+        let rang = try decode(#"""
+        {"call": {"id": "c1", "workspace_id": "w1", "channel": "audio", "state": "ringing",
+          "role": "caller", "peer": {"user_id": "u2", "name": "Daniel"},
+          "created_at": "2026-11-01T10:00:00.000Z", "rang_at": "2026-11-01T10:00:01.500Z"}}
+        """#)
+        let created = try XCTUnwrap(rang.createdAt)
+        let rangAt = try XCTUnwrap(rang.rangAt)
+        XCTAssertEqual(rangAt.timeIntervalSince(created), 1.5, accuracy: 0.001)
+
+        let notYet = try decode(#"""
+        {"call": {"id": "c1", "workspace_id": "w1", "channel": "audio", "state": "ringing",
+          "role": "caller", "peer": {"user_id": "u2"}, "rang_at": null}}
+        """#)
+        XCTAssertNil(notYet.rangAt)
+
+        let older = try decode(#"""
+        {"call": {"id": "c1", "workspace_id": "w1", "channel": "audio", "state": "ringing",
+          "role": "caller", "peer": {"user_id": "u2"}}}
+        """#)
+        XCTAssertNil(older.rangAt)
+    }
+
+    /// The ringback is a playable WAV of one 3 s cycle, and loud: a tone
+    /// heard at arm's length, not a blip (owner, 2026-11-05).
+    func testTheRingbackToneIsAWaveFile() {
+        let wav = RingbackTone.wav
+        XCTAssertEqual(String(decoding: wav.prefix(4), as: UTF8.self), "RIFF")
+        XCTAssertEqual(String(decoding: wav.subdata(in: 8..<12), as: UTF8.self), "WAVE")
+        XCTAssertEqual(wav.count, 44 + Int(22_050 * 3.0) * 2)
+        let samples = wav.subdata(in: 44..<wav.count).withUnsafeBytes { Array($0.bindMemory(to: Int16.self)) }
+        let peak = samples.map { abs(Int($0)) }.max() ?? 0
+        XCTAssertGreaterThan(peak, 20_000, "near full scale")
+        let sounding = samples.filter { abs(Int($0)) > 3_000 }.count
+        XCTAssertGreaterThan(Double(sounding) / 22_050, 0.8, "most of a second and a half sounding, not short beeps")
+    }
+
     /// A value this build does not know never fails the whole answer: an
     /// unknown state is over, an unknown outcome a failure, an unknown
     /// channel a voice call — and a member without a name is "Colleague",
@@ -372,6 +412,18 @@ final class TeamCallTests: XCTestCase {
         XCTAssertTrue(answeredHere.isAnswered(on: me))
         XCTAssertFalse(answeredThere.isAnswered(on: me))
         XCTAssertFalse(call(state: .connecting, role: .caller, answeredDeviceID: me).isAnswered(on: me), "the caller answers nothing")
+    }
+
+    /// A ring here that ended unanswered shows one signal: cancelled and
+    /// missed leave the missed-call notification alone, a decline here
+    /// nothing; what only the screen can say stays on it a moment.
+    func testARingEndedUnansweredClosesItsScreenWhenSomethingElseSaysIt() {
+        XCTAssertTrue(TeamCallEnd.cancelled.closesRingAtOnce)
+        XCTAssertTrue(TeamCallEnd.missed.closesRingAtOnce)
+        XCTAssertTrue(TeamCallEnd.hungUp.closesRingAtOnce)
+        XCTAssertFalse(TeamCallEnd.answeredElsewhere.closesRingAtOnce)
+        XCTAssertFalse(TeamCallEnd.declinedElsewhere.closesRingAtOnce)
+        XCTAssertFalse(TeamCallEnd.failed.closesRingAtOnce)
     }
 
     func testEveryEndHasItsOwnLine() {

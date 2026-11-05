@@ -66,6 +66,25 @@ class Navigator internal constructor(
         minimised = screen
     }
 
+    /**
+     * Takes [screen] off its stack, wherever it is on it — a call's screen
+     * closing itself: Done, or on its own once the call is over. Unlike
+     * [back], never another screen: one that has come over the call since
+     * (another call's ring, say) stays. Nothing happens for a screen no
+     * longer there, so closing twice is closing once, and a tab's root is
+     * never closed.
+     */
+    fun close(screen: Screen): Boolean {
+        if (screen.isRoot()) return false
+        val stack = stack(screen.tab)
+        if (screen !in stack) return false
+        Snapshot.withMutableSnapshot {
+            if (screen == minimised) minimised = null
+            stack.remove(screen)
+        }
+        return true
+    }
+
     /** A minimised call that ended: off its stack, which ends its session too. */
     fun dropMinimised() {
         val screen = minimised ?: return

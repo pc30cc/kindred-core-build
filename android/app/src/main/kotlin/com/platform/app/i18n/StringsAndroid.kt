@@ -1037,4 +1037,64 @@ object StrAndroid {
         }
         else -> null
     }
+
+    // MARK: - Call screens (Android only: picture-in-picture, the in-app bubble, answer choices)
+
+    /** The call screen's minimise button, and what Back does during a call: the call goes on in a small window. */
+    fun callMinimise(l: Language): String = when (l) {
+        Language.EN -> "Minimise call"
+        Language.FA -> "کوچک کردن تماس"
+        Language.TR -> "Aramayı küçült"
+    }
+
+    /** The floating call bubble inside the app, tapped to open the call again. */
+    fun callReturn(l: Language): String = when (l) {
+        Language.EN -> "Return to call"
+        Language.FA -> "بازگشت به تماس"
+        Language.TR -> "Aramaya dön"
+    }
+
+    /** The label under the green button of a ringing video call. */
+    fun answerVideoShort(l: Language): String = when (l) {
+        Language.EN -> "Video"
+        Language.FA -> "تصویری"
+        Language.TR -> "Görüntülü"
+    }
+
+    /** What that button says to a screen reader. */
+    fun answerWithVideo(l: Language): String = when (l) {
+        Language.EN -> "Answer with video"
+        Language.FA -> "پاسخ با تصویر"
+        Language.TR -> "Görüntülü yanıtla"
+    }
+
+    /** The label under the button that answers a video call with the camera off. */
+    fun answerVoiceShort(l: Language): String = when (l) {
+        Language.EN -> "Audio only"
+        Language.FA -> "فقط صدا"
+        Language.TR -> "Yalnızca ses"
+    }
+
+    /** What that button says to a screen reader. */
+    fun answerWithVoiceOnly(l: Language): String = when (l) {
+        Language.EN -> "Answer with audio only"
+        Language.FA -> "پاسخ فقط با صدا"
+        Language.TR -> "Yalnızca sesle yanıtla"
+    }
+
+    // MARK: - Password fields
+
+    /** The eye at the end of a password field, while the password is hidden. */
+    fun showPassword(l: Language): String = when (l) {
+        Language.EN -> "Show password"
+        Language.FA -> "نمایش رمز عبور"
+        Language.TR -> "Şifreyi göster"
+    }
+
+    /** The same eye, while the password is shown. */
+    fun hidePassword(l: Language): String = when (l) {
+        Language.EN -> "Hide password"
+        Language.FA -> "پنهان کردن رمز عبور"
+        Language.TR -> "Şifreyi gizle"
+    }
 }

@@ -70,7 +70,8 @@ import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.platform.app.ui.components.PasswordEye
+import com.platform.app.ui.components.passwordTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
@@ -154,6 +155,8 @@ fun LoginScreen(
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    // The eye at the end of the field; hidden again with every new screen.
+    var passwordVisible by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var resetting by remember { mutableStateOf(false) }
@@ -278,10 +281,18 @@ fun LoginScreen(
                         onValueChange = { password = it },
                         label = { Text(Str.passwordLabel(language)) },
                         leadingIcon = { Icon(Icons.Outlined.Lock, contentDescription = null) },
+                        trailingIcon = {
+                            PasswordEye(
+                                visible = passwordVisible,
+                                onToggle = { passwordVisible = !passwordVisible },
+                                language = language,
+                                modifier = Modifier.testTag(A11y.LOGIN_PASSWORD_EYE),
+                            )
+                        },
                         singleLine = true,
                         shape = RoundedCornerShape(Radius.lg),
                         colors = filledFieldColors(),
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = passwordTransformation(passwordVisible),
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Password,
                             imeAction = ImeAction.Done,

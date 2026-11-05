@@ -410,7 +410,15 @@ class SampleApi : ServerApi {
      * answers once, the way a team that is online would.
      */
     private val supportLock = Any()
-    private val supportStart: Instant = Instant.now().minusSeconds(3 * 86_400L)
+    // Noon (the phone's own time zone, which day headers use), three days
+    // ago: the conversation's messages, minutes apart, always fall on one
+    // day whatever the time the app or a test starts — from "now" they
+    // straddled midnight for a test run just before it.
+    private val supportStart: Instant = java.time.ZonedDateTime.now()
+        .minusDays(3)
+        .truncatedTo(java.time.temporal.ChronoUnit.DAYS)
+        .withHour(12)
+        .toInstant()
     private val supportConversations = mutableListOf(
         SupportConversation(
             id = "sc-1",

@@ -32,6 +32,7 @@ import com.platform.app.core.push.CallNotifications
 import com.platform.app.core.push.CallerFace
 import com.platform.app.core.push.FirebasePushTokens
 import com.platform.app.core.push.IncomingCallRouter
+import com.platform.app.core.push.TeamCallRangReporter
 import com.platform.app.core.push.Notifications
 import com.platform.app.core.model.MobileAppConfig
 import com.platform.app.core.push.PushConfig
@@ -249,6 +250,17 @@ class AppGraph(private val app: Application) {
     fun hangUpCallFromNotification(callKey: String): Boolean =
         _callHangUps.subscriptionCount.value > 0 && _callHangUps.tryEmit(callKey)
 
+    /** The calls on this phone, for their picture-in-picture window and in-app bubble. */
+    val activeCalls = com.platform.app.feature.call.ActiveCalls()
+
+    /** `POST rang` for a colleague's ring, once per call: see [TeamCallRangReporter]. */
+    val teamCallRang = TeamCallRangReporter(
+        send = { callId, deviceId -> api.teamCallRang(callId, deviceId) },
+        deviceId = { push.deviceId() },
+        scope = appScope,
+        diag = diag,
+    )
+
     /**
      * Call-centre rings, and colleagues', which arrive whatever state the
      * app is in: the signed-in check and the language come from storage,
@@ -263,7 +275,9 @@ class AppGraph(private val app: Application) {
             _callCancels.tryEmit(cancel)
         },
         ringColleague = { ring, language ->
-            CallNotifications.showTeamIncoming(app, ring, language, CallerFace.photo(app, ring.callerAvatarUrl))
+            val posted = CallNotifications.showTeamIncoming(app, ring, language, CallerFace.photo(app, ring.callerAvatarUrl))
+            // This phone is ringing now: the caller's "Calling…" becomes "Ringing…".
+            if (posted) teamCallRang.report(ring.callId)
         },
         stopColleague = { cancel, language ->
             CallNotifications.stopTeam(app, cancel.callId, cancel.reason.missed, language)

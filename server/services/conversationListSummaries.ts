@@ -136,6 +136,10 @@ async function readFromRpc(
     }
     return null;
   }
+  // The function answers a row for every listed conversation of the
+  // workspace; none at all for listed ids is no answer (a stand-in that
+  // knows no such function), never "they are all empty".
+  if (data.length === 0) return null;
   const readerLocale = await localeP;
   const out: ListSummaries = {
     source: 'rpc', lastByConv: {}, byConv: {}, unreadByConv: {}, handledBy: {}, needsReplyByConv: {}, waitingSinceByConv: {},

@@ -36,7 +36,7 @@ import type { OperatorEventPayload } from '@/realtime/types';
 import { rtDebug, rtWarn } from '@/realtime/debug';
 import { invalidateThrottled } from '@/realtime/invalidationThrottle';
 import { refreshConversations } from '@/hooks/inboxListCache';
-import { applySeenToThread } from '@/hooks/useConversations';
+import { applyReactionsToThread, applySeenToThread } from '@/hooks/useConversations';
 
 /**
  * The open thread's message list is small and latency-visible, so its burst
@@ -105,9 +105,12 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
         // Phase 2 — operator AI suggestion card refresh
         invalidateThrottled(queryClient, ['ai-agent', 'conv-suggestions', conversationId]);
       } else if (kind === 'message_reactions') {
-        // A reaction (the visitor's, or a teammate's): the thread re-reads
-        // its messages, where each carries its reactions as this operator
-        // sees them. The list shows none, so it stays as it is.
+        // A reaction (the visitor's, or a teammate's): its counts are put on
+        // the message held (an older page's too, which the refresh below
+        // does not read again), and the thread re-reads its newest page,
+        // where each message carries its reactions as this operator sees
+        // them. The list shows none, so it stays as it is.
+        applyReactionsToThread(queryClient, conversationId, payload as unknown as Record<string, unknown>);
         invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
       }
       handlersRef.current.onEvent?.(payload);

@@ -312,14 +312,16 @@ export function useConversationMessages(conversationId: string | undefined) {
     enabled: false,
     staleTime: Infinity,
   });
-  const [loadingOlder, setLoadingOlder] = useState(false);
-  const busy = useRef(false);
+  // Per conversation: a page still loading for the thread left behind
+  // never blocks the one opened now.
+  const [loadingFor, setLoadingFor] = useState<string | null>(null);
+  const busy = useRef(new Set<string>());
   /** `beforeApply` runs right before the page is written (e.g. to keep the scroll position). */
   const loadOlder = useCallback(async (beforeApply?: () => void): Promise<boolean> => {
     const cid = conversationId;
-    if (!cid || busy.current) return false;
-    busy.current = true;
-    setLoadingOlder(true);
+    if (!cid || busy.current.has(cid)) return false;
+    busy.current.add(cid);
+    setLoadingFor(cid);
     try {
       for (let hop = 0; hop < 5; hop++) {
         const cursor = qc.getQueryData<ThreadCursor | null>(threadOlderKey(cid));
@@ -349,11 +351,37 @@ export function useConversationMessages(conversationId: string | undefined) {
       console.warn('[messages] older page failed', err);
       return false;
     } finally {
-      busy.current = false;
-      setLoadingOlder(false);
+      busy.current.delete(cid);
+      setLoadingFor((now) => (now === cid ? null : now));
     }
   }, [qc, conversationId]);
-  return { ...query, hasOlder: !!older, loadingOlder, loadOlder };
+  return { ...query, hasOlder: !!older, loadingOlder: !!conversationId && loadingFor === conversationId, loadOlder };
+}
+
+/**
+ * A message's new reactions (the `message_reactions` operator event: counts
+ * and whether the visitor gave each, never who) patched into the open
+ * thread. A refresh reads only the newest page again, so a message of an
+ * older page the operator loaded would otherwise keep its old reactions.
+ * `mine` is kept from the row's own list for an emoji still there (the event
+ * cannot tell); the operator's own toggle answers with the full summary.
+ */
+export function applyReactionsToThread(qc: QueryClient, conversationId: string, payload: Record<string, unknown> | null | undefined): boolean {
+  const messageId = typeof payload?.message_id === 'string' ? payload.message_id : null;
+  const list = Array.isArray(payload?.reactions) ? payload!.reactions : null;
+  if (!messageId || !list) return false;
+  let found = false;
+  qc.setQueryData<ConversationMessageWithAttachment[]>(['messages', conversationId], (rows) => rows?.map((row) => {
+    if (row.id !== messageId) return row;
+    found = true;
+    const mineBefore = new Map((row.reactions || []).map((r) => [r.emoji, !!r.mine]));
+    const next: MessageReaction[] = list
+      .filter((r): r is { emoji: string; count: number; visitor?: boolean } =>
+        !!r && typeof (r as { emoji?: unknown }).emoji === 'string' && Number((r as { count?: unknown }).count) > 0)
+      .map((r) => ({ emoji: r.emoji, count: Math.floor(Number(r.count)), visitor: !!r.visitor, mine: mineBefore.get(r.emoji) ?? false }));
+    return { ...row, reactions: next.length ? next : undefined };
+  }));
+  return found;
 }
 
 /**

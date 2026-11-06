@@ -125,6 +125,8 @@ AS $fn_list_summaries$
             ORDER BY m.created_at DESC, m.id DESC
             LIMIT 1)) AS v
          WHERE l.status = 'open'
+        -- OFFSET 0: computed once, not again for each field read below.
+        OFFSET 0
       ) vt0 ON true
       CROSS JOIN LATERAL (SELECT (vt0.v).created_at, (vt0.v).id) vt
       LEFT JOIN LATERAL (
@@ -148,11 +150,13 @@ AS $fn_list_summaries$
                   ORDER BY m.created_at DESC, m.id DESC
                   LIMIT 1)) AS r
                 FROM (VALUES ('agent'::public.sender_type), ('ai'::public.sender_type)) AS st(sender_type)
+               OFFSET 0
             ) y CROSS JOIN LATERAL (SELECT (y.r).created_at, (y.r).id) x
            WHERE x.created_at IS NOT NULL
            ORDER BY x.created_at DESC, x.id DESC
            LIMIT 1) AS t
          WHERE l.status = 'open'
+        OFFSET 0
       ) tt0 ON true
       CROSS JOIN LATERAL (SELECT (tt0.t).created_at, (tt0.t).id) tt
   )

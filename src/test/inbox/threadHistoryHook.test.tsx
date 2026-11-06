@@ -19,7 +19,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { compareThreadRows, THREAD_PAGE_SIZE } from '@/lib/threadPages';
 
-const { useConversationMessages } = await import('@/hooks/useConversations');
+const { useConversationMessages, applyReactionsToThread } = await import('@/hooks/useConversations');
 
 const CID = '22222222-2222-4222-8222-222222222222';
 type Row = { id: string; conversation_id: string; sender_type: string; body: string; created_at: string };
@@ -61,7 +61,7 @@ afterEach(() => { vi.unstubAllGlobals(); });
 function mount() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client: qc }, children);
-  const hook = renderHook(() => useConversationMessages(CID), { wrapper });
+  const hook = renderHook(({ cid }: { cid: string }) => useConversationMessages(cid), { wrapper, initialProps: { cid: CID } });
   return { qc, hook };
 }
 const bodies = (rows: Row[] | undefined) => (rows || []).map((r) => Number(r.body.slice(1)));
@@ -105,6 +105,53 @@ describe('useConversationMessages: the thread page by page', () => {
     });
     await waitFor(() => expect(bodies(hook.result.current.data as Row[])).toContain(250));
     expect(bodies(hook.result.current.data as Row[])).toEqual(range(50, 250));
+  });
+
+  it('a page still loading for the thread left behind never blocks the one opened now', async () => {
+    const OTHER = '33333333-3333-4333-8333-333333333333';
+    const { hook } = mount();
+    await waitFor(() => expect(hook.result.current.data?.length).toBe(THREAD_PAGE_SIZE));
+    // The older page of the first thread is slow.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(String(input), 'http://localhost');
+      if (url.pathname.includes(CID) && url.searchParams.get('before')) await gate;
+      if (url.pathname.includes(OTHER)) {
+        // The other thread: the same 250 rows under its id.
+        const body = serve(url);
+        return new Response(JSON.stringify({ ...body, messages: body.messages.map((m) => ({ ...m, conversation_id: OTHER })), sync: null }), { status: 200 });
+      }
+      return (realFetch as (i: string, n?: RequestInit) => Promise<Response>)(input, init);
+    }));
+    let first!: Promise<boolean>;
+    act(() => { first = hook.result.current.loadOlder(); });
+    await waitFor(() => expect(hook.result.current.loadingOlder).toBe(true));
+    hook.rerender({ cid: OTHER });
+    await waitFor(() => expect(hook.result.current.data?.length).toBe(THREAD_PAGE_SIZE));
+    expect(hook.result.current.loadingOlder).toBe(false);
+    await act(async () => { expect(await hook.result.current.loadOlder()).toBe(true); });
+    expect(hook.result.current.data?.length).toBe(2 * THREAD_PAGE_SIZE);
+    release();
+    await act(async () => { await first; });
+  });
+
+  it('a reaction on a message of an older page lands on it (the refresh reads only the newest page)', async () => {
+    const { qc, hook } = mount();
+    await waitFor(() => expect(hook.result.current.data?.length).toBe(THREAD_PAGE_SIZE));
+    await act(async () => { await hook.result.current.loadOlder(); });
+    const old = idOf(60);
+    act(() => {
+      applyReactionsToThread(qc, CID, { message_id: old, reactions: [{ emoji: '👍', count: 2, visitor: false }] });
+    });
+    const reactionsOf = () => (hook.result.current.data as Array<{ id: string; reactions?: unknown }>).find((r) => r.id === old)?.reactions;
+    await waitFor(() => expect(reactionsOf()).toEqual([{ emoji: '👍', count: 2, visitor: false, mine: false }]));
+    // Taken back: none left.
+    act(() => { applyReactionsToThread(qc, CID, { message_id: old, reactions: [] }); });
+    await waitFor(() => expect(reactionsOf()).toBeUndefined());
+    // A message the thread does not hold: nothing to do.
+    expect(applyReactionsToThread(qc, CID, { message_id: idOf(5), reactions: [] })).toBe(false);
   });
 
   it('more new messages than one page: the run starts again from the newest page, never with a hole', async () => {

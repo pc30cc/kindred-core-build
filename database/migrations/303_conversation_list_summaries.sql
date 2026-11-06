@@ -5,8 +5,9 @@
 -- the code that calls conversation_list_summaries(), per CLAUDE.md
 -- "Migrations": a dry run inside BEGIN … ROLLBACK first. RESPOK's migrator
 -- applies it on push. It only adds a function (and the row type its probes
--- use, public._cls_turn_at) and writes no data; a second run changes nothing. Until it is applied the list keeps its old window
--- (GET /api/conversations falls back on PGRST202 / 42883).
+-- use, public._cls_turn_at) and writes no data; a second run changes
+-- nothing. Until it is applied a list past the window keeps the window's
+-- partial summaries (GET /api/conversations falls back on PGRST202 / 42883).
 --
 -- GET /api/conversations (and GET /:id, the same rows) read ONE window of the
 -- 2000 newest messages of ALL the listed conversations together and took
@@ -18,9 +19,15 @@
 -- own could leave it), and waiting_since drifted to the oldest visitor turn
 -- of the window instead of the start of the current wait.
 --
--- conversation_list_summaries(workspace, ids) answers one row per listed
--- conversation of that workspace, each read on its own with the indexes the
--- table has (no new index):
+-- The route still reads the window first: while it holds every message of
+-- the listed conversations (fewer than 2000 together) its summaries are
+-- exact. Past it, conversation_list_summaries(workspace, ids) answers one
+-- row per listed conversation of that workspace, each read on its own with
+-- the indexes the table has (no new index). Every turn below classifies the
+-- newest (or first) 3 rows of its kind in index order, and every row only
+-- when none of them is a turn: the planner cannot tell how many rows are
+-- turns, and classifying every row first had it read and sort a busy
+-- conversation whole (measured: 77 of 85 ms on a 20 000-message thread).
 --   last_*        the newest message of any sender that is not a channel
 --                 menu tap (both markers, as inboxUnread.ts isChannelMenuEvent):
 --                 one ordered probe per sender type on

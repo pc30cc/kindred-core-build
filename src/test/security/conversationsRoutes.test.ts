@@ -478,6 +478,32 @@ describe('GET /api/conversations — inbox list, queue filtering', () => {
     expect(rows.find((r) => r.id === aiNoMarkers)?.last_message).toBeNull();
   });
 
+  it('the window (before 303): a customer who writes again after an answer is owed, from the new turn', async () => {
+    const open = (id: string, updatedAt: string) => ({
+      id, workspace_id: WS, status: 'open', is_spam: false, ai_state: null, assigned_to: null, metadata: {}, updated_at: updatedAt,
+    });
+    const msg = (cid: string, sender: string, at: string, body = 'x') => ({
+      id: crypto.randomUUID(), conversation_id: cid, sender_type: sender, sender_id: sender === 'agent' ? MEMBER : null,
+      body, created_at: at, seen_at: at, metadata: {},
+    });
+    const again = crypto.randomUUID();
+    const answered = crypto.randomUUID();
+    db.conversations.push(open(again, '2026-03-01T00:10:00Z'), open(answered, '2026-03-01T00:09:00Z'));
+    db.conversation_messages.push(
+      msg(again, 'contact', '2026-03-01T00:00:00.000Z', 'C1'),
+      msg(again, 'agent', '2026-03-01T00:01:00.000Z', 'A1'),
+      msg(again, 'contact', '2026-03-01T00:02:00.000Z', 'C2'),
+      msg(again, 'contact', '2026-03-01T00:03:00.000Z', 'C3'),
+      msg(answered, 'contact', '2026-03-01T00:00:00.000Z', 'C1'),
+      msg(answered, 'agent', '2026-03-01T00:01:00.000Z', 'A1'),
+    );
+    const res = await call('GET', `/api/conversations?workspace_id=${WS}&queue=main`, { token: 'member-token' });
+    expect(res.status).toBe(200);
+    const rows = res.json.conversations as Array<{ id: string; needs_reply: boolean; waiting_since: string | null }>;
+    expect(rows.find((r) => r.id === again)).toMatchObject({ needs_reply: true, waiting_since: '2026-03-01T00:02:00.000Z' });
+    expect(rows.find((r) => r.id === answered)).toMatchObject({ needs_reply: false, waiting_since: null });
+  });
+
   it('rejects a non-member (tenant isolation)', async () => {
     const res = await call('GET', `/api/conversations?workspace_id=${WS}&queue=main`, { token: 'outsider-token' });
     expect(res.status).toBe(403);

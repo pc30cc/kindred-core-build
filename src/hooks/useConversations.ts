@@ -292,6 +292,14 @@ export function useConversationMessages(conversationId: string | undefined) {
     queryKey: ['messages', conversationId],
     queryFn: async ({ signal }) => {
       const page = await conversationsApi.getMessages(conversationId!, { limit: THREAD_PAGE_SIZE, signal });
+      // A page can hold nothing visible (Telegram menu taps the server hides)
+      // while earlier messages exist: read past it, a few pages at most, so a
+      // thread never opens empty. The pages read form one run with `older`.
+      for (let hop = 0; hop < 4 && page.messages.length === 0 && page.older; hop++) {
+        const before = await conversationsApi.getMessages(conversationId!, { limit: THREAD_PAGE_SIZE, before: page.older, signal });
+        page.messages = before.messages;
+        page.older = before.older;
+      }
       // The run held NOW (an older page may have landed while this read was out).
       const held = qc.getQueryData<ThreadMessage[]>(['messages', conversationId]);
       const heldOlder = qc.getQueryData<ThreadCursor | null>(threadOlderKey(conversationId));

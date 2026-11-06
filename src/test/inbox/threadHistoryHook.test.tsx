@@ -154,6 +154,20 @@ describe('useConversationMessages: the thread page by page', () => {
     expect(applyReactionsToThread(qc, CID, { message_id: idOf(5), reactions: [] })).toBe(false);
   });
 
+  it('a newest page with nothing visible (hidden menu taps) is read past: the thread never opens empty', async () => {
+    // The server hides the newest 120 rows (menu taps): its newest page answers none of them.
+    const hidden = new Set(thread.slice(-120).map((r) => r.id));
+    vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+      const url = new URL(String(input), 'http://localhost');
+      const body = serve(url);
+      return new Response(JSON.stringify({ ...body, messages: body.messages.filter((m) => !hidden.has(m.id)), sync: null }), { status: 200 });
+    }));
+    const { hook } = mount();
+    await waitFor(() => expect((hook.result.current.data || []).length).toBeGreaterThan(0));
+    expect(bodies(hook.result.current.data as Row[])).toEqual(range(50, 129));
+    expect(hook.result.current.hasOlder).toBe(true);
+  });
+
   it('more new messages than one page: the run starts again from the newest page, never with a hole', async () => {
     const { qc, hook } = mount();
     await waitFor(() => expect(hook.result.current.data?.length).toBe(THREAD_PAGE_SIZE));

@@ -183,8 +183,8 @@ import { emailVisitorTranscript, transcriptAvailability } from '../services/visi
 import {
   REACTIONS_MIGRATION_REQUIRED,
   publishMessageReactions,
-  readConversationReactions,
   readMessageReactions,
+  readWidgetThreadReactions,
   setMessageReaction,
 } from '../services/messageReactions.js';
 import { readQueueStatus, routeHumanBoundConversation, routeOfflineCapture } from '../services/chatRouting.js';
@@ -1644,7 +1644,9 @@ widgetRouter.get('/conversations/:id/reactions', widgetRateLimit('poll'), async 
     res.set('Cache-Control', 'no-store');
     // Taken before the read: a later `at` always saw every earlier write.
     const at = Date.now();
-    const { byMessage } = await readConversationReactions(getServiceClient(config), thread.conversationId, { type: 'visitor' });
+    // The thread's newest messages (all the widget can hold), every one of
+    // their reactions.
+    const { byMessage } = await readWidgetThreadReactions(getServiceClient(config), thread.conversationId, { type: 'visitor' });
     const reactions: Record<string, ReturnType<typeof visitorReactionList>> = {};
     for (const [messageId, list] of byMessage) reactions[messageId] = visitorReactionList(list);
     return res.json({ reactions, at });

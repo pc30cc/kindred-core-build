@@ -255,9 +255,9 @@ describe('GET …/messages: reactions and can_react', () => {
     message(cid, 'system', { metadata: { kind: 'routing_agent_joined' } });
     const plain = message(cid, 'contact');
     state.db.tables.conversation_message_reactions = [
-      { message_id: visitorMsg, conversation_id: cid, workspace_id: WS, actor_type: 'operator', actor_id: ALI, emoji: '🙏', created_at: '1' },
-      { message_id: visitorMsg, conversation_id: cid, workspace_id: WS, actor_type: 'operator', actor_id: SARA, emoji: '🙏', created_at: '2' },
-      { message_id: reply, conversation_id: cid, workspace_id: WS, actor_type: 'visitor', actor_id: null, emoji: HEART, created_at: '3' },
+      { id: 'r1', message_id: visitorMsg, conversation_id: cid, workspace_id: WS, actor_type: 'operator', actor_id: ALI, emoji: '🙏', created_at: '1' },
+      { id: 'r2', message_id: visitorMsg, conversation_id: cid, workspace_id: WS, actor_type: 'operator', actor_id: SARA, emoji: '🙏', created_at: '2' },
+      { id: 'r3', message_id: reply, conversation_id: cid, workspace_id: WS, actor_type: 'visitor', actor_id: null, emoji: HEART, created_at: '3' },
     ];
     const list = await thread(cid);
     const byId = Object.fromEntries(list.map((m) => [m.id, m]));

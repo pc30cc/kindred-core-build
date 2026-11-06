@@ -81,8 +81,8 @@ import { isActionableCustomerTurn, isQualifiedCustomerFacingAnswer, type NeedsRe
 import {
   REACTIONS_MIGRATION_REQUIRED,
   publishMessageReactions,
-  readConversationReactions,
   readMessageReactions,
+  readMessagesReactions,
   setMessageReaction,
   workspaceShowsReactions,
   type ConversationReactions,
@@ -2414,13 +2414,11 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
     if (!auth) return;
     if (await refuseLockedConversation(res, config, conv.workspace_id, conv)) return;
 
-    // Reactions (a widget conversation only: no other channel has them), read
-    // alongside the thread. `can_react` marks the visitor's messages an
-    // operator may react to: only where the visitor sees reactions.
+    // Reactions (a widget conversation only: no other channel has them) are
+    // read for the messages this answer carries, below. `can_react` marks
+    // the visitor's messages an operator may react to: only where the
+    // visitor sees reactions.
     const widgetThread = isWidgetChannel((conv as { channel?: string | null }).channel);
-    const reactionsP: Promise<ConversationReactions | null> = widgetThread
-      ? readConversationReactions(sb, conversationId, { type: 'operator', userId: auth.userId })
-      : Promise.resolve(null);
     const reactionsShownP = widgetThread ? workspaceShowsReactions(config, conv.workspace_id) : Promise.resolve(false);
     // System rows' bodies go out in this operator's language (below).
     const readerLocaleP = operatorLocale(config, auth.userId);
@@ -2495,6 +2493,11 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       const aid = m?.metadata?.attachment_id;
       if (typeof aid === 'string') fromMeta.add(aid);
     }
+    // Every reaction of exactly these messages (the page, the older page or
+    // the delta), alongside the attachments and profiles reads.
+    const reactionsP: Promise<ConversationReactions | null> = widgetThread && ids.size
+      ? readMessagesReactions(sb, conversationId, ids, { type: 'operator', userId: auth.userId })
+      : Promise.resolve(null);
     const attMap: Record<string, MessageAttachment> = {};
     // A single inbound channel message can carry SEVERAL media parts
     // (WhatsApp album, Telegram document + caption, …) so this is a list.

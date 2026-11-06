@@ -10,7 +10,7 @@
  *      cluster lease, re-read the state and decide again under it, then
  *      persist.
  *   5. If a transition occurred, write an audit row into
- *      `realtime_provider_audit` and invalidate the publisher cache so the
+ *      `realtime_provider_audit` and publish the 'realtime' cache-bus scope so the
  *      resolver immediately picks up the new effective provider.
  *
  * Steps 1-3 are read-only and decideFailover() is pure, so they need no
@@ -29,13 +29,12 @@ import { evaluateProviderHealth, type HealthSnapshot } from './failoverHealth.js
 import {
   loadFailoverState,
   saveFailoverState,
-  invalidateFailoverStateCache,
   needsFailoverPersist,
   rememberFailoverState,
 } from './failoverState.js';
 import { decideFailover } from './failoverEngine.js';
 import { recordRealtimeProviderAudit } from './providerAudit.js';
-import { invalidatePublisherCache } from './resolvePublisher.js';
+import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 import { emitLog } from '../observability/metrics.js';
 import { acquireTickerLease, releaseTickerLease } from '../observability/tickerLease.js';
 
@@ -129,10 +128,10 @@ async function commitUnderLease(config: ServerConfig, health: HealthSnapshot): P
           error: err?.message || 'unknown',
         });
       }
-      // Force the publisher cache to refresh so the next /connect call
-      // resolves to the new provider immediately.
-      invalidatePublisherCache();
-      invalidateFailoverStateCache();
+      // Force the publisher and failover-state caches to refresh so the next
+      // /connect call resolves to the new provider immediately, in every
+      // backend process (the cache bus's 'realtime' scope), not only this one.
+      publishCacheInvalidation(['realtime']);
       emitLog(config, 'info', 'realtime_failover_transition', {
         kind: t.kind,
         from: t.from_provider,

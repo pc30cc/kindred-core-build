@@ -12,6 +12,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { onInvalidate, publishCacheInvalidation } from '../../lib/cacheBus.js';
 
 const RUNTIME_KEY = 'call_agora_config';
 const CACHE_TTL_MS = 30_000;
@@ -56,6 +57,9 @@ export function invalidateAgoraConfigCache(): void {
   cache = null;
 }
 
+// Saved in another backend process: the cache bus's 'calls' scope.
+onInvalidate('calls', (key) => { if (key === null) invalidateAgoraConfigCache(); });
+
 export async function loadAgoraConfig(
   config: ServerConfig,
   forceRefresh = false,
@@ -94,11 +98,11 @@ export async function saveAgoraConfig(
   const { error } = await sb
     .from('app_runtime_config')
     .upsert(
-      { key: RUNTIME_KEY, value: merged as any, updated_at: new Date().toISOString() },
+      { key: RUNTIME_KEY, value: merged as unknown as Record<string, unknown>, updated_at: new Date().toISOString() },
       { onConflict: 'key' },
     );
   if (error) throw new Error(error.message);
-  invalidateAgoraConfigCache();
+  publishCacheInvalidation(['calls']);
   return merged;
 }
 

@@ -12,6 +12,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { onInvalidate, publishCacheInvalidation } from '../../lib/cacheBus.js';
 import { getRtcWsUrl, normalizeClientWsUrl } from './rtcResolver.js';
 
 const RUNTIME_KEY = 'call_livekit_config';
@@ -104,6 +105,9 @@ let cache: { value: LiveKitConfig; loadedAt: number } | null = null;
 export function invalidateLiveKitConfigCache(): void {
   cache = null;
 }
+
+// Saved in another backend process: the cache bus's 'calls' scope.
+onInvalidate('calls', (key) => { if (key === null) invalidateLiveKitConfigCache(); });
 
 function asString(v: unknown): string | null {
   if (typeof v !== 'string') return null;
@@ -257,7 +261,7 @@ export async function saveLiveKitConfig(
       { onConflict: 'key' },
     );
   if (error) throw new Error(error.message);
-  invalidateLiveKitConfigCache();
+  publishCacheInvalidation(['calls']);
   cache = { value: next, loadedAt: Date.now() };
   return next;
 }

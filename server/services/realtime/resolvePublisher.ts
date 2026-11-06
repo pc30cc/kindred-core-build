@@ -21,6 +21,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { supabaseServicesClient } from '../../db/index.js';
+import { onInvalidate } from '../../lib/cacheBus.js';
 import { getCentrifugoDriver, loadRealtimeConfig } from './index.js';
 import { CentrifugoPublisher } from './publishers/centrifugo.js';
 import { SupabaseRealtimePublisher } from './publishers/supabase.js';
@@ -44,6 +45,10 @@ export function invalidatePublisherCache(workspaceId?: string): void {
   if (workspaceId) cache.delete(workspaceId);
   else cache.clear();
 }
+
+// A provider change or a failover transition in any backend process (the
+// cache bus's 'realtime' scope; 'realtime:<workspace>' for one workspace).
+onInvalidate('realtime', (workspaceId) => invalidatePublisherCache(workspaceId ?? undefined));
 
 async function fetchWorkspaceOverride(
   config: ServerConfig,

@@ -10,8 +10,9 @@
  *   - Department member   → workspace_department_members row.
  *   - General Pool        → workspace_members NOT in any department.
  *
- * All resolvers are cached per workspace for 30s. Cache is invalidated
- * by mutation paths (admin endpoints) — not by this module.
+ * All resolvers are cached per workspace for 30s. Mutation paths (admin
+ * endpoints) publish 'calls:<workspace>' on the cache bus, and this module's
+ * handler drops the workspace's lookups in every backend process.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -21,6 +22,7 @@ import { resolveLockState } from '../billing/locks/state.js';
 import { isMemberLocked } from '../billing/locks/predicates.js';
 import { isRoutableChatRole } from '../../../shared/chatRoles.js';
 import { readWithColumnFallback } from '../../lib/missingColumn.js';
+import { onInvalidate } from '../../lib/cacheBus.js';
 
 export type DepartmentChannel = 'chat' | 'audio' | 'video';
 
@@ -65,6 +67,19 @@ export function invalidateDepartmentCache(workspaceId: string): void {
   // Department-member cache keyed by department_id — clear pessimistically.
   for (const k of Array.from(memberCache.keys())) memberCache.delete(k);
 }
+
+/** Every workspace's lookups (the cache bus's 'calls' and 'all'). */
+function clearAllDepartmentCaches(): void {
+  deptCache.clear();
+  memberCache.clear();
+  generalCache.clear();
+  fallbackCache.clear();
+  memberRowsCache.clear();
+}
+
+// Mutation routes publish 'calls:<workspace>' on the cache bus, so every
+// backend process drops the workspace's lookups, not only the one that saved.
+onInvalidate('calls', (workspaceId) => (workspaceId ? invalidateDepartmentCache(workspaceId) : clearAllDepartmentCaches()));
 
 /**
  * List all enabled departments for a workspace, in display order.

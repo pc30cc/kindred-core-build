@@ -30,7 +30,9 @@ import path from 'node:path';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { getMapGeoSettings, patchMapGeoSettings } from './settings.js';
-import { invalidateMaxmindReader, validateMmdbCandidate } from './maxmindLocal.js';
+import { validateMmdbCandidate } from './maxmindLocal.js';
+import { maxmindReaderScope } from './maxmindScope.js';
+import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 
 const LOCK_KEY = 'maxmind_update_lock';
 /** How long one updater run may hold the lease before another replica may steal it. */
@@ -92,7 +94,7 @@ async function acquireLease(config: ServerConfig): Promise<boolean> {
   if (!existing) {
     const { error } = await sb
       .from('app_runtime_config')
-      .insert({ key: LOCK_KEY, value: { lease_until: leaseUntil } as any });
+      .insert({ key: LOCK_KEY, value: { lease_until: leaseUntil } });
     // A concurrent replica may have inserted first — fall through to the
     // conditional update below, which will then correctly refuse.
     if (!error) return true;
@@ -101,7 +103,7 @@ async function acquireLease(config: ServerConfig): Promise<boolean> {
   // already expired. Two replicas racing here → exactly one gets a row back.
   const { data } = await sb
     .from('app_runtime_config')
-    .update({ value: { lease_until: leaseUntil } as any })
+    .update({ value: { lease_until: leaseUntil } })
     .eq('key', LOCK_KEY)
     .lt('value->>lease_until', now.toISOString())
     .select('key');
@@ -113,7 +115,7 @@ async function releaseLease(config: ServerConfig): Promise<void> {
     const sb = getServiceClient(config);
     await sb
       .from('app_runtime_config')
-      .update({ value: { lease_until: new Date(0).toISOString() } as any })
+      .update({ value: { lease_until: new Date(0).toISOString() } })
       .eq('key', LOCK_KEY);
   } catch { /* best effort */ }
 }
@@ -214,7 +216,9 @@ export async function runMaxmindUpdate(
     // Atomic swap — same directory, so rename(2) is a single inode flip. The
     // previous healthy DB is only ever unlinked *after* validation passed.
     await fs.rename(stagePath, dbPath);
-    invalidateMaxmindReader(dbPath);
+    // This file's reader, here at once and in every other backend process
+    // (the cache bus's `geo:<key of the file>`).
+    publishCacheInvalidation([maxmindReaderScope(dbPath)]);
 
     await patchMapGeoSettings(config, {
       maxmind_update: {
@@ -223,7 +227,7 @@ export async function runMaxmindUpdate(
         last_status: 'success',
         last_error: null,
       },
-    } as any);
+    });
     console.log('[geo:maxmind_update] database updated', { db_path: dbPath, size_bytes: mmdb.length });
     return { ok: true, status: 'updated', db_path: dbPath, size_bytes: mmdb.length };
   } catch (err) {
@@ -236,7 +240,7 @@ export async function runMaxmindUpdate(
         last_status: 'failed',
         last_error: reason,
       },
-    } as any).catch(() => {});
+    }).catch(() => {});
     console.warn('[geo:maxmind_update] update failed:', reason);
     return { ok: false, status: 'failed', reason };
   } finally {

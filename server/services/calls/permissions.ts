@@ -12,6 +12,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { onInvalidate } from '../../lib/cacheBus.js';
 
 export type CallPermissionKey =
   | 'can_start_audio_call'
@@ -33,6 +34,9 @@ export const ALL_CALL_PERMISSIONS: CallPermissionKey[] = [
   'can_join_queue_calls',
   'can_manage_call_queue',
 ];
+
+const isCallPermissionKey = (key: unknown): key is CallPermissionKey =>
+  (ALL_CALL_PERMISSIONS as readonly unknown[]).includes(key);
 
 export type RoleSlug = 'owner' | 'admin' | 'agent' | 'viewer';
 
@@ -63,6 +67,10 @@ export function invalidatePermissionCache(workspaceId?: string): void {
   }
 }
 
+// Writers publish 'calls:<workspace>' (or 'calls' for the platform defaults)
+// on the cache bus, so every backend process drops its copy.
+onInvalidate('calls', (workspaceId) => invalidatePermissionCache(workspaceId ?? undefined));
+
 /**
  * Resolve effective permissions for a single (workspace, role) pair.
  * Workspace rows override platform defaults; missing keys remain false.
@@ -87,14 +95,14 @@ export async function resolveRolePermissions(
   if (!error && Array.isArray(data)) {
     // Apply platform defaults first.
     for (const r of data) {
-      if (r.workspace_id === null && (ALL_CALL_PERMISSIONS as string[]).includes(r.permission_key)) {
-        (map as any)[r.permission_key] = !!r.granted;
+      if (r.workspace_id === null && isCallPermissionKey(r.permission_key)) {
+        map[r.permission_key] = !!r.granted;
       }
     }
     // Workspace rows override.
     for (const r of data) {
-      if (r.workspace_id === workspaceId && (ALL_CALL_PERMISSIONS as string[]).includes(r.permission_key)) {
-        (map as any)[r.permission_key] = !!r.granted;
+      if (r.workspace_id === workspaceId && isCallPermissionKey(r.permission_key)) {
+        map[r.permission_key] = !!r.granted;
       }
     }
   }

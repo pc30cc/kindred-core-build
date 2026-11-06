@@ -8,7 +8,7 @@
  * Effective state always = global AND workspace; the controlPlane
  * module owns that resolution so we never duplicate it here.
  */
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -18,19 +18,26 @@ import {
   saveWorkspaceCallOverrides,
   loadEffectiveCallChannels,
 } from '../services/calls/controlPlane.js';
-import {
-  ALL_CALL_PERMISSIONS,
-  invalidatePermissionCache,
-} from '../services/calls/permissions.js';
+import { ALL_CALL_PERMISSIONS } from '../services/calls/permissions.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const workspaceCallsRouter = Router();
 
 const ROLES = ['owner', 'admin', 'agent', 'viewer'] as const;
+type Role = (typeof ROLES)[number];
+const isRole = (value: string): value is Role => (ROLES as readonly string[]).includes(value);
+
+/** The server config index.ts puts on every request. */
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig: ServerConfig }).serverConfig;
+}
+
+const errorMessage = (err: unknown): string | undefined => (err instanceof Error ? err.message : undefined);
 
 async function requireWorkspaceAdmin(
-  req: any,
-  res: any,
+  req: Request,
+  res: Response,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
@@ -43,7 +50,7 @@ workspaceCallsRouter.get('/:workspaceId/settings', async (req, res) => {
   const { workspaceId } = req.params;
   const auth = await requireWorkspaceAdmin(req, res, workspaceId);
   if (!auth) return;
-  const config: ServerConfig = (req as any).serverConfig;
+  const config = serverConfigOf(req);
   const [overrides, global, effective] = await Promise.all([
     loadWorkspaceCallOverrides(config, workspaceId),
     loadCallControlPlane(config),
@@ -84,12 +91,12 @@ workspaceCallsRouter.put('/:workspaceId/settings', async (req, res) => {
   if (!auth) return;
   try {
     const patch = overridesSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config = serverConfigOf(req);
     const merged = await saveWorkspaceCallOverrides(config, workspaceId, patch);
     const effective = await loadEffectiveCallChannels(config, workspaceId);
     res.json({ overrides: merged, effective });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'update_failed' });
+  } catch (err) {
+    res.status(400).json({ error: errorMessage(err) || 'update_failed' });
   }
 });
 
@@ -100,7 +107,7 @@ workspaceCallsRouter.get('/:workspaceId/role-permissions', async (req, res) => {
   const { workspaceId } = req.params;
   const auth = await requireWorkspaceAdmin(req, res, workspaceId);
   if (!auth) return;
-  const config: ServerConfig = (req as any).serverConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('role_permissions')
@@ -120,7 +127,7 @@ workspaceCallsRouter.get('/:workspaceId/role-permissions', async (req, res) => {
   }
   for (const row of data ?? []) {
     if (!(ALL_CALL_PERMISSIONS as string[]).includes(row.permission_key)) continue;
-    if (!ROLES.includes(row.role_slug as any)) continue;
+    if (!isRole(row.role_slug)) continue;
     if (row.workspace_id === null) {
       platform[row.role_slug][row.permission_key] = !!row.granted;
     } else {
@@ -149,7 +156,7 @@ workspaceCallsRouter.put('/:workspaceId/role-permissions', async (req, res) => {
   if (!auth) return;
   try {
     const body = wsRolePermSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config = serverConfigOf(req);
     const sb = getServiceClient(config);
     // Always clear the existing override row first.
     const { error: delErr } = await sb
@@ -168,9 +175,9 @@ workspaceCallsRouter.put('/:workspaceId/role-permissions', async (req, res) => {
       });
       if (insErr) return res.status(500).json({ error: insErr.message });
     }
-    invalidatePermissionCache(workspaceId);
+    publishCacheInvalidation([`calls:${workspaceId}`]);
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'update_failed' });
+  } catch (err) {
+    res.status(400).json({ error: errorMessage(err) || 'update_failed' });
   }
 });

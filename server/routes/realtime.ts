@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { boundedArray } from '../lib/boundedZod.js';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import {
   resolveRealtimeProvider,
   loadRealtimeConfig,
@@ -22,7 +23,6 @@ import {
   maskedConfig,
   getCentrifugoDriver,
   CentrifugoDriver,
-  invalidateRealtimeCache,
   assignRealtimeEndpoint,
   listNodes,
   addNode,
@@ -1391,7 +1391,8 @@ realtimeRouter.get('/admin/audit', requireAdmin, async (req, res) => {
 });
 
 realtimeRouter.post('/admin/refresh', requireAdmin, (_req, res) => {
-  invalidateRealtimeCache();
+  // Every backend process, not only this one (the cache bus's 'realtime').
+  publishCacheInvalidation(['realtime']);
   invalidateNodeHealth();
   res.json({ ok: true });
 });

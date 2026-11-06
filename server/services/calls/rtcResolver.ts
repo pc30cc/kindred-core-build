@@ -18,6 +18,7 @@
 import { createHash } from 'node:crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { onInvalidate, publishCacheInvalidation } from '../../lib/cacheBus.js';
 import {
   PLUGIN_SECRET_ALGORITHM,
   decryptPluginSecret,
@@ -156,6 +157,11 @@ let cache: { value: CallRtcConfig; loadedAt: number } | null = null;
 export function invalidateRtcCache(): void {
   cache = null;
 }
+
+// A save in any backend process (another replica, another cluster worker)
+// reaches this one through the cache bus's 'calls' scope; 'calls:<ws>' is a
+// workspace's own call settings and leaves this platform-wide cache alone.
+onInvalidate('calls', (key) => { if (key === null) invalidateRtcCache(); });
 
 function stripTrailingSlash(s: string | null | undefined): string | null {
   if (!s) return null;
@@ -764,6 +770,6 @@ export async function saveRtcEndpoints(
       { onConflict: 'key' },
     );
   if (error) throw new Error(error.message);
-  invalidateRtcCache();
+  publishCacheInvalidation(['calls']);
   return { changed_fields: changed };
 }

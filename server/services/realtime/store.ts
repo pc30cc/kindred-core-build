@@ -8,7 +8,8 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { normalizeNodes, resolveDeploymentMode, type RealtimeProviderConfig } from './types.js';
+import { onInvalidate, publishCacheInvalidation } from '../../lib/cacheBus.js';
+import { normalizeNodes, resolveDeploymentMode, type CentrifugoConfig, type RealtimeProviderConfig } from './types.js';
 
 const CACHE_TTL_MS = 30_000;
 const RUNTIME_KEY = 'default_realtime_provider';
@@ -49,8 +50,7 @@ export async function loadRealtimeConfig(
   }
 
   // Stored shape from existing setGlobalDefaultProvider(): { provider_name, config }
-  const raw = data.value as { provider_name?: string; config?: Partial<RealtimeProviderConfig> & { centrifugo?: any } } | RealtimeProviderConfig;
-  const merged = normalize(raw);
+  const merged = normalize(data.value);
   cache = { value: merged, loadedAt: Date.now() };
   return merged;
 }
@@ -64,6 +64,12 @@ export function invalidateRealtimeCache(): void {
       /* noop — cache stays warm one extra cycle, harmless */
     });
 }
+
+// A save in any backend process (the cache bus's 'realtime' scope). The
+// publisher cache has its own handler on the same scope.
+onInvalidate('realtime', () => {
+  cache = null;
+});
 
 export async function saveRealtimeConfig(
   config: ServerConfig,
@@ -79,21 +85,20 @@ export async function saveRealtimeConfig(
     .from('app_runtime_config')
     .upsert({ key: RUNTIME_KEY, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
   if (error) throw new Error(error.message);
-  invalidateRealtimeCache();
+  publishCacheInvalidation(['realtime']);
 }
 
-function normalize(
-  raw: { provider_name?: string; config?: any } | RealtimeProviderConfig
-): RealtimeProviderConfig {
+function normalize(raw: unknown): RealtimeProviderConfig {
   // Two possible shapes:
   //   (a) modern: { vendor, enabled, fallback_policy, ... }
   //   (b) legacy: { provider_name, config: { ... } }
-  let src: any = raw;
-  if (src && 'provider_name' in src) {
-    src = { vendor: src.provider_name, ...(src.config || {}) };
+  let src = raw as Record<string, unknown> | null | undefined;
+  if (src && typeof src === 'object' && 'provider_name' in src) {
+    src = { vendor: src.provider_name, ...((src.config || {}) as Record<string, unknown>) };
   }
-  const vendor = (src?.vendor === 'centrifugo' || src?.vendor === 'supabase' || src?.vendor === 'disabled' || src?.vendor === 'polling_builtin')
-    ? src.vendor
+  const v = src?.vendor;
+  const vendor = (v === 'centrifugo' || v === 'supabase' || v === 'disabled' || v === 'polling_builtin')
+    ? v
     : 'polling_builtin';
   return {
     vendor,
@@ -110,8 +115,9 @@ function normalize(
  * and no `nodes` — it normalizes to `single_memory` with an empty registry,
  * so every existing installation keeps working with zero manual changes.
  */
-function normalizeCentrifugo(raw: any): RealtimeProviderConfig['centrifugo'] {
-  if (!raw || typeof raw !== 'object') return undefined;
+function normalizeCentrifugo(value: unknown): RealtimeProviderConfig['centrifugo'] {
+  if (!value || typeof value !== 'object') return undefined;
+  const raw = value as Partial<CentrifugoConfig>;
   const nodes = normalizeNodes(raw.nodes);
   return {
     ...raw,

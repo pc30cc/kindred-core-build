@@ -13,6 +13,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { onInvalidate, publishCacheInvalidation } from '../../lib/cacheBus.js';
 
 const RUNTIME_KEY = 'realtime_control_plane';
 const CACHE_TTL_MS = 30_000;
@@ -77,6 +78,9 @@ let cache: { value: RealtimeControlPlaneConfig; loadedAt: number } | null = null
 export function invalidateControlPlaneCache(): void {
   cache = null;
 }
+
+// Saved in another backend process: the cache bus's 'realtime' scope.
+onInvalidate('realtime', () => invalidateControlPlaneCache());
 
 function clampNumber(v: unknown, min: number, max: number, fallback: number): number {
   const n = typeof v === 'number' && Number.isFinite(v) ? v : Number(v);
@@ -196,7 +200,7 @@ export async function saveControlPlane(
       { onConflict: 'key' },
     );
   if (error) throw new Error(error.message);
-  invalidateControlPlaneCache();
+  publishCacheInvalidation(['realtime']);
   return normalized;
 }
 

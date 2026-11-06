@@ -10,7 +10,6 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import {
-  invalidateDepartmentCache,
   resolveDepartments,
   resolveGeneralPool,
   resolveWidgetVisibleDepartments,
@@ -104,7 +103,7 @@ workspaceDepartmentsRouter.post('/:workspaceId', async (req, res) => {
       .select()
       .single();
     if (error) return res.status(500).json({ error: error.message });
-    invalidateDepartmentCache(workspaceId);
+    publishCacheInvalidation([`calls:${workspaceId}`]);
     // The call widget bootstrap lists the departments (every process).
     publishCacheInvalidation([`widget:${workspaceId}`]);
     res.status(201).json({ department: data });
@@ -145,7 +144,7 @@ workspaceDepartmentsRouter.patch('/:workspaceId/:id', async (req, res) => {
       .select()
       .single();
     if (error) return res.status(500).json({ error: error.message });
-    invalidateDepartmentCache(workspaceId);
+    publishCacheInvalidation([`calls:${workspaceId}`]);
     publishCacheInvalidation([`widget:${workspaceId}`]);
     res.json({ department: data });
   } catch (err: unknown) {
@@ -166,7 +165,7 @@ workspaceDepartmentsRouter.delete('/:workspaceId/:id', async (req, res) => {
     .eq('id', id)
     .eq('workspace_id', workspaceId);
   if (error) return res.status(500).json({ error: error.message });
-  invalidateDepartmentCache(workspaceId);
+  publishCacheInvalidation([`calls:${workspaceId}`]);
   publishCacheInvalidation([`widget:${workspaceId}`]);
   res.json({ ok: true });
 });
@@ -323,7 +322,7 @@ workspaceDepartmentsRouter.put('/:workspaceId/:id/members', async (req, res) => 
         .insert(rows);
       if (insErr) return res.status(500).json({ error: insErr.message });
     }
-    invalidateDepartmentCache(workspaceId);
+    publishCacheInvalidation([`calls:${workspaceId}`]);
     res.json({ ok: true, count: body.user_ids.length });
   } catch (err: unknown) {
     res.status(400).json({ error: (err instanceof Error && err.message) || 'invalid_request' });

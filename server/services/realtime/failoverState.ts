@@ -11,6 +11,7 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { onInvalidate } from '../../lib/cacheBus.js';
 import type { RealtimeProviderId } from './controlPlane.js';
 
 export interface FailoverState {
@@ -85,6 +86,10 @@ function normalize(row: FailoverStateRow | null): FailoverState {
 export function invalidateFailoverStateCache(): void {
   cache = null;
 }
+
+// A failover transition committed by any backend process (the cache bus's
+// 'realtime' scope, published by failoverTicker.ts).
+onInvalidate('realtime', () => invalidateFailoverStateCache());
 
 export async function loadFailoverState(
   config: ServerConfig,

@@ -28,6 +28,7 @@ import {
 import { getRtcBaseUrl, getTurnConfig } from '../rtcResolver.js';
 import { normalizeRtcBaseUrl } from '../rtcResolver.js';
 import { loadLiveKitConfig, isMinimallyConfigured } from '../livekitConfig.js';
+import { onInvalidate } from '../../../lib/cacheBus.js';
 import { isMemberParticipantType, memberParticipantIdentity } from '../operatorIdentity.js';
 import {
   twirp,
@@ -156,6 +157,9 @@ let inflightProbe: Promise<LiveKitReadinessState> | null = null;
 export function invalidateLiveKitReadinessCache(): void {
   cachedReadiness = null;
 }
+
+// A LiveKit save in any backend process: the cache bus's 'calls' scope.
+onInvalidate('calls', (key) => { if (key === null) invalidateLiveKitReadinessCache(); });
 
 export async function getLiveKitReadinessState(
   config: ServerConfig,

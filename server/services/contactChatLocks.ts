@@ -21,6 +21,7 @@
  * read, nothing is locked and every route behaves exactly as before.
  */
 import type { ServerConfig } from '../config.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import {
   clearLockStateCache,
   resolveLockState,
@@ -134,8 +135,10 @@ export async function conversationLockedNow(
 
 /**
  * Forget the cached lock state after contacts are deleted: the slots they
- * free unlock the next contacts now rather than after the 60 s cache.
+ * free unlock the next contacts now rather than after the 60 s cache, here
+ * and in every other backend process ('entitlements:<ws>' on the cache bus).
  */
 export function forgetContactLocks(workspaceId: string): void {
   clearLockStateCache(workspaceId);
+  publishCacheInvalidation([`entitlements:${workspaceId}`]);
 }

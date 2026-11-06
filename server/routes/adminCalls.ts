@@ -11,12 +11,12 @@ import {
   saveCallControlPlane,
   type CallProviderId,
 } from '../services/calls/controlPlane.js';
-import { ALL_CALL_PERMISSIONS, invalidatePermissionCache } from '../services/calls/permissions.js';
+import { ALL_CALL_PERMISSIONS } from '../services/calls/permissions.js';
 import { getServiceClient } from '../supabase.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import {
   getCallNetworkBundle,
   saveRtcEndpoints,
-  invalidateRtcCache,
   turnSecretStatus,
 } from '../services/calls/rtcResolver.js';
 import {
@@ -49,7 +49,6 @@ import {
 import {
   probeLiveKitProvisioning,
   getLiveKitReadinessState,
-  invalidateLiveKitReadinessCache,
 } from '../services/calls/providers/livekitProvider.js';
 import { CallProviderNotReadyError } from '../services/calls/providers/types.js';
 import { CALL_PROVIDER_CLASSIFICATION } from '../services/calls/providers/types.js';
@@ -265,7 +264,8 @@ adminCallsRouter.put('/rtc-endpoints', async (req, res) => {
   } catch (err) {
     return res.status(400).json({ error: describeRtcRefusal(err) });
   }
-  invalidateRtcCache();
+  // Every backend process, not only this one (the cache bus's 'calls').
+  publishCacheInvalidation(['calls']);
   // Who changed which fields, never a value: the URLs and countries are not
   // secret, but the secret is one of the fields, and one rule for all of
   // them keeps it out without a special case.
@@ -390,8 +390,9 @@ adminCallsRouter.put('/livekit', async (req, res) => {
     }
     const merged = await saveLiveKitConfig(config, patch as Partial<LiveKitConfig>);
     // Pass 1 — kill the cached real-readiness state so the next admin probe
-    // reflects the freshly-saved credentials immediately.
-    invalidateLiveKitReadinessCache();
+    // reflects the freshly-saved credentials immediately, in every backend
+    // process (the cache bus's 'calls').
+    publishCacheInvalidation(['calls']);
     res.json({ livekit: toLiveKitPublicView(merged) });
   } catch (err) {
     // Surface zod issues so the UI can show the offending field.
@@ -501,7 +502,8 @@ adminCallsRouter.put('/role-permissions', async (req, res) => {
       granted: body.granted,
     });
     if (insErr) return res.status(500).json({ error: insErr.message });
-    invalidatePermissionCache();
+    // The platform defaults: every workspace, in every backend process.
+    publishCacheInvalidation(['calls']);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : 'update_failed' });

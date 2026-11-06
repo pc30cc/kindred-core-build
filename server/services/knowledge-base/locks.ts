@@ -18,6 +18,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 import {
   clearLockStateCache,
   resolveLockState,
@@ -148,10 +149,12 @@ export async function isKbArticleIdLocked(
 
 /**
  * Forget the cached lock state after an article is deleted: the slot it frees
- * unlocks the next article now rather than after the 60 s cache.
+ * unlocks the next article now rather than after the 60 s cache, here and in
+ * every other backend process ('entitlements:<ws>' on the cache bus).
  */
 export function forgetKbLock(workspaceId: string): void {
   clearLockStateCache(workspaceId);
+  publishCacheInvalidation([`entitlements:${workspaceId}`]);
 }
 
 /** The 403 body for an edit of a locked article. */

@@ -24,6 +24,7 @@ import { isUnreadableEntitlementReason } from './entitlementParse.js';
 import { usageFnForLimit } from './usageResolvers.js';
 import { locksEnabled } from './locks/state.js';
 import { lockedErrorBody } from './locks/predicates.js';
+import { onInvalidate } from '../../lib/cacheBus.js';
 
 /** The plan key a channel or plugin is sold under. */
 export interface PlanStopTarget {
@@ -72,6 +73,11 @@ export function clearPlanStopCache(workspaceId?: string): void {
   }
   for (const key of stopCache.keys()) if (key.startsWith(`${workspaceId}:`)) stopCache.delete(key);
 }
+
+// Plan changes publish 'entitlements:<workspace>' (or 'all') on the cache bus
+// (entitlementChange.ts, adminBillingLocks.ts): every backend process forgets
+// the workspace's answers, not only the one that saved.
+onInvalidate('entitlements', (workspaceId) => clearPlanStopCache(workspaceId ?? undefined));
 
 /**
  * Whether the plan in force stops `target` for the workspace: the switch is

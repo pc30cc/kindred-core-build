@@ -49,7 +49,6 @@ import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 import { clearLockStateCache, resolveLockState } from '../services/billing/locks/state.js';
 import { isMemberLocked } from '../services/billing/locks/predicates.js';
 import { releaseLockedAgentChats } from '../services/billing/locks/release.js';
-import { invalidateDepartmentCache } from '../services/calls/departments.js';
 import { afterMemberReleased, releaseMemberChats, releasedConversationIds } from '../services/chatRouting.js';
 import { canUseInbox } from '../../shared/chatRoles.js';
 import { readWithColumnFallback } from '../lib/missingColumn.js';
@@ -179,8 +178,11 @@ async function isCanonicalOwner(
  */
 function afterSeatChange(config: ServerConfig, workspaceId: string): void {
   clearLockStateCache(workspaceId);
-  // Routing's cached member list (who is suspended) follows at once.
-  invalidateDepartmentCache(workspaceId);
+  // Routing's cached member list (who is suspended) and the lock state follow
+  // at once in every backend process too (another cluster worker, the other
+  // container of a deploy), whose routing would otherwise keep the old ranks
+  // for up to the lock state's 60 s.
+  publishCacheInvalidation([`calls:${workspaceId}`, `entitlements:${workspaceId}`]);
   void releaseLockedAgentChats(config, workspaceId).catch(() => undefined);
 }
 
@@ -304,7 +306,7 @@ workspaceMembersRouter.patch('/:memberId', async (req, res) => {
   // The role decides who routing may give chats (shared/chatRoles.ts): its
   // cached member list follows at once. A role without an Inbox cannot
   // answer the chats this member holds: they go back to routing (R-03).
-  invalidateDepartmentCache(workspaceId);
+  publishCacheInvalidation([`calls:${workspaceId}`]);
   if (!canUseInbox(parsedBody.data.role)) {
     void releaseMemberChats(config, {
       workspaceId,
@@ -421,7 +423,7 @@ workspaceMembersRouter.patch('/:memberId/chat-routing', async (req, res) => {
   const row = Array.isArray(data) ? data[0] : null;
   if (!row) return res.status(404).json({ error: 'member_not_found' });
   // Routing's member cache, and the widget's online/offline (who counts).
-  invalidateDepartmentCache(workspaceId);
+  publishCacheInvalidation([`calls:${workspaceId}`]);
   publishCacheInvalidation([`widget:${workspaceId}`]);
   return res.json({ ok: true, member: row });
 });

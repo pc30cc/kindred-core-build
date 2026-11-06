@@ -9,14 +9,18 @@
  * file on every lookup. The file is re-checked at most every RECHECK_MS: with
  * `autoReload` enabled, a changed mtime re-opens the reader transparently, and
  * a file mounted after startup is picked up the same way. The in-app updater
- * drops the cached reader itself after its atomic rename, so its new database
- * is live at once.
+ * drops the cached reader of that file after its atomic rename, in every
+ * backend process (the cache bus's `geo:<path>`), so its new database is live
+ * at once. Concurrent lookups that find no fresh reader share one open: each
+ * open reads the whole file (tens of MB) into memory.
  *
  * Failure modes (missing file, bad format, IP not in DB) all return null so
  * callers fall back to the next geo source. Nothing here ever throws.
  */
 import { promises as fs } from 'node:fs';
 import { open, type Reader, type CityResponse } from 'maxmind';
+import { onInvalidate } from '../../lib/cacheBus.js';
+import { maxmindPathKey } from './maxmindScope.js';
 
 interface CachedReader {
   /** null: the file was missing, not a regular file, or unreadable at checkedAt. */
@@ -36,22 +40,68 @@ const RECHECK_MS = 30_000;
 const WARN_EVERY_MS = 10 * 60_000;
 
 const READERS = new Map<string, CachedReader>();
+/** The check (and open) in progress per path, shared by every lookup that waits for it. */
+const OPENING = new Map<string, Promise<Reader<CityResponse> | null>>();
 const WARNED_AT = new Map<string, number>();
+/** Bumped by every invalidation: an open that started before one does not cache its reader. */
+let generation = 0;
 
 /** Drop the cached reader for a path (used after an atomic DB replace). */
 export function invalidateMaxmindReader(dbPath?: string): void {
-  if (dbPath) READERS.delete(dbPath);
-  else READERS.clear();
+  generation += 1;
+  if (dbPath) {
+    READERS.delete(dbPath);
+    OPENING.delete(dbPath);
+  } else {
+    READERS.clear();
+    OPENING.clear();
+  }
 }
 
-async function getReader(dbPath: string, autoReload: boolean, fresh: boolean): Promise<Reader<CityResponse> | null> {
+// The updater publishes `geo:<key of the file>` after it swapped a new file in
+// (maxmindUpdater.ts, maxmindScope.ts), so every backend process on the same
+// disk (another cluster worker, the other container of a deploy) reopens that
+// file at once, also with auto_reload off. Only that file's reader: an 'all'
+// (a plan or settings save) or the bus's resync calls this with no key and
+// leaves the readers alone, since nothing about the file changed, and the
+// mtime check above still runs every RECHECK_MS.
+onInvalidate('geo', (key) => {
+  if (!key) return;
+  for (const dbPath of new Set([...READERS.keys(), ...OPENING.keys()])) {
+    if (maxmindPathKey(dbPath) === key) invalidateMaxmindReader(dbPath);
+  }
+});
+
+function getReader(dbPath: string, autoReload: boolean, fresh: boolean): Promise<Reader<CityResponse> | null> {
   const cached = READERS.get(dbPath);
+  if (cached && !fresh && Date.now() - cached.checkedAt < RECHECK_MS) return Promise.resolve(cached.reader);
+  // One check per path at a time: a burst of lookups after a swap (or the
+  // first lookups after a start) must not each read the whole file.
+  const inFlight = OPENING.get(dbPath);
+  if (inFlight) return inFlight;
+  const check = checkReader(dbPath, autoReload, cached);
+  OPENING.set(dbPath, check);
+  void check.finally(() => {
+    if (OPENING.get(dbPath) === check) OPENING.delete(dbPath);
+  });
+  return check;
+}
+
+async function checkReader(
+  dbPath: string,
+  autoReload: boolean,
+  cached: CachedReader | undefined,
+): Promise<Reader<CityResponse> | null> {
   const now = Date.now();
-  if (cached && !fresh && now - cached.checkedAt < RECHECK_MS) return cached.reader;
+  const gen = generation;
+  // An invalidation while this ran: the next lookup checks again.
+  const remember = (entry: CachedReader) => {
+    if (gen === generation) READERS.set(dbPath, entry);
+  };
   try {
     const stat = await fs.stat(dbPath);
     if (!stat.isFile()) {
-      READERS.set(dbPath, { reader: null, mtimeMs: 0, checkedAt: now });
+      remember({ reader: null, mtimeMs: 0, checkedAt: now });
       return null;
     }
     if (cached?.reader && (!autoReload || cached.mtimeMs === stat.mtimeMs)) {
@@ -59,10 +109,10 @@ async function getReader(dbPath: string, autoReload: boolean, fresh: boolean): P
       return cached.reader;
     }
     const reader = await open<CityResponse>(dbPath);
-    READERS.set(dbPath, { reader, mtimeMs: stat.mtimeMs, checkedAt: now });
+    remember({ reader, mtimeMs: stat.mtimeMs, checkedAt: now });
     return reader;
   } catch (err) {
-    READERS.set(dbPath, { reader: null, mtimeMs: 0, checkedAt: now });
+    remember({ reader: null, mtimeMs: 0, checkedAt: now });
     if (now - (WARNED_AT.get(dbPath) ?? 0) >= WARN_EVERY_MS) {
       WARNED_AT.set(dbPath, now);
       console.warn('[geo:maxmind_local] cannot open DB:', dbPath, (err as Error).message);

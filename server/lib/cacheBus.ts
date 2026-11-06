@@ -29,13 +29,23 @@
  *   user:<user>               widget snapshots whose team contains that user
  *   platform                  platform-wide singletons (settings, branding…)
  *   ipblock                   the IP blocklist
+ *   calls                     the platform's call settings: RTC/TURN endpoints,
+ *                             LiveKit and Agora config, LiveKit readiness, and
+ *                             every workspace's call permissions and departments
+ *   calls:<workspace>         a workspace's call permissions and departments
+ *   realtime                  the realtime provider config, control plane,
+ *                             failover state and resolved publishers
+ *   geo:<key of a file>       that MaxMind database file's reader, after the
+ *                             updater's swap (services/geo/maxmindScope.ts);
+ *                             'all' and a bare 'geo' leave the readers alone
  *   all                       everything, every handler
  *
  * Rules:
  *   - Handlers are LOCAL and must never publish (no loops). A handler that
  *     calls invalidateLocal() again is queued, not recursed into, and a scope
  *     already run in this pass is not run twice.
- *   - Only the API process listens (server/index.ts), on ONE dedicated
+ *   - Every backend process listens (server/index.ts), each cluster worker
+ *     included (docs/operations/BACKEND_PROCESSES.md), each on ONE dedicated
  *     connection (not a pool slot). It must reach the PRIMARY directly: a
  *     standby or a transaction-mode pooler delivers no notifications.
  *   - Every (re)connect RESYNCS everything ('all' with `resync: true`):
@@ -418,7 +428,8 @@ async function connect(state: ListenerState): Promise<void> {
 
 /**
  * Start this process's listener (best-effort, never throws). Only the API
- * process calls it (server/index.ts); workers and scripts only publish.
+ * process calls it (server/index.ts; each cluster worker of it too); the
+ * worker containers and scripts only publish.
  * A no-op in supabase-rest mode — the bus is then local-only and every cache
  * keeps working on its TTL.
  */

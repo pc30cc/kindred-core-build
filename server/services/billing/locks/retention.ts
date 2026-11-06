@@ -35,6 +35,7 @@ import { getServiceClient } from '../../../supabase.js';
 import { deleteFile } from '../../storage/index.js';
 import { resolveWorkspaceAppUrl } from '../../auth-email.js';
 import { localizedPlanName, planNamesFor, sendBillingEmail, type BillingEmailContext } from '../account/notify.js';
+import { publishCacheInvalidation } from '../../../lib/cacheBus.js';
 import { clearLockStateCache, readEffectivePlanId, readLocksEnabled } from './state.js';
 import { releaseLockedAgentChats } from './release.js';
 
@@ -496,7 +497,11 @@ async function deleteEpisode(config: ServerConfig, sb: Client, clock: LockClock)
     }
     if (n === 0 || n < ids.length || ids.length < DELETE_CHUNK) break;
   }
-  if (deleted > 0) clearLockStateCache(clock.workspace_id);
+  if (deleted > 0) {
+    // The freed slots unlock the next rows in every backend process too.
+    clearLockStateCache(clock.workspace_id);
+    publishCacheInvalidation([`entitlements:${clock.workspace_id}`]);
+  }
   return deleted;
 }
 

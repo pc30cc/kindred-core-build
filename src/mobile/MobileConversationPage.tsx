@@ -48,6 +48,7 @@ import {
   useMarkConversationSeen,
 } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
+import { useKeepScrollOnPrepend } from '@/hooks/useKeepScrollOnPrepend';
 import { useKeepThreadSeen } from '@/features/notifications/keepThreadSeen';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { MessageAttachmentView } from '@/components/inbox/MessageAttachmentView';
@@ -137,7 +138,7 @@ export default function MobileConversationPage() {
     [conversations, conversationId],
   );
 
-  const { data: messages, isLoading } = useConversationMessages(conversationId);
+  const { data: messages, isLoading, hasOlder, loadingOlder, loadOlder } = useConversationMessages(conversationId);
   const sendMessage = useSendMessage(conversationId, workspace?.id);
   const updateConversation = useUpdateConversation();
   const markSeen = useMarkConversationSeen();
@@ -262,12 +263,17 @@ export default function MobileConversationPage() {
     stickToBottom.current = true;
   }, [conversationId]);
 
+  // The NEWEST message, not the count: an older page put before the rows is
+  // no new message, and must not pull the reader down (keepScroll keeps
+  // their place instead).
+  const newestId = messages?.length ? messages[messages.length - 1]?.id : undefined;
   useEffect(() => {
     scrollToEnd();
     // A second pass after layout settles (fonts, bubbles, safe areas).
     const id = window.setTimeout(() => scrollToEnd(), 60);
     return () => window.clearTimeout(id);
-  }, [messages?.length, pending, emojiOpen, conversationId]);
+  }, [newestId, pending, emojiOpen, conversationId]);
+  const keepScroll = useKeepScrollOnPrepend(scrollerRef, messages);
 
   /**
    * Images/videos have no height until they decode, so a thread ending with
@@ -421,6 +427,18 @@ export default function MobileConversationPage() {
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
       >
         <div ref={contentRef} className="px-3 py-4 space-y-1.5">
+        {!isLoading && hasOlder && (
+          <div className="flex justify-center pb-2">
+            <button
+              type="button"
+              className="rounded-full bg-card px-3 py-1 text-[12px] text-muted-foreground shadow-sm disabled:opacity-60"
+              disabled={loadingOlder}
+              onClick={() => { void loadOlder(keepScroll.prepare); }}
+            >
+              {t('inbox.loadOlder')}
+            </button>
+          </div>
+        )}
 
         {isLoading ? (
           <div className="space-y-3">

@@ -81,8 +81,8 @@ import { isActionableCustomerTurn, isQualifiedCustomerFacingAnswer, type NeedsRe
 import {
   REACTIONS_MIGRATION_REQUIRED,
   publishMessageReactions,
-  readConversationReactions,
   readMessageReactions,
+  readMessagesReactions,
   setMessageReaction,
   workspaceShowsReactions,
   type ConversationReactions,
@@ -106,6 +106,7 @@ import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from 
 import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
 import { queueTranscript } from '../services/notificationEmail/producers.js';
 import { operatorLocale } from '../services/operatorLocale.js';
+import { readListSummaries } from '../services/conversationListSummaries.js';
 import { operatorSystemText, withOperatorSystemBody, withoutPlaceholderNames } from '../services/operatorSystemText.js';
 import { coalesce } from '../lib/inflight.js';
 import { onSupportConversationChanged, onTeamReply } from '../services/platformSupport/service.js';
@@ -1785,8 +1786,6 @@ interface ListOptions {
  * shared by the list route and `GET /:id`, so a row fetched by id is in
  * exactly the shape the list gives it.
  */
-/** Newest messages the list reads for its previews, unread and needs-reply. */
-const LIST_MESSAGE_WINDOW = 2000;
 
 async function listConversationRows(
   config: ServerConfig,
@@ -1889,22 +1888,11 @@ async function listConversationRows(
       return typeof id === 'string' && isConversationId(id) ? id : null;
     };
     const departmentIds = Array.from(new Set(convos.map(departmentOf).filter((id): id is string => !!id)));
-    const [{ data: msgs }, readerLocale, lastRead, { data: departments }] = await Promise.all([
-      // The window's LIST_MESSAGE_WINDOW newest rows, paged: one read stops
-      // at DATABASE_MAX_ROWS (1000), which silently halved the window.
-      readRows((from, to) => sb
-        .from('conversation_messages')
-        .select('id, conversation_id, body, created_at, sender_type, sender_id, seen_at, metadata')
-        .in('conversation_id', ids)
-        // Bot menu/button taps are navigation, not chat content — keep them
-        // out of the fetch window entirely so a visitor browsing the bot menu
-        // can never push the real last message out of the preview.
-        .or('metadata->>channel_menu_event.is.null,metadata->>channel_menu_event.neq.true')
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .range(from, to), LIST_MESSAGE_WINDOW),
-      // The language a system preview's `body` is written in (below).
-      operatorLocale(config, auth.userId),
+    const [summaries, lastRead, { data: departments }] = await Promise.all([
+      // Every row's preview, unread, needs-reply and who answered, each from
+      // its own conversation (migration 303; services/conversationListSummaries.ts),
+      // a system preview's `body` written in this operator's language.
+      readListSummaries(sb, workspaceId, ids, operatorLocale(config, auth.userId)),
       // When the visitor last read each thread in the widget (I-03).
       readVisitorLastRead(sb, ids),
       departmentIds.length
@@ -1919,85 +1907,7 @@ async function listConversationRows(
       c.visitor_last_read_at = lastRead.get(c.id) ?? null;
     }
 
-    const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
-    const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null; system_kind?: string | null; system_meta?: Record<string, unknown> | null }> = {};
-    // Human operators who ever wrote in the thread — drives "who handled
-    // this" visibility for resolved threads and the list preview label.
-    const agentParticipants: Record<string, Set<string>> = {};
-    const unreadByConv: Record<string, number> = {};
-    // Needs Reply is derived from the message stream, never stored. Rows
-    // arrive newest-first, so the FIRST conversational turn we see per
-    // conversation decides the obligation (see services/needsReply.ts).
-    const needsReplyByConv: Record<string, boolean> = {};
-    const needsReplyDecided = new Set<string>();
-    // Oldest actionable customer turn of the CURRENT unanswered streak, so
-    // the Inbox can rank by real waiting age instead of `updated_at` (which
-    // assignment, routing metadata and delivery receipts also bump).
-    const waitingSinceByConv: Record<string, string | null> = {};
-    for (const m of (msgs || [])) {
-      if (!m.conversation_id) continue;
-      // Channel menu/button taps are navigation, not conversation content:
-      // they must never drive the list preview or the unread badge (the
-      // Inbox's unread number skips them by the same rule).
-      const meta = (m.metadata || {}) as Record<string, unknown>;
-      if (isChannelMenuEvent(meta)) continue;
-
-      if (!lastByConv[m.conversation_id]) {
-        // A system notice's body is written in the requesting operator's
-        // language (services/operatorSystemText.ts): an installed native app
-        // that does not know the kind prints the body.
-        const isSystem = m.sender_type === 'system';
-        lastByConv[m.conversation_id] = {
-          body: (isSystem ? operatorSystemText(meta, readerLocale) : null) ?? m.body ?? '',
-          created_at: m.created_at,
-          sender_type: m.sender_type,
-          sender_id: m.sender_id ?? null,
-          sender_name: null,
-          // A file-only message has an empty body: the list preview must
-          // describe the media instead of claiming "no messages yet".
-          attachment_id: meta?.attachment_id ? String(meta.attachment_id) : null,
-          attachment_kind: null,
-          // Every system notice is stored in English and frozen at insert
-          // time, so the preview has to rebuild the sentence from metadata
-          // (see shared/systemMessageText.ts). Shipping the whole object
-          // rather than a field per kind is why the list no longer falls
-          // behind the thread every time a new kind is added. The English
-          // stand-ins once stored as a name ('a colleague') go out as null.
-          system_kind: meta?.kind ? String(meta.kind) : null,
-          system_meta: meta?.kind ? (isSystem ? withoutPlaceholderNames(meta) : meta) : null,
-        };
-      }
-      if (m.sender_type === 'agent' && m.sender_id) {
-        (agentParticipants[m.conversation_id] ||= new Set<string>()).add(String(m.sender_id));
-      }
-
-
-      // Rows arrive newest-first. The first conversational turn decides the
-      // obligation; we then keep walking back over the customer streak to
-      // find when the wait actually started.
-      if (isQualifiedCustomerFacingAnswer(m as NeedsReplyMessage)) {
-        if (!needsReplyDecided.has(m.conversation_id)) {
-          needsReplyByConv[m.conversation_id] = false;
-        }
-        needsReplyDecided.add(m.conversation_id);
-      } else if (isActionableCustomerTurn(m as NeedsReplyMessage)) {
-        if (!needsReplyDecided.has(m.conversation_id)) {
-          needsReplyByConv[m.conversation_id] = true;
-          waitingSinceByConv[m.conversation_id] = m.created_at ?? null;
-        } else if (needsReplyByConv[m.conversation_id]) {
-          // Still inside the unanswered streak → the wait began earlier.
-          waitingSinceByConv[m.conversation_id] = m.created_at ?? null;
-        }
-      }
-
-      if (m.sender_type !== 'contact') continue;
-      if (!byConv[m.conversation_id]) {
-        byConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at, seen_at: m.seen_at ?? null };
-      }
-      if (!m.seen_at) {
-        unreadByConv[m.conversation_id] = (unreadByConv[m.conversation_id] ?? 0) + 1;
-      }
-    }
+    const { byConv, lastByConv, unreadByConv, handledBy, needsReplyByConv, waitingSinceByConv } = summaries;
 
     // Resolve the media kind of every attachment-only preview in one query,
     // so the Inbox list can say "sent a photo / voice message / file".
@@ -2056,7 +1966,7 @@ async function listConversationRows(
       c.last_visitor_message = byConv[c.id] ?? null;
       c.last_message = lastByConv[c.id] ?? null;
       c.unread_count = unreadByConv[c.id] ?? 0;
-      c.handled_by = Array.from(agentParticipants[c.id] ?? []);
+      c.handled_by = handledBy[c.id] ?? [];
       // Only an `open` thread can owe the customer an answer: `pending`
       // means we are waiting for THEM, `resolved`/`closed` are done.
       c.needs_reply = c.status === 'open' && (needsReplyByConv[c.id] ?? false);
@@ -2069,10 +1979,11 @@ async function listConversationRows(
     // AI greeting threads (source='ai_agent_intro') the visitor never
     // answered are not human-actionable — exclude them from Main Inbox
     // unless a human has already touched the thread. Decided from what was
-    // read, never from its absence: the messages above are one window for
-    // the whole list, so an older row may have none read (the Closed box
-    // lists many AI rows). An inactivity close recorded the answer itself
-    // (closed_outcome, migration 284), so a closed row goes by that.
+    // read, never from its absence: before migration 303 the summaries come
+    // from one window for the whole list, so an older row may have none read
+    // (the Closed box lists many AI rows). An inactivity close recorded the
+    // answer itself (closed_outcome, migration 284), so a closed row goes by
+    // that.
     result = convos.filter((c) => {
       const meta = c?.metadata || {};
       const closedOutcome = (c.status === 'closed' && meta.closed_reason === 'inactivity'
@@ -2392,6 +2303,19 @@ export function parseThreadBefore(rawBefore: unknown, rawId: unknown): { created
   return { createdAt: rawBefore, id: rawId };
 }
 
+/**
+ * `?limit=<n>`: messages per page of a full or an older read, 1 to
+ * THREAD_PAGE; without one, THREAD_PAGE (the native apps' contract: their
+ * full read is the thread's newest 1000, and they keep their cache by it).
+ * Null without one, 'invalid' when malformed. A delta (`?since`) ignores it.
+ */
+export function parseThreadLimit(raw: unknown): number | null | 'invalid' {
+  if (raw === undefined) return null;
+  if (typeof raw !== 'string' || !/^\d{1,4}$/.test(raw)) return 'invalid';
+  const n = Number(raw);
+  return n >= 1 && n <= THREAD_PAGE ? n : 'invalid';
+}
+
 /** The rows before (created_at, id) in thread order, as a PostgREST `or`. */
 function olderThan(createdAt: string, id: string): string {
   return `created_at.lt."${createdAt}",and(created_at.eq."${createdAt}",id.lt.${id})`;
@@ -2414,13 +2338,11 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
     if (!auth) return;
     if (await refuseLockedConversation(res, config, conv.workspace_id, conv)) return;
 
-    // Reactions (a widget conversation only: no other channel has them), read
-    // alongside the thread. `can_react` marks the visitor's messages an
-    // operator may react to: only where the visitor sees reactions.
+    // Reactions (a widget conversation only: no other channel has them) are
+    // read for the messages this answer carries, below. `can_react` marks
+    // the visitor's messages an operator may react to: only where the
+    // visitor sees reactions.
     const widgetThread = isWidgetChannel((conv as { channel?: string | null }).channel);
-    const reactionsP: Promise<ConversationReactions | null> = widgetThread
-      ? readConversationReactions(sb, conversationId, { type: 'operator', userId: auth.userId })
-      : Promise.resolve(null);
     const reactionsShownP = widgetThread ? workspaceShowsReactions(config, conv.workspace_id) : Promise.resolve(false);
     // System rows' bodies go out in this operator's language (below).
     const readerLocaleP = operatorLocale(config, auth.userId);
@@ -2452,6 +2374,8 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
     if (!rows) {
       const before = parseThreadBefore(req.query.before, req.query.before_id);
       if (before === 'invalid') return res.status(400).json({ error: 'invalid_before' });
+      const limit = parseThreadLimit(req.query.limit);
+      if (limit === 'invalid') return res.status(400).json({ error: 'invalid_limit' });
       let page = threadRows();
       if (before) {
         page = page.or(olderThan(before.createdAt, before.id));
@@ -2459,18 +2383,21 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       const { data, error } = await page
         .order('created_at', { ascending: false })
         .order('id', { ascending: false })
-        .limit(THREAD_PAGE);
+        .limit(limit ?? THREAD_PAGE);
       if (error) return res.status(500).json({ error: error.message });
       rows = ((data || []) as MessageRow[]).reverse();
       const first = rows[0];
       if (first) {
-        const { data: earlier } = await sb
+        const { data: earlier, error: earlierError } = await sb
           .from('conversation_messages')
           .select('id')
           .eq('conversation_id', conversationId)
           .or(olderThan(first.created_at, first.id))
           .limit(1);
-        if ((earlier || []).length > 0) older = { before: first.created_at, before_id: first.id };
+        // A failed look is not "the start of the thread": the client may ask
+        // for the page before, which answers empty with `older: null` if
+        // there is none.
+        if (earlierError || (earlier || []).length > 0) older = { before: first.created_at, before_id: first.id };
       }
     }
     // An older page (`before`) hands back a cursor no newer than the client's
@@ -2495,6 +2422,11 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       const aid = m?.metadata?.attachment_id;
       if (typeof aid === 'string') fromMeta.add(aid);
     }
+    // Every reaction of exactly these messages (the page, the older page or
+    // the delta), alongside the attachments and profiles reads.
+    const reactionsP: Promise<ConversationReactions | null> = widgetThread && ids.size
+      ? readMessagesReactions(sb, conversationId, ids, { type: 'operator', userId: auth.userId })
+      : Promise.resolve(null);
     const attMap: Record<string, MessageAttachment> = {};
     // A single inbound channel message can carry SEVERAL media parts
     // (WhatsApp album, Telegram document + caption, …) so this is a list.

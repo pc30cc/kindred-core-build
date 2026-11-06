@@ -96,6 +96,7 @@ import {
 import { Volume2, VolumeX, Lock } from 'lucide-react';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
+import { useKeepScrollOnPrepend } from '@/hooks/useKeepScrollOnPrepend';
 import { usePanelTheme } from '@/themes/usePanelTheme';
 import { isArtFamilyTheme } from '../../../shared/panelThemes';
 import {
@@ -468,7 +469,12 @@ export default function InboxPage() {
   // A chat locked by the plan's retention (phase 4) is never read: the server
   // answers 403 conversation_locked, and the thread shows the locked panel.
   const selectedLocked = !!conversations?.find((c) => c.id === selectedId)?.locked_by_retention;
-  const { data: rawMessages } = useConversationMessages(selectedLocked ? undefined : (selectedId ?? undefined));
+  const {
+    data: rawMessages,
+    hasOlder: threadHasOlder,
+    loadingOlder: threadLoadingOlder,
+    loadOlder: loadOlderMessages,
+  } = useConversationMessages(selectedLocked ? undefined : (selectedId ?? undefined));
   // Reacting to a visitor's message (the server marks which: `can_react`).
   const react = useMessageReaction(selectedId ?? undefined, workspace?.id, () => {
     toast({ title: t('inbox.reactionFailed'), variant: 'destructive' });
@@ -503,7 +509,13 @@ export default function InboxPage() {
   useEffect(() => {
     const prev = seenView.current;
     seenView.current = { id: selectedId, on: onScreen };
-    if (selectedId && onScreen && !prev.on && prev.id === selectedId) markSeen.mutate(selectedId);
+    if (selectedId && onScreen && !prev.on && prev.id === selectedId) {
+      markSeen.mutate(selectedId);
+      // And read again once: without realtime (polling) nothing else
+      // refreshes the thread while it was off screen (the mark no longer
+      // re-reads it).
+      void qc.invalidateQueries({ queryKey: ['messages', selectedId] });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, onScreen]);
 
@@ -719,10 +731,13 @@ export default function InboxPage() {
   // a late-loading image re-pins instead of pushing the newest message out
   // of view. See useStickToBottom for why the old one-line version was not
   // enough.
+  // The revision is the NEWEST message: an older page put before the rows
+  // is no new message (useKeepScrollOnPrepend keeps the reader's place).
   useStickToBottom(messagesContainerRef, messagesContentRef, {
     conversationKey: selectedId,
-    revision: rawMessages?.length,
+    revision: rawMessages?.length ? rawMessages[rawMessages.length - 1]?.id : undefined,
   });
+  const keepScroll = useKeepScrollOnPrepend(messagesContainerRef, rawMessages);
 
   // ─── Phase 2 — Operator attachment composer state ───
   // Single pending attachment per draft (mirrors widget's design).
@@ -2402,6 +2417,19 @@ export default function InboxPage() {
                   the thread re-pinned instead of leaving the newest message
                   below the fold. */}
               <div ref={messagesContentRef}>
+              {threadHasOlder && (
+                <div className="flex justify-center pb-3" data-inbox="load-older">
+                  <button
+                    type="button"
+                    className="rounded-full border border-border/60 bg-card px-3 py-1 text-xs text-muted-foreground hover:bg-secondary/60 disabled:opacity-60"
+                    disabled={threadLoadingOlder}
+                    onClick={() => { void loadOlderMessages(keepScroll.prepare); }}
+                  >
+                    {threadLoadingOlder ? <Loader2 className="inline h-3 w-3 animate-spin" aria-hidden /> : null}
+                    <span className={threadLoadingOlder ? 'ms-1.5' : undefined}>{t('inbox.loadOlder')}</span>
+                  </button>
+                </div>
+              )}
               {rawMessages?.map((msg, idx) => {
                 const isVisitor = msg.sender_type === 'contact';
                 const isAgent = !isVisitor;
@@ -3350,7 +3378,8 @@ export default function InboxPage() {
                 <div data-inbox-fact="stats" className="rounded-xl border border-border/50 bg-card/60 p-2.5">
                   <div className="grid grid-cols-2 gap-1.5">
                     <div className="bg-secondary/30 rounded-lg py-2 px-2 text-center border border-border/20">
-                      <div className="text-lg font-extrabold text-foreground tabular-nums">{rawMessages?.length || 0}</div>
+                      {/* The messages loaded; "+" while earlier ones are not. */}
+                      <div className="text-lg font-extrabold text-foreground tabular-nums">{rawMessages?.length || 0}{threadHasOlder ? '+' : ''}</div>
                       <div className="text-[11px] text-muted-foreground">{t('inbox.messages') || 'Messages'}</div>
                     </div>
                     <div className="bg-secondary/30 rounded-lg py-2 px-2 text-center border border-border/20">

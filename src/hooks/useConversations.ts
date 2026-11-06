@@ -1,9 +1,10 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { keepPreviousForSame } from '@/lib/keepPreviousForSame';
 import type { Conversation, ConversationMessage } from '@/types/models';
 import { conversationsApi, newClientMessageId, type InboxUnread } from '@/lib/conversations-api';
 import { dedupeById } from '@/realtime/dedupe';
+import { THREAD_PAGE_SIZE, mergeNewestPage, mergeOlderPage, type ThreadCursor } from '@/lib/threadPages';
 import { applyReactionToggle } from '../../shared/messageReactions';
 import { refreshConversations } from '@/hooks/inboxListCache';
 import {
@@ -249,6 +250,8 @@ export interface MessageAttachment {
 export type MessageReaction = { emoji: string; count: number; mine: boolean; visitor: boolean };
 
 export type ConversationMessageWithAttachment = ConversationMessage & {
+  /** When the operator side read a visitor's message (null: not yet). */
+  seen_at?: string | null;
   attachment?: MessageAttachment | null;
   attachments?: MessageAttachment[] | null;
   sender_name?: string | null;
@@ -260,18 +263,153 @@ export type ConversationMessageWithAttachment = ConversationMessage & {
 };
 
 
+type ThreadMessage = ConversationMessageWithAttachment & { id: string; created_at: string };
+
+/** Where the page before the thread's loaded run starts (null: the thread's start). */
+export const threadOlderKey = (conversationId: string | undefined) => ['messages-older', conversationId] as const;
+
+const sameCursor = (a: ThreadCursor | null | undefined, b: ThreadCursor | null | undefined) =>
+  (a?.before ?? null) === (b?.before ?? null) && (a?.before_id ?? null) === (b?.before_id ?? null);
+
+/**
+ * The open thread, page by page (src/lib/threadPages.ts). The cache value of
+ * ['messages', id] stays the flat list in thread order; ['messages-older', id]
+ * holds where the page before it starts.
+ *
+ *   · Every read of the query (first open, a realtime message, a reaction, a
+ *     focus) reads the newest THREAD_PAGE_SIZE messages and merges them into
+ *     the run held, so the older pages loaded are kept and the newest range
+ *     is the server's (edits, deletions, reactions). The merge runs in the
+ *     queryFn, so every refetch path keeps them.
+ *   · `loadOlder()` reads the page before the run and puts it first; a page
+ *     with nothing visible (hidden menu taps) is read past.
+ * Attachments, senders and reactions come with each page from the server
+ * (GET /api/conversations/:id/messages).
+ */
 export function useConversationMessages(conversationId: string | undefined) {
-  return useQuery({
+  const qc = useQueryClient();
+  const query = useQuery({
     queryKey: ['messages', conversationId],
-    queryFn: async () => {
-      // Attachment + sender enrichment now happens server-side — see GET
-      // /api/conversations/:id/messages in server/routes/conversations.ts.
-      const { messages } = await conversationsApi.getMessages(conversationId!);
-      return messages as ConversationMessageWithAttachment[];
+    queryFn: async ({ signal }) => {
+      const page = await conversationsApi.getMessages(conversationId!, { limit: THREAD_PAGE_SIZE, signal });
+      // A page can hold nothing visible (Telegram menu taps the server hides)
+      // while earlier messages exist: read past it, a few pages at most, so a
+      // thread never opens empty. The pages read form one run with `older`.
+      for (let hop = 0; hop < 4 && page.messages.length === 0 && page.older; hop++) {
+        const before = await conversationsApi.getMessages(conversationId!, { limit: THREAD_PAGE_SIZE, before: page.older, signal });
+        page.messages = before.messages;
+        page.older = before.older;
+      }
+      // The run held NOW (an older page may have landed while this read was out).
+      const held = qc.getQueryData<ThreadMessage[]>(['messages', conversationId]);
+      const heldOlder = qc.getQueryData<ThreadCursor | null>(threadOlderKey(conversationId));
+      const merged = mergeNewestPage<ThreadMessage>(
+        held && heldOlder !== undefined ? { rows: held, older: heldOlder } : null,
+        { rows: page.messages as ThreadMessage[], older: page.older },
+      );
+      qc.setQueryData(threadOlderKey(conversationId), merged.older);
+      return merged.rows as ConversationMessageWithAttachment[];
     },
-    select: (rows) => dedupeById(rows as (ConversationMessageWithAttachment & { id: string })[]),
+    select: (rows) => dedupeById(rows as ThreadMessage[]),
     enabled: !!conversationId,
   });
+  // Observed, so the cursor lives as long as the thread does.
+  const { data: older } = useQuery<ThreadCursor | null>({
+    queryKey: threadOlderKey(conversationId),
+    queryFn: () => qc.getQueryData<ThreadCursor | null>(threadOlderKey(conversationId)) ?? null,
+    enabled: false,
+    staleTime: Infinity,
+  });
+  // Per conversation: a page still loading for the thread left behind
+  // never blocks the one opened now.
+  const [loadingFor, setLoadingFor] = useState<string | null>(null);
+  const busy = useRef(new Set<string>());
+  /** `beforeApply` runs right before the page is written (e.g. to keep the scroll position). */
+  const loadOlder = useCallback(async (beforeApply?: () => void): Promise<boolean> => {
+    const cid = conversationId;
+    if (!cid || busy.current.has(cid)) return false;
+    busy.current.add(cid);
+    setLoadingFor(cid);
+    try {
+      for (let hop = 0; hop < 5; hop++) {
+        const cursor = qc.getQueryData<ThreadCursor | null>(threadOlderKey(cid));
+        if (!cursor) return false;
+        const page = await conversationsApi.getMessages(cid, { limit: THREAD_PAGE_SIZE, before: cursor });
+        // A refresh of the newest page still out would write its answer over
+        // this one: it is stopped, this page applied, and the refresh asked
+        // again (it then keeps this page, as every refresh does).
+        const refreshing = qc.isFetching({ queryKey: ['messages', cid] }) > 0;
+        if (refreshing) await qc.cancelQueries({ queryKey: ['messages', cid] });
+        // The run started again meanwhile (more new messages than a page):
+        // this page no longer joins it.
+        if (!sameCursor(qc.getQueryData<ThreadCursor | null>(threadOlderKey(cid)), cursor)) {
+          if (refreshing) void qc.invalidateQueries({ queryKey: ['messages', cid] });
+          return false;
+        }
+        const held = qc.getQueryData<ThreadMessage[]>(['messages', cid]) ?? [];
+        const merged = mergeOlderPage<ThreadMessage>({ rows: held, older: cursor }, { rows: page.messages as ThreadMessage[], older: page.older });
+        if (page.messages.length > 0) beforeApply?.();
+        qc.setQueryData(['messages', cid], merged.rows);
+        qc.setQueryData(threadOlderKey(cid), merged.older);
+        if (refreshing) void qc.invalidateQueries({ queryKey: ['messages', cid] });
+        if (page.messages.length > 0 || !page.older) return true;
+      }
+      return true;
+    } catch (err) {
+      console.warn('[messages] older page failed', err);
+      return false;
+    } finally {
+      busy.current.delete(cid);
+      setLoadingFor((now) => (now === cid ? null : now));
+    }
+  }, [qc, conversationId]);
+  return { ...query, hasOlder: !!older, loadingOlder: !!conversationId && loadingFor === conversationId, loadOlder };
+}
+
+/**
+ * A message's new reactions (the `message_reactions` operator event: counts
+ * and whether the visitor gave each, never who) patched into the open
+ * thread. A refresh reads only the newest page again, so a message of an
+ * older page the operator loaded would otherwise keep its old reactions.
+ * `mine` is kept from the row's own list for an emoji still there (the event
+ * cannot tell); the operator's own toggle answers with the full summary.
+ */
+export function applyReactionsToThread(qc: QueryClient, conversationId: string, payload: Record<string, unknown> | null | undefined): boolean {
+  const messageId = typeof payload?.message_id === 'string' ? payload.message_id : null;
+  const list = Array.isArray(payload?.reactions) ? payload!.reactions : null;
+  // `at`: when the server read the counts; an older news arriving late is
+  // ignored (the row remembers the newest it took, client-side only).
+  const at = typeof payload?.at === 'number' && Number.isFinite(payload.at) ? payload.at : null;
+  if (!messageId || !list) return false;
+  let found = false;
+  qc.setQueryData<ConversationMessageWithAttachment[]>(['messages', conversationId], (rows) => rows?.map((row) => {
+    if (row.id !== messageId) return row;
+    found = true;
+    const heldAt = (row as { reactions_at?: number }).reactions_at;
+    if (at !== null && typeof heldAt === 'number' && heldAt > at) return row;
+    const mineBefore = new Map((row.reactions || []).map((r) => [r.emoji, !!r.mine]));
+    const next: MessageReaction[] = list
+      .filter((r): r is { emoji: string; count: number; visitor?: boolean } =>
+        !!r && typeof (r as { emoji?: unknown }).emoji === 'string' && Number((r as { count?: unknown }).count) > 0)
+      .map((r) => ({ emoji: r.emoji, count: Math.floor(Number(r.count)), visitor: !!r.visitor, mine: mineBefore.get(r.emoji) ?? false }));
+    return { ...row, reactions: next.length ? next : undefined, ...(at !== null ? { reactions_at: at } : {}) };
+  }));
+  return found;
+}
+
+/**
+ * The server's `seen` news for an open thread (POST /:id/seen's echo,
+ * services/widget/visitorSeen.ts): those visitor messages read now, at the
+ * server's time, patched into the cache instead of reading the thread again.
+ */
+export function applySeenToThread(qc: QueryClient, conversationId: string, payload: Record<string, unknown> | null | undefined): boolean {
+  const seenAt = typeof payload?.seen_at === 'string' ? payload.seen_at : null;
+  const ids = Array.isArray(payload?.message_ids) ? new Set(payload!.message_ids.filter((id): id is string => typeof id === 'string')) : null;
+  if (!seenAt || !ids || ids.size === 0) return false;
+  qc.setQueryData<ConversationMessageWithAttachment[]>(['messages', conversationId], (rows) => rows?.map((row) => (
+    ids.has(row.id) && !row.seen_at ? { ...row, seen_at: seenAt } : row
+  )));
+  return true;
 }
 
 /**
@@ -521,9 +659,10 @@ export function useMarkConversationSeen() {
       await qc.cancelQueries({ queryKey: ['inbox-unread'] });
       dropInboxUnread(qc, conversationId);
     },
-    onSuccess: (_count, conversationId) => {
-      qc.invalidateQueries({ queryKey: ['messages', conversationId] });
-    },
+    // The thread is not read again: nothing in it changes for the operator
+    // but the visitor messages' seen_at, which the server's `seen` news
+    // patches in (useInboxRealtime → applySeenToThread). Reading it again
+    // here cost every open thread a full re-read per visitor message.
     onError: (err) => {
       console.warn('[seen] mark_conversation_seen failed', err);
     },

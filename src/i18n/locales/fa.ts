@@ -1254,6 +1254,7 @@ const fa: TranslationKeys = {
     reactionTeamOne: 'یک همکار',
     reactionTeam: '{{count}} همکار',
     reactionFailed: 'واکنش ثبت نشد',
+    loadOlder: 'نمایش پیام‌های قبلی',
     today: 'امروز',
     yesterday: 'دیروز',
     mainInbox: 'صندوق اصلی',

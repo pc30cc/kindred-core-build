@@ -250,6 +250,7 @@ describe('every surface reads from the one localizer', () => {
   const INBOX = readFileSync('src/pages/app/InboxPage.tsx', 'utf8');
   const CONTACT = readFileSync('src/pages/app/ContactDetailPage.tsx', 'utf8');
   const CONVERSATIONS_ROUTE = readFileSync('server/routes/conversations.ts', 'utf8');
+const LIST_SUMMARIES = readFileSync('server/services/conversationListSummaries.ts', 'utf8');
   const CONTACTS_ROUTE = readFileSync('server/routes/contacts.ts', 'utf8');
 
   it('is used by the thread, the list preview and the contact page alike', () => {
@@ -264,7 +265,9 @@ describe('every surface reads from the one localizer', () => {
   it('gets the whole metadata object from the server, not a field per kind', () => {
     // Shipping named fields meant every new kind needed a server change too,
     // and the list silently fell behind the thread when one was forgotten.
-    expect(CONVERSATIONS_ROUTE).toContain('system_meta: meta?.kind ? (isSystem ? withoutPlaceholderNames(meta) : meta) : null,');
+    // The list's previews are built in services/conversationListSummaries.ts.
+    expect(LIST_SUMMARIES).toContain('system_meta: meta?.kind ? (isSystem ? withoutPlaceholderNames(meta) : meta) : null,');
+    expect(LIST_SUMMARIES).not.toContain('actor_name: meta?.actor_name ? String(meta.actor_name) : null,');
     expect(CONVERSATIONS_ROUTE).not.toContain('actor_name: meta?.actor_name ? String(meta.actor_name) : null,');
     expect(CONTACTS_ROUTE).toContain('last_message_meta:');
     expect(CONTACTS_ROUTE).toContain("select('id, conversation_id, sender_type, sender_id, body, created_at, metadata')");

@@ -31,6 +31,7 @@ import type { ServiceClient } from '../supabase.js';
 import { publishOperatorEvent } from './realtime/publish.js';
 import { isRelationMissing } from './billing/entitlementParse.js';
 import { workspaceChatTemplate } from './widget/configSnapshot.js';
+import { keyPage, readRows as readRowsPaged, readRowsByKey } from '../lib/pagedRows.js';
 import {
   eventReactionList,
   summarizeReactions,
@@ -47,8 +48,15 @@ export const REACTIONS_MIGRATION_REQUIRED = {
   code: 'migration_required',
 } as const;
 
-/** Rows one conversation's read takes at most (6 emojis × a long thread). */
-const MAX_ROWS = 5000;
+/**
+ * The widget's reactions read covers the thread's newest this many messages
+ * (GET /api/widget/conversations/:id/reactions). The widget shows the newest
+ * 200 (/history, /poll) plus what arrives while it is open, and its client
+ * clears the badge of any message the answer leaves out
+ * (public/widget/runtime-late.js), so the window is well above what one
+ * widget holds.
+ */
+export const WIDGET_REACTIONS_WINDOW = 1000;
 
 /** conversation_message_reactions does not exist: migration 276 is not applied. */
 export function isReactionsTableMissing(error: unknown): boolean {
@@ -62,38 +70,87 @@ export interface ConversationReactions {
   ready: boolean;
 }
 
+type ReactionRowWithId = ReactionRow & { id: string };
+
+/** Which rows a read takes: these messages of one conversation, or one message. */
+type ReactionsScope =
+  | { conversationId: string; messageIds: string[] }
+  | { messageId: string };
+
+/**
+ * Every reaction row the filter selects, page by page by id: the data layer
+ * cuts any one read at DATABASE_MAX_ROWS (1000 by default) without a word,
+ * so a single read, even one asking `.limit(5000)`, used to drop every row
+ * past the first 1000 (audit 2026-11-06). Reactions are cosmetic: a read that
+ * fails is "none" and never fails the caller; before 276 it is `ready: false`.
+ */
 async function readRows(
   sb: ServiceClient,
-  column: 'conversation_id' | 'message_id',
-  id: string,
+  scope: ReactionsScope,
   viewer: ReactionViewer,
 ): Promise<ConversationReactions> {
   try {
-    const { data, error } = await sb
-      .from(REACTIONS_TABLE)
-      .select('message_id, emoji, actor_type, actor_id')
-      .eq(column, id)
-      .order('created_at', { ascending: true })
-      .limit(MAX_ROWS);
+    const { data, error } = await readRowsByKey<ReactionRowWithId>('id', (after, size) => {
+      const rows = sb.from(REACTIONS_TABLE).select('id, message_id, emoji, actor_type, actor_id');
+      const scoped = 'messageId' in scope
+        ? rows.eq('message_id', scope.messageId)
+        : rows.eq('conversation_id', scope.conversationId).in('message_id', scope.messageIds);
+      return keyPage(scoped, 'id', after, size);
+    });
     if (error) {
       if (isReactionsTableMissing(error)) return { byMessage: new Map(), ready: false };
       console.warn('[message-reactions] read failed:', (error as { message?: string }).message || error);
       return { byMessage: new Map(), ready: true };
     }
-    return { byMessage: summarizeReactions((data || []) as ReactionRow[], viewer), ready: true };
+    return { byMessage: summarizeReactions(data, viewer), ready: true };
   } catch (err) {
     console.warn('[message-reactions] read failed:', (err as Error | null)?.message || err);
     return { byMessage: new Map(), ready: true };
   }
 }
 
-/** Every reaction of a conversation, summarized per message for the reader. */
-export function readConversationReactions(
+/**
+ * The reactions of these messages of one conversation, all of them,
+ * summarized per message for the reader: the messages a thread read answers
+ * with (its page, an older page or a `?since` delta), so a reader never pays
+ * for the whole conversation's reactions and never misses a new one. The
+ * conversation filter stays: no constraint ties a reaction's conversation to
+ * its message's, the routes do (setMessageReaction), so a read never goes by
+ * message ids alone.
+ */
+export async function readMessagesReactions(
+  sb: ServiceClient,
+  conversationId: string,
+  messageIds: Iterable<string>,
+  viewer: ReactionViewer,
+): Promise<ConversationReactions> {
+  const ids = [...new Set([...messageIds].filter((id) => typeof id === 'string' && id.length > 0))];
+  if (ids.length === 0) return { byMessage: new Map(), ready: true };
+  return readRows(sb, { conversationId, messageIds: ids }, viewer);
+}
+
+/**
+ * The reactions of a thread's newest WIDGET_REACTIONS_WINDOW messages, for
+ * the visitor's widget (which shows only the newest ones). Its message read
+ * failing reads as "none", as every reactions read.
+ */
+export async function readWidgetThreadReactions(
   sb: ServiceClient,
   conversationId: string,
   viewer: ReactionViewer,
 ): Promise<ConversationReactions> {
-  return readRows(sb, 'conversation_id', conversationId, viewer);
+  const { data, error } = await readRowsPaged<{ id: string }>((from, to) => sb
+    .from('conversation_messages')
+    .select('id')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .range(from, to), WIDGET_REACTIONS_WINDOW);
+  if (error) {
+    console.warn('[message-reactions] window read failed:', error.message || error);
+    return { byMessage: new Map(), ready: true };
+  }
+  return readMessagesReactions(sb, conversationId, data.map((m) => m.id), viewer);
 }
 
 /** One message's reactions for the reader (an empty list when it has none). */
@@ -102,7 +159,7 @@ export async function readMessageReactions(
   messageId: string,
   viewer: ReactionViewer,
 ): Promise<MessageReactionSummary[]> {
-  const { byMessage } = await readRows(sb, 'message_id', messageId, viewer);
+  const { byMessage } = await readRows(sb, { messageId }, viewer);
   return byMessage.get(messageId) ?? [];
 }
 

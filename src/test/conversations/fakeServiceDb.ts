@@ -201,6 +201,7 @@ export function fakeServiceClient(db: FakeServiceDb) {
       eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return b; },
       neq: (c: string, v: unknown) => { filters.push((r) => r[c] !== v); return b; },
       in: (c: string, vs: unknown[]) => { filters.push((r) => vs.includes(r[c])); return b; },
+      gt: (c: string, v: unknown) => { filters.push((r) => String(r[c]) > String(v)); return b; },
       gte: (c: string, v: unknown) => { filters.push((r) => String(r[c]) >= String(v)); return b; },
       lte: (c: string, v: unknown) => { filters.push((r) => String(r[c]) <= String(v)); return b; },
       is: (c: string, v: unknown) => { filters.push((r) => (r[c] ?? null) === v); return b; },

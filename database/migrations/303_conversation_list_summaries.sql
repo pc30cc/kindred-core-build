@@ -4,8 +4,8 @@
 -- APPLIED BY HAND on WebYar's database (host.respok.app), BEFORE the merge of
 -- the code that calls conversation_list_summaries(), per CLAUDE.md
 -- "Migrations": a dry run inside BEGIN … ROLLBACK first. RESPOK's migrator
--- applies it on push. It only adds a function and writes no data; a second
--- run changes nothing. Until it is applied the list keeps its old window
+-- applies it on push. It only adds a function (and the row type its probes
+-- use, public._cls_turn_at) and writes no data; a second run changes nothing. Until it is applied the list keeps its old window
 -- (GET /api/conversations falls back on PGRST202 / 42883).
 --
 -- GET /api/conversations (and GET /:id, the same rows) read ONE window of the
@@ -51,6 +51,14 @@ END $guard$;
 
 SET lock_timeout = '5s';
 
+-- A message's place in thread order, for the probes below.
+DO $type$
+BEGIN
+  IF to_regtype('public._cls_turn_at') IS NULL THEN
+    CREATE TYPE public._cls_turn_at AS (created_at timestamptz, id uuid);
+  END IF;
+END $type$;
+
 CREATE OR REPLACE FUNCTION public.conversation_list_summaries(
   p_workspace_id     uuid,
   p_conversation_ids uuid[]
@@ -87,38 +95,59 @@ AS $fn_list_summaries$
            tt.created_at AS t_at, tt.id AS t_id
       FROM listed l
       -- The newest visitor turn and the newest team turn (a person's or the
-      -- AI's), only where something can be owed.
+      -- AI's), only where something can be owed. Each reads the newest few
+      -- rows of its sender in index order and classifies only those; a whole
+      -- run of rows that are no turn (menu taps, echoes) falls back to every
+      -- row. Classifying every row first made the planner, which cannot tell
+      -- how many rows are turns, read and sort a busy conversation whole.
       LEFT JOIN LATERAL (
-        SELECT m.created_at, m.id
-          FROM public.conversation_messages m
+        SELECT coalesce(
+          (SELECT ROW(c.created_at, c.id)::public._cls_turn_at
+             FROM (SELECT m.created_at, m.id, m.sender_type, m.body, m.metadata
+                     FROM public.conversation_messages m
+                    WHERE m.conversation_id = l.id AND m.sender_type = 'contact'
+                    ORDER BY m.created_at DESC, m.id DESC
+                    LIMIT 3) c
+            WHERE public.conversation_message_turn(c.sender_type::text, c.body, c.metadata) = 'visitor'
+            ORDER BY c.created_at DESC, c.id DESC
+            LIMIT 1),
+          (SELECT ROW(m.created_at, m.id)::public._cls_turn_at
+             FROM public.conversation_messages m
+            WHERE m.conversation_id = l.id AND m.sender_type = 'contact'
+              AND public.conversation_message_turn(m.sender_type::text, m.body, m.metadata) = 'visitor'
+            ORDER BY m.created_at DESC, m.id DESC
+            LIMIT 1)) AS v
          WHERE l.status = 'open'
-           AND m.conversation_id = l.id AND m.sender_type = 'contact'
-           AND public.conversation_message_turn(m.sender_type::text, m.body, m.metadata) = 'visitor'
-         ORDER BY m.created_at DESC, m.id DESC
-         LIMIT 1
-      ) vt ON true
+      ) vt0 ON true
+      CROSS JOIN LATERAL (SELECT (vt0.v).created_at, (vt0.v).id) vt
       LEFT JOIN LATERAL (
-        SELECT t.created_at, t.id
-          FROM (
-            (SELECT m.created_at, m.id
-               FROM public.conversation_messages m
-              WHERE l.status = 'open'
-                AND m.conversation_id = l.id AND m.sender_type = 'agent'
-                AND public.conversation_message_turn(m.sender_type::text, m.body, m.metadata) = 'team'
-              ORDER BY m.created_at DESC, m.id DESC
-              LIMIT 1)
-            UNION ALL
-            (SELECT m.created_at, m.id
-               FROM public.conversation_messages m
-              WHERE l.status = 'open'
-                AND m.conversation_id = l.id AND m.sender_type = 'ai'
-                AND public.conversation_message_turn(m.sender_type::text, m.body, m.metadata) = 'team'
-              ORDER BY m.created_at DESC, m.id DESC
-              LIMIT 1)
-          ) t
-         ORDER BY t.created_at DESC, t.id DESC
-         LIMIT 1
-      ) tt ON true
+        SELECT (
+          SELECT ROW(x.created_at, x.id)::public._cls_turn_at
+            FROM (
+              SELECT coalesce(
+                (SELECT ROW(c.created_at, c.id)::public._cls_turn_at
+                   FROM (SELECT m.created_at, m.id, m.sender_type, m.body, m.metadata
+                           FROM public.conversation_messages m
+                          WHERE m.conversation_id = l.id AND m.sender_type = st.sender_type
+                          ORDER BY m.created_at DESC, m.id DESC
+                          LIMIT 3) c
+                  WHERE public.conversation_message_turn(c.sender_type::text, c.body, c.metadata) = 'team'
+                  ORDER BY c.created_at DESC, c.id DESC
+                  LIMIT 1),
+                (SELECT ROW(m.created_at, m.id)::public._cls_turn_at
+                   FROM public.conversation_messages m
+                  WHERE m.conversation_id = l.id AND m.sender_type = st.sender_type
+                    AND public.conversation_message_turn(m.sender_type::text, m.body, m.metadata) = 'team'
+                  ORDER BY m.created_at DESC, m.id DESC
+                  LIMIT 1)) AS r
+                FROM (VALUES ('agent'::public.sender_type), ('ai'::public.sender_type)) AS st(sender_type)
+            ) y CROSS JOIN LATERAL (SELECT (y.r).created_at, (y.r).id) x
+           WHERE x.created_at IS NOT NULL
+           ORDER BY x.created_at DESC, x.id DESC
+           LIMIT 1) AS t
+         WHERE l.status = 'open'
+      ) tt0 ON true
+      CROSS JOIN LATERAL (SELECT (tt0.t).created_at, (tt0.t).id) tt
   )
   SELECT t.id,
          last.id, last.body, last.created_at, last.sender_type::text, last.sender_id, last.metadata,
@@ -126,14 +155,26 @@ AS $fn_list_summaries$
          coalesce(unread.n, 0),
          coalesce(agents.ids, '{}'::uuid[]),
          owed.needs_reply,
-         CASE WHEN owed.needs_reply THEN (
-           SELECT min(m.created_at)
-             FROM public.conversation_messages m
-            WHERE m.conversation_id = t.id AND m.sender_type = 'contact'
-              -- The range the index reads; the pair decides a tie.
-              AND (t.t_at IS NULL OR m.created_at >= t.t_at)
-              AND (t.t_at IS NULL OR (m.created_at, m.id) > (t.t_at, t.t_id))
-              AND public.conversation_message_turn(m.sender_type::text, m.body, m.metadata) = 'visitor'
+         -- The first visitor turn after the team's last answer (or from the
+         -- start): the first few rows up the index from there, classified;
+         -- every row only when none of them is a turn.
+         CASE WHEN owed.needs_reply THEN coalesce(
+           (SELECT min(c.created_at)
+              FROM (SELECT m.created_at, m.sender_type, m.body, m.metadata
+                      FROM public.conversation_messages m
+                     WHERE m.conversation_id = t.id AND m.sender_type = 'contact'
+                       AND m.created_at >= coalesce(t.t_at, '-infinity'::timestamptz)
+                       -- The pair decides a tie with the answer.
+                       AND (t.t_at IS NULL OR (m.created_at, m.id) > (t.t_at, t.t_id))
+                     ORDER BY m.created_at, m.id
+                     LIMIT 3) c
+             WHERE public.conversation_message_turn(c.sender_type::text, c.body, c.metadata) = 'visitor'),
+           (SELECT min(m.created_at)
+              FROM public.conversation_messages m
+             WHERE m.conversation_id = t.id AND m.sender_type = 'contact'
+               AND m.created_at >= coalesce(t.t_at, '-infinity'::timestamptz)
+               AND (t.t_at IS NULL OR (m.created_at, m.id) > (t.t_at, t.t_id))
+               AND public.conversation_message_turn(m.sender_type::text, m.body, m.metadata) = 'visitor')
          ) END
     FROM turns t
     CROSS JOIN LATERAL (

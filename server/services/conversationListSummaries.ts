@@ -4,11 +4,12 @@
  * (handled_by), needs_reply and waiting_since (GET /api/conversations and
  * GET /:id, routes/conversations.ts listConversationRows).
  *
- * Read with conversation_list_summaries() (migration 303): every row from
- * its own conversation, complete. Before 303, or when that read fails, the
- * old way: ONE window of the newest LIST_MESSAGE_WINDOW messages of all the
- * listed conversations together, in which a busy conversation pushes the
- * others out (their summary then reads empty). Both give the same shapes.
+ * ONE window of the newest LIST_MESSAGE_WINDOW messages of all the listed
+ * conversations together is read first; while it holds every message of them
+ * its summaries are exact. Past it, a busy conversation would push the others
+ * out (their summary would read empty), so conversation_list_summaries()
+ * (migration 303) reads every row from its own conversation. Without 303 the
+ * window's partial summaries, as before. All give the same shapes.
  *
  * needs_reply / waiting_since follow services/needsReply.ts
  * (computeNeedsReply, computeWaitingSince); 303 does it with
@@ -43,8 +44,13 @@ export interface ListVisitorMessage {
 }
 
 export interface ListSummaries {
-  /** How they were read: 'rpc' (303, complete) or 'window' (the fallback). */
-  source: 'rpc' | 'window';
+  /**
+   * How they were read: 'window' (every message of the listed
+   * conversations was in the window: exact), 'rpc' (303, each conversation on
+   * its own: exact), 'window-partial' (past the window without 303: a busy
+   * conversation pushes the others out).
+   */
+  source: 'window' | 'rpc' | 'window-partial';
   lastByConv: Record<string, ListPreview>;
   byConv: Record<string, ListVisitorMessage>;
   unreadByConv: Record<string, number>;
@@ -111,11 +117,11 @@ function isFunctionMissing(error: { code?: string | null } | null | undefined): 
 }
 
 /** The summaries of these conversations from 303, or null when it cannot be read (then the window). */
-async function readFromRpc(
+export async function readListSummariesFromFunction(
   sb: ServiceClient,
   workspaceId: string,
   ids: string[],
-  localeP: Promise<Locale>,
+  localeP: Locale | Promise<Locale>,
 ): Promise<ListSummaries | null> {
   // One row per conversation; a read is cut at DATABASE_MAX_ROWS like any
   // other, so it is paged, and stops once every listed id has its row.
@@ -175,15 +181,14 @@ interface WindowRow extends NeedsReplyMessage {
   metadata: Record<string, unknown> | null;
 }
 
-/** The fallback: one window of the newest messages of all these conversations together. */
-async function readFromWindow(
-  sb: ServiceClient,
-  ids: string[],
-  localeP: Promise<Locale>,
-): Promise<ListSummaries> {
-  // The window's LIST_MESSAGE_WINDOW newest rows, paged: one read stops
-  // at DATABASE_MAX_ROWS (1000), which silently halved the window.
-  const { data: msgs } = await readRows<WindowRow>((from, to) => sb
+/**
+ * One window of the newest LIST_MESSAGE_WINDOW messages of all these
+ * conversations together, paged (one read stops at DATABASE_MAX_ROWS).
+ * `complete`: the window holds every message of them (fewer rows than it
+ * takes, read without an error).
+ */
+async function readWindowRows(sb: ServiceClient, ids: string[]): Promise<{ rows: WindowRow[]; complete: boolean }> {
+  const { data, error } = await readRows<WindowRow>((from, to) => sb
     .from('conversation_messages')
     .select('id, conversation_id, body, created_at, sender_type, sender_id, seen_at, metadata')
     .in('conversation_id', ids)
@@ -194,10 +199,14 @@ async function readFromWindow(
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
     .range(from, to), LIST_MESSAGE_WINDOW);
-  const readerLocale = await localeP;
+  if (error) console.warn('[conversations] list window read failed:', error.message);
+  return { rows: data, complete: !error && data.length < LIST_MESSAGE_WINDOW };
+}
 
+/** The summaries the window's rows give: exact when it holds every message, else partial. */
+function summariesFromWindow(msgs: WindowRow[], readerLocale: Locale, source: ListSummaries['source']): ListSummaries {
   const out: ListSummaries = {
-    source: 'window', lastByConv: {}, byConv: {}, unreadByConv: {}, handledBy: {}, needsReplyByConv: {}, waitingSinceByConv: {},
+    source, lastByConv: {}, byConv: {}, unreadByConv: {}, handledBy: {}, needsReplyByConv: {}, waitingSinceByConv: {},
   };
   const agents: Record<string, Set<string>> = {};
   // Rows arrive newest-first: the first conversational turn decides the
@@ -237,14 +246,21 @@ async function readFromWindow(
     if (!out.byConv[cid]) out.byConv[cid] = { body: m.body ?? '', created_at: m.created_at, seen_at: m.seen_at ?? null };
     if (!m.seen_at) out.unreadByConv[cid] = (out.unreadByConv[cid] ?? 0) + 1;
   }
-  for (const [cid, set] of Object.entries(agents)) out.handledBy[cid] = Array.from(set);
+  // Sorted, as 303 sorts them: the same answer whichever way it was read.
+  for (const [cid, set] of Object.entries(agents)) out.handledBy[cid] = Array.from(set).sort();
   return out;
 }
 
 /**
- * The summaries of the listed conversations (all of one workspace).
- * `readerLocale` is the operator's language (a system preview's body is
- * written in it), read alongside.
+ * The summaries of the listed conversations (all of one workspace), every
+ * one complete. `readerLocale` is the operator's language (a system
+ * preview's body is written in it), read alongside.
+ *
+ * The window is read first: when it holds every message of the listed
+ * conversations (fewer than LIST_MESSAGE_WINDOW together, which is every
+ * workspace's list today), its summaries are exact and cost one read. Only a
+ * list past it reads conversation_list_summaries (303), each conversation on
+ * its own; without 303, the window's partial summaries as before.
  */
 export async function readListSummaries(
   sb: ServiceClient,
@@ -254,7 +270,10 @@ export async function readListSummaries(
 ): Promise<ListSummaries> {
   const localeP = Promise.resolve(readerLocale);
   if (ids.length === 0) {
-    return { source: 'rpc', lastByConv: {}, byConv: {}, unreadByConv: {}, handledBy: {}, needsReplyByConv: {}, waitingSinceByConv: {} };
+    return { source: 'window', lastByConv: {}, byConv: {}, unreadByConv: {}, handledBy: {}, needsReplyByConv: {}, waitingSinceByConv: {} };
   }
-  return (await readFromRpc(sb, workspaceId, ids, localeP)) ?? readFromWindow(sb, ids, localeP);
+  const window = await readWindowRows(sb, ids);
+  if (window.complete) return summariesFromWindow(window.rows, await localeP, 'window');
+  return (await readListSummariesFromFunction(sb, workspaceId, ids, localeP))
+    ?? summariesFromWindow(window.rows, await localeP, 'window-partial');
 }

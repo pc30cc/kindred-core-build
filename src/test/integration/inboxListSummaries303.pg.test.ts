@@ -136,6 +136,7 @@ suite('303 — every Inbox row\'s summary is its own conversation\'s (real Postg
 
       const rows = await list(owner, '&scope=all');
       expect(rows[quiet], `n=${n}`).toBeTruthy();
+      // 2000 newer messages fill the window: the function reads the list; 1999 + 1 fit in it.
       expect((rows[quiet].last_message as Row | null)?.body, `n=${n}`).toBe('is anyone there?');
       expect(rows[quiet].unread_count, `n=${n}`).toBe(1);
       expect((rows[quiet].last_visitor_message as Row | null)?.body, `n=${n}`).toBe('is anyone there?');
@@ -184,6 +185,15 @@ suite('303 — every Inbox row\'s summary is its own conversation\'s (real Postg
     // Only open can owe.
     const pending = await conversation({ status: 'pending' });
     await message(pending, { body: 'C1', secsAgo: 600 });
+    // The newest rows are no turns at all (empty, echoes): the turn behind them still decides.
+    const buried = await conversation();
+    await message(buried, { body: 'C1', secsAgo: 600 });
+    for (let i = 0; i < 6; i++) await message(buried, { body: i % 2 ? '' : 'echo', secsAgo: 500 - i * 10, metadata: i % 2 ? {} : { provider_echo: true } });
+    const buriedAnswered = await conversation();
+    await message(buriedAnswered, { body: 'C1', secsAgo: 700 });
+    await message(buriedAnswered, { sender: 'agent', senderId: a, body: 'A1', secsAgo: 600 });
+    for (let i = 0; i < 6; i++) await message(buriedAnswered, { sender: 'agent', senderId: a, body: '', secsAgo: 500 - i * 10 });
+    for (let i = 0; i < 6; i++) await message(buriedAnswered, { body: '', secsAgo: 400 - i * 10 });
 
     const rows = await list(owner, '&scope=all&status=all');
     expect(rows[again].needs_reply).toBe(true);
@@ -198,6 +208,17 @@ suite('303 — every Inbox row\'s summary is its own conversation\'s (real Postg
     expect(rows[transparent].unread_count).toBe(1);
     expect(rows[pending].needs_reply).toBe(false);
     expect(rows[pending].waiting_since).toBeNull();
+    const fn = Object.fromEntries((await q(
+      `SELECT conversation_id, needs_reply, waiting_since FROM public.conversation_list_summaries($1, $2::uuid[])`,
+      [ws, [buried, buriedAnswered, again]],
+    )).map((r) => [String(r.conversation_id), r]));
+    for (const [how, got] of [['route', rows], ['function', fn]] as const) {
+      expect(got[buried].needs_reply, how).toBe(true);
+      expect(Date.parse(String(got[buried].waiting_since instanceof Date ? got[buried].waiting_since.toISOString() : got[buried].waiting_since)), how)
+        .toBeLessThan(Date.now() - 590_000);
+      expect(got[buriedAnswered].needs_reply, how).toBe(false);
+      expect(got[again].needs_reply, how).toBe(true);
+    }
   });
 
   it('agrees with needsReply.ts on generated fixtures', async () => {
@@ -230,14 +251,22 @@ suite('303 — every Inbox row\'s summary is its own conversation\'s (real Postg
       }
       cases.push({ id, status, msgs });
     }
+    // Both ways the list reads them: the window (these few messages fit in
+    // it, so the route reads it) and the function (a list past the window).
     const rows = await list(owner, '&scope=all&status=all');
+    const fn = Object.fromEntries((await q(
+      `SELECT conversation_id, needs_reply, waiting_since FROM public.conversation_list_summaries($1, $2::uuid[])`,
+      [ws, cases.map((c) => c.id)],
+    )).map((r) => [String(r.conversation_id), r]));
     for (const c of cases) {
-      const row = rows[c.id];
-      expect(row, c.id).toBeTruthy();
-      expect(row.needs_reply, JSON.stringify(c.msgs)).toBe(computeNeedsReply({ status: c.status, messages: c.msgs }));
+      const wantOwed = computeNeedsReply({ status: c.status, messages: c.msgs });
       const want = computeWaitingSince({ status: c.status, messages: c.msgs });
-      if (want === null) expect(row.waiting_since).toBeNull();
-      else expect(Math.abs(Date.parse(String(row.waiting_since)) - Date.parse(want))).toBeLessThan(2000);
+      for (const [how, row] of [['route', rows[c.id]], ['function', fn[c.id]]] as const) {
+        expect(row, `${how} ${c.id}`).toBeTruthy();
+        expect(row.needs_reply, `${how} ${JSON.stringify(c.msgs)}`).toBe(wantOwed);
+        if (want === null) expect(row.waiting_since, how).toBeNull();
+        else expect(Math.abs(Date.parse(String(row.waiting_since instanceof Date ? row.waiting_since.toISOString() : row.waiting_since)) - Date.parse(want)), how).toBeLessThan(2000);
+      }
     }
   });
 
@@ -274,9 +303,14 @@ suite('303 — every Inbox row\'s summary is its own conversation\'s (real Postg
     try {
       const config = (await import('../../../server/config.js')).loadConfig();
       const { getServiceClient } = await import('../../../server/supabase.js');
-      const { readListSummaries } = await import('../../../server/services/conversationListSummaries.js');
+      const { readListSummaries, readListSummariesFromFunction } = await import('../../../server/services/conversationListSummaries.js');
+      // The function's rows, paged past the cap.
+      const fn = await readListSummariesFromFunction(getServiceClient(config), ws, ids, 'en' as never);
+      expect(fn?.source).toBe('rpc');
+      expect(ids.map((id) => fn?.lastByConv[id]?.body)).toEqual(ids.map((_, i) => `c${i}`));
+      // The window's, paged too: 8 messages fit in it, so it is the list's read.
       const s = await readListSummaries(getServiceClient(config), ws, ids, 'en' as never);
-      expect(s.source).toBe('rpc');
+      expect(s.source).toBe('window');
       expect(ids.map((id) => s.lastByConv[id]?.body)).toEqual(ids.map((_, i) => `c${i}`));
     } finally {
       delete process.env.DATABASE_MAX_ROWS;

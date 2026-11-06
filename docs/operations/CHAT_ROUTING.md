@@ -39,6 +39,16 @@ only while unassigned).
   move anyone's chat. Everyone else may take an unassigned chat or transfer
   their own. The list's `assigned_to_me` takes the caller's own id; a
   colleague's is for supervisors only (403 `assignment_scope_not_allowed`).
+- The Inbox list (`GET /api/conversations`, and `GET /:id`) gives every row
+  its own conversation's summary: last message, last visitor message,
+  unread count, `handled_by`, `needs_reply` and `waiting_since`
+  (`server/services/conversationListSummaries.ts`). It reads one window of
+  the newest 2000 messages of the listed conversations; while that window
+  holds all of them its summaries are exact. Past it, migration 303's
+  `conversation_list_summaries()` reads each conversation on its own (one
+  busy conversation used to blank the others). `needs_reply` is the newest
+  turn's (`needsReply.ts`: a customer who writes again after an answer is
+  owed), `waiting_since` the first customer turn after the last answer.
 - A thread (`GET /api/conversations/:id/messages`) answers its newest 1000
   messages (fewer when `DATABASE_MAX_ROWS` is lower), in thread order, with
   `older: { before, before_id }` while there are earlier ones; the same

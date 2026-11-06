@@ -165,6 +165,7 @@ import {
   validateJsonBody,
 } from './middleware/security.js';
 import { waitForDatabase } from './db/status.js';
+import { clusterRole, clusterWorkerIndex, runsBackgroundLoops } from './cluster/role.js';
 
 installProcessErrorHandlers('server');
 
@@ -748,23 +749,34 @@ await ensureInvitationSecrets(config)
 const httpServer = app.listen(config.port, () => {
   console.log(`Growth Suite server running on port ${config.port}`);
 
-  // Cross-node cache invalidation (PostgreSQL LISTEN, one connection). Only
-  // this API process listens; best-effort, a no-op in supabase-rest mode.
+  // BACKEND_PROCESSES (docs/operations/BACKEND_PROCESSES.md): every loop
+  // below that must run once per container starts only where this is true —
+  // the single process, as before, or cluster worker 0 (the lead). The others
+  // (followers) serve HTTP and start only what each process needs for
+  // itself. src/test/cluster/loopPlacement.test.ts keeps the two lists.
+  const runsLoops = runsBackgroundLoops();
+  if (clusterRole() !== 'single') {
+    console.log(`[cluster] worker ${clusterWorkerIndex()} is the ${clusterRole()}${runsLoops ? ': it runs the background loops' : ''}`);
+  }
+
+  // Cross-node cache invalidation (PostgreSQL LISTEN, one connection). Every
+  // backend process listens, each cluster worker too; best-effort, a no-op
+  // in supabase-rest mode.
   startCacheBusListener();
 
   // Phase 3 — start best-effort orphan-attachment sweeper.
-  startAttachmentJanitor(config);
+  if (runsLoops) startAttachmentJanitor(config);
   // The notification log's retention (Super Admin → Notifications).
-  startDispatchLogJanitor(config);
+  if (runsLoops) startDispatchLogJanitor(config);
   // recording_retention_days — sole enforcement path for call-recording
   // retention. See server/services/recordings/retentionJanitor.ts and
   // docs/CALL_RECORDING_RETENTION.md.
-  startRecordingRetentionJanitor(config);
+  if (runsLoops) startRecordingRetentionJanitor(config);
   // Visitor tracking data retention (migration 281): 13 months, or the
   // workspace's own period. See server/services/privacy/visitorRetention.ts.
-  startVisitorDataRetention(config);
+  if (runsLoops) startVisitorDataRetention(config);
   // GDPR — start privacy job worker (in-process loop).
-  startPrivacyWorker(config);
+  if (runsLoops) startPrivacyWorker(config);
   // Invitation outbox. Self-hosted single-container deployments have no
   // dedicated WORKER_KIND=invitations service, which left delivery jobs
   // sitting in `queued` forever ("email queued but never sent"). The
@@ -785,48 +797,50 @@ const httpServer = app.listen(config.port, () => {
   if (process.env.EMAIL_OUTBOX_INPROC !== '0') startEmailOutboxWorker(config);
 
   // GDPR — start hourly TTL purge for expired export artifacts (provider-based).
-  startPrivacyExpirySweep(config);
+  if (runsLoops) startPrivacyExpirySweep(config);
   // Storage-aware workspace deletion — walks + deletes every workspace/<id>/
   // storage object before the existing DB purge runs. See
   // docs/STORAGE_ARCHITECTURE_AUDIT.md and server/services/workspaceDeletion/worker.ts.
-  startWorkspaceDeletionWorker(config);
+  if (runsLoops) startWorkspaceDeletionWorker(config);
   // Storage-aware account deletion — routes every owned workspace through
   // the SAME machinery above before purging the user's own DB row and
   // global users/<id>/ storage. See server/services/userDeletion/worker.ts.
-  startUserDeletionWorker(config);
+  if (runsLoops) startUserDeletionWorker(config);
 
   // AI billing — automatic, idempotent recovery/reconciliation pass.
-  startAiBillingRecovery(config);
+  if (runsLoops) startAiBillingRecovery(config);
   // The simple billing's hourly job (renewals, AI credit, reminders, trials),
   // its 5-minute due step and, next to it, the saved cards' 5-minute step
   // (runSimpleBillingCard: Paddle subscriptions kept in sync, card checkouts
   // and charges resolved, cards cancelled). SIMPLE_BILLING_JOB=off stops all.
-  if (process.env.SIMPLE_BILLING_JOB !== 'off') startSimpleBillingJob(config);
+  if (runsLoops && process.env.SIMPLE_BILLING_JOB !== 'off') startSimpleBillingJob(config);
   // The owner's locked-data exports (phase 4): built in-process, one job at
   // a time, like the privacy exports. Its files expire in the privacy sweep.
-  startLockExportWorker(config);
+  if (runsLoops) startLockExportWorker(config);
 
   // Phase 4 — start in-process alerting ticker (every 60s). Best-effort.
   // Reporting-only: nothing on a request path reads alert_events, so this
   // ticker (and the five other observe-and-report tickers below) is skipped
   // wholesale when OBSERVABILITY_REPORTING_TICKERS=off. See server/config.ts.
-  if (config.observabilityReportingTickersEnabled !== false) {
-    startAlertingTicker(config);
-  } else {
-    console.warn(
-      '[observability] reporting tickers NOT started (OBSERVABILITY_REPORTING_TICKERS=off): ' +
-        'alerting ticker, perf/process collectors, reliability+business rollup, ' +
-        'auto-actions ticker, auto-actions cache, SLO+enforcement ticker. ' +
-        'No new alert_events rows, no outbound alert webhooks, no new hourly rollup ' +
-        'buckets, an empty admin process-trend chart, no slo_breach_events and no ' +
-        'automatic workspace throttling — a real incident needs a manual admin ' +
-        'auto-action instead of self-throttling. Visitors keep FULL capability ' +
-        '(isActionActive() fails open), so nothing 503s and nothing a visitor can ' +
-        'see changes; a manually activated auto-action lapses after ~60s instead of ' +
-        'running its full TTL. Realtime failover, call queue, billing, deletions and ' +
-        'every other worker keep running. To restore: unset ' +
-        'OBSERVABILITY_REPORTING_TICKERS (or set any value other than "off") and restart.',
-    );
+  if (runsLoops) {
+    if (config.observabilityReportingTickersEnabled !== false) {
+      startAlertingTicker(config);
+    } else {
+      console.warn(
+        '[observability] reporting tickers NOT started (OBSERVABILITY_REPORTING_TICKERS=off): ' +
+          'alerting ticker, perf/process collectors, reliability+business rollup, ' +
+          'auto-actions ticker, auto-actions cache, SLO+enforcement ticker. ' +
+          'No new alert_events rows, no outbound alert webhooks, no new hourly rollup ' +
+          'buckets, an empty admin process-trend chart, no slo_breach_events and no ' +
+          'automatic workspace throttling — a real incident needs a manual admin ' +
+          'auto-action instead of self-throttling. Visitors keep FULL capability ' +
+          '(isActionActive() fails open), so nothing 503s and nothing a visitor can ' +
+          'see changes; a manually activated auto-action lapses after ~60s instead of ' +
+          'running its full TTL. Realtime failover, call queue, billing, deletions and ' +
+          'every other worker keep running. To restore: unset ' +
+          'OBSERVABILITY_REPORTING_TICKERS (or set any value other than "off") and restart.',
+      );
+    }
   }
 
   // ── Request-path logging switches ───────────────────────────────────────
@@ -835,77 +849,81 @@ const httpServer = app.listen(config.port, () => {
   // once at boot so an operator reading the log knows why a panel is empty,
   // instead of discovering it months later from a blank chart. Every one of
   // them defaults to ON; only the literal value `off` reaches these lines.
-  if (config.productAnalyticsLoggingEnabled === false) {
-    console.warn(
-      '[analytics] product-analytics logging DISABLED (PRODUCT_ANALYTICS_LOGGING=off): ' +
-        'no visitor_page_views, web_analytics_events, widget_smart_events (TypeScript ' +
-        'half), ai_agent_debug_events or ai_usage_logs rows. Visitor journey and ' +
-        'page-path reports, the per-visitor page history in the Inbox, the ' +
-        'custom-events report, smart-rule / AI-nudge conversion analytics, the AI ' +
-        'answer_inspected debug trail and the AI provider/model breakdown charts all ' +
-        'stay empty. AI BILLING IS UNAFFECTED — it reads ai_usage_events, which is ' +
-        'written inside Postgres. To restore: unset PRODUCT_ANALYTICS_LOGGING (or set ' +
-        'any value other than "off") and restart.',
-    );
-  }
-  if (config.deliveryDiagnosticsLoggingEnabled === false) {
-    console.warn(
-      '[diagnostics] delivery-diagnostics logging DISABLED ' +
-        '(DELIVERY_DIAGNOSTICS_LOGGING=off): no email_logs, ' +
-        'channel_delivery_attempts or ai_source_sync_logs rows. You lose the only ' +
-        'evidence that an invitation / password-reset / invoice email was actually ' +
-        'sent, the per-attempt error code and latency of a failed WhatsApp or ' +
-        'Telegram send, and the Data Hub sync history — the knowledge-source screen ' +
-        'can no longer say whether the last sync succeeded. Sending, RETRY and ' +
-        'ingestion themselves are unaffected (retry state lives on channel_jobs). ' +
-        'To restore: unset DELIVERY_DIAGNOSTICS_LOGGING (or set any value other than ' +
-        '"off") and restart.',
-    );
-  }
-  if (config.complianceAuditLoggingEnabled === false) {
-    console.warn(
-      '[audit] COMPLIANCE AUDIT LOGGING DISABLED (COMPLIANCE_AUDIT_LOGGING=off) — ' +
-        'NOT RECOMMENDED IN PRODUCTION. No audit_logs, security_events, ' +
-        'login_attempts, admin_gate_bypass_log, plan_change_log, commerce_tool_audit ' +
-        'or realtime_provider_audit rows are written. This saves nothing on an ' +
-        'install with no users (all of them are request-path-only) while removing the ' +
-        'legal record of administrative and privacy actions, the GDPR export\'s ' +
-        'audit_logs section, the only forensic trail if this install is probed or ' +
-        'compromised, account-takeover evidence, any trace of an admin gate bypass, ' +
-        'and billing-dispute evidence of plan changes. To restore: unset ' +
-        'COMPLIANCE_AUDIT_LOGGING (or set any value other than "off") and restart.',
-    );
-  }
-  if (config.channelsWorkerHeartbeatEnabled === false) {
-    console.warn(
-      '[channels] worker heartbeat DISABLED (CHANNELS_WORKER_HEARTBEAT=off): Core no ' +
-        'longer records channel_worker_heartbeats, and channelsWorkerOffline() now ' +
-        'FAILS OPEN so no request path starts refusing work on a signal you silenced. ' +
-        'The Super Admin channels-health panel reports the worker offline/unknown ' +
-        'forever even while it drains channel_jobs normally, and Telegram diagnostics ' +
-        '/ webhook repair no longer fail fast with a clean 503 when the worker really ' +
-        'IS dead — the operator waits out the 12-15s operation timeout instead. ' +
-        'Channel messaging is unaffected. CHEAPER LEVER FIRST: raising ' +
-        'CHANNELS_HEARTBEAT_MS (up to ~100s, below the 120s staleness window) drops ' +
-        '~85% of these writes and keeps the gate working. To restore: unset ' +
-        'CHANNELS_WORKER_HEARTBEAT (or set any value other than "off") and restart ' +
-        'BOTH Core and the channels worker.',
-    );
+  if (runsLoops) {
+    if (config.productAnalyticsLoggingEnabled === false) {
+      console.warn(
+        '[analytics] product-analytics logging DISABLED (PRODUCT_ANALYTICS_LOGGING=off): ' +
+          'no visitor_page_views, web_analytics_events, widget_smart_events (TypeScript ' +
+          'half), ai_agent_debug_events or ai_usage_logs rows. Visitor journey and ' +
+          'page-path reports, the per-visitor page history in the Inbox, the ' +
+          'custom-events report, smart-rule / AI-nudge conversion analytics, the AI ' +
+          'answer_inspected debug trail and the AI provider/model breakdown charts all ' +
+          'stay empty. AI BILLING IS UNAFFECTED — it reads ai_usage_events, which is ' +
+          'written inside Postgres. To restore: unset PRODUCT_ANALYTICS_LOGGING (or set ' +
+          'any value other than "off") and restart.',
+      );
+    }
+    if (config.deliveryDiagnosticsLoggingEnabled === false) {
+      console.warn(
+        '[diagnostics] delivery-diagnostics logging DISABLED ' +
+          '(DELIVERY_DIAGNOSTICS_LOGGING=off): no email_logs, ' +
+          'channel_delivery_attempts or ai_source_sync_logs rows. You lose the only ' +
+          'evidence that an invitation / password-reset / invoice email was actually ' +
+          'sent, the per-attempt error code and latency of a failed WhatsApp or ' +
+          'Telegram send, and the Data Hub sync history — the knowledge-source screen ' +
+          'can no longer say whether the last sync succeeded. Sending, RETRY and ' +
+          'ingestion themselves are unaffected (retry state lives on channel_jobs). ' +
+          'To restore: unset DELIVERY_DIAGNOSTICS_LOGGING (or set any value other than ' +
+          '"off") and restart.',
+      );
+    }
+    if (config.complianceAuditLoggingEnabled === false) {
+      console.warn(
+        '[audit] COMPLIANCE AUDIT LOGGING DISABLED (COMPLIANCE_AUDIT_LOGGING=off) — ' +
+          'NOT RECOMMENDED IN PRODUCTION. No audit_logs, security_events, ' +
+          'login_attempts, admin_gate_bypass_log, plan_change_log, commerce_tool_audit ' +
+          'or realtime_provider_audit rows are written. This saves nothing on an ' +
+          'install with no users (all of them are request-path-only) while removing the ' +
+          'legal record of administrative and privacy actions, the GDPR export\'s ' +
+          'audit_logs section, the only forensic trail if this install is probed or ' +
+          'compromised, account-takeover evidence, any trace of an admin gate bypass, ' +
+          'and billing-dispute evidence of plan changes. To restore: unset ' +
+          'COMPLIANCE_AUDIT_LOGGING (or set any value other than "off") and restart.',
+      );
+    }
+    if (config.channelsWorkerHeartbeatEnabled === false) {
+      console.warn(
+        '[channels] worker heartbeat DISABLED (CHANNELS_WORKER_HEARTBEAT=off): Core no ' +
+          'longer records channel_worker_heartbeats, and channelsWorkerOffline() now ' +
+          'FAILS OPEN so no request path starts refusing work on a signal you silenced. ' +
+          'The Super Admin channels-health panel reports the worker offline/unknown ' +
+          'forever even while it drains channel_jobs normally, and Telegram diagnostics ' +
+          '/ webhook repair no longer fail fast with a clean 503 when the worker really ' +
+          'IS dead — the operator waits out the 12-15s operation timeout instead. ' +
+          'Channel messaging is unaffected. CHEAPER LEVER FIRST: raising ' +
+          'CHANNELS_HEARTBEAT_MS (up to ~100s, below the 120s staleness window) drops ' +
+          '~85% of these writes and keeps the gate working. To restore: unset ' +
+          'CHANNELS_WORKER_HEARTBEAT (or set any value other than "off") and restart ' +
+          'BOTH Core and the channels worker.',
+      );
+    }
   }
 
   // E2 — in-process Data Hub source-sync worker.
   // Production: run as a separate WORKER_KIND=source-sync container.
   // Dev/local: AI_SOURCE_SYNC_WORKER_INPROC=1 (preferred) or legacy
   // AI_KB_WORKER_INPROC=1 (deprecated — see warning below).
-  if (
-    process.env.AI_SOURCE_SYNC_WORKER_INPROC === '1' ||
-    process.env.AI_KB_WORKER_INPROC === '1'
-  ) {
-    if (process.env.AI_KB_WORKER_INPROC === '1' && process.env.AI_SOURCE_SYNC_WORKER_INPROC !== '1') {
-      console.warn('[worker] AI_KB_WORKER_INPROC is deprecated. Use AI_SOURCE_SYNC_WORKER_INPROC for source-sync or AI_KB_INTELLIGENCE_WORKER_INPROC for intelligence.');
+  if (runsLoops) {
+    if (
+      process.env.AI_SOURCE_SYNC_WORKER_INPROC === '1' ||
+      process.env.AI_KB_WORKER_INPROC === '1'
+    ) {
+      if (process.env.AI_KB_WORKER_INPROC === '1' && process.env.AI_SOURCE_SYNC_WORKER_INPROC !== '1') {
+        console.warn('[worker] AI_KB_WORKER_INPROC is deprecated. Use AI_SOURCE_SYNC_WORKER_INPROC for source-sync or AI_KB_INTELLIGENCE_WORKER_INPROC for intelligence.');
+      }
+      process.env.AI_KB_WORKER_INPROC = '1'; // sourceWorker.ts checks this internally
+      startInProcessSourceWorker(config);
     }
-    process.env.AI_KB_WORKER_INPROC = '1'; // sourceWorker.ts checks this internally
-    startInProcessSourceWorker(config);
   }
 
   // Phase 5A — start perf sample flusher + process sampler. Best-effort.
@@ -926,7 +944,7 @@ const httpServer = app.listen(config.port, () => {
   // capability and fails open, so stopping the producer leaves visitors with
   // MORE capability, never less. Producer and consumer stay coherent because
   // the cache below is gated by the same flag.
-  if (config.observabilityReportingTickersEnabled !== false) {
+  if (runsLoops && config.observabilityReportingTickersEnabled !== false) {
     startAutoActionsTicker(config);
   }
 
@@ -948,20 +966,22 @@ const httpServer = app.listen(config.port, () => {
   // it makes the live provider-routing decision — and it is the largest
   // periodic writer left once the reporting flag is off (~5,760
   // observability_ticker_lease writes/day for the `failover_health` lease).
-  if (config.realtimeFailoverTickerEnabled !== false) {
-    startFailoverTicker(config);
-  } else {
-    console.warn(
-      '[realtime] failover engine ticker NOT started (REALTIME_FAILOVER_TICKER=off): ' +
-        'no 30s provider health probe, no failover/failback decisions, no ' +
-        'realtime_provider_audit transition rows. Realtime KEEPS WORKING — ' +
-        'loadFailoverState() is read independently on every /connect and falls back ' +
-        'to effective_provider=centrifugo — but the effective provider is now PINNED ' +
-        'at its last persisted value: if that provider later dies nothing moves the ' +
-        'platform to polling_builtin and nothing ever fails back, so recovery means ' +
-        'setting realtime_provider_lock by hand in the admin panel. To restore: unset ' +
-        'REALTIME_FAILOVER_TICKER (or set any value other than "off") and restart.',
-    );
+  if (runsLoops) {
+    if (config.realtimeFailoverTickerEnabled !== false) {
+      startFailoverTicker(config);
+    } else {
+      console.warn(
+        '[realtime] failover engine ticker NOT started (REALTIME_FAILOVER_TICKER=off): ' +
+          'no 30s provider health probe, no failover/failback decisions, no ' +
+          'realtime_provider_audit transition rows. Realtime KEEPS WORKING — ' +
+          'loadFailoverState() is read independently on every /connect and falls back ' +
+          'to effective_provider=centrifugo — but the effective provider is now PINNED ' +
+          'at its last persisted value: if that provider later dies nothing moves the ' +
+          'platform to polling_builtin and nothing ever fails back, so recovery means ' +
+          'setting realtime_provider_lock by hand in the admin panel. To restore: unset ' +
+          'REALTIME_FAILOVER_TICKER (or set any value other than "off") and restart.',
+      );
+    }
   }
 
   // Multi-node topology — keep the Centrifugo node-health cache warm in the
@@ -972,7 +992,7 @@ const httpServer = app.listen(config.port, () => {
   // Phase 7 — start reliability/business/health rollup (every 10 min). Best-effort.
   // Reporting-only: the hourly aggregates it writes are read by the admin
   // reliability charts and by the SLO evaluator, never by a request path.
-  if (config.observabilityReportingTickersEnabled !== false) {
+  if (runsLoops && config.observabilityReportingTickersEnabled !== false) {
     startReliabilityRollup(config);
   }
 
@@ -984,42 +1004,42 @@ const httpServer = app.listen(config.port, () => {
   // automatic throttling and nothing else. Without this gate the cycle costs
   // ~20k no-op slo_breach write transactions/day plus a constant read of two
   // rollup tables that the same flag already stopped filling.
-  if (config.observabilityReportingTickersEnabled !== false) {
+  if (runsLoops && config.observabilityReportingTickersEnabled !== false) {
     startEnforcementTicker(config);
   }
 
   // Phase 8C — Call queue expiry sweeper (every 10s). Best-effort. An empty
   // queue costs one index-only read per tick (see queueTicker.ts).
-  startCallQueueTicker(config);
-  startStaleConnectingSweep(config);
-  startStaleActiveSweep(config);
+  if (runsLoops) startCallQueueTicker(config);
+  if (runsLoops) startStaleConnectingSweep(config);
+  if (runsLoops) startStaleActiveSweep(config);
 
   // MaxMind GeoLite2 auto-update ticker. No-ops unless Map & Geo has
   // maxmind_local enabled + auto mode + credentials. Never blocks startup and
   // never touches the widget request path.
-  startMaxmindUpdateTicker(config);
+  if (runsLoops) startMaxmindUpdateTicker(config);
 
   // SEO Rank Tracking — periodic keyword-position refresh (every 15 min).
   // No-ops unless a platform rank-tracking provider is configured and
   // active. See server/services/seo/rankTrackingTicker.ts.
-  startRankTrackingTicker(config);
+  if (runsLoops) startRankTrackingTicker(config);
 
   // Gmail — 7-day Pub/Sub watch renewal (checked every 6h). No-ops unless
   // GOOGLE_OAUTH_CLIENT_ID/SECRET + GMAIL_PUBSUB_TOPIC are configured. See
   // server/services/channels/gmail/watchRenewalTicker.ts.
-  startGmailWatchRenewalTicker(config);
+  if (runsLoops) startGmailWatchRenewalTicker(config);
 
   // Operator notification emails — the unread digest, the weekly summary and
   // the queue behind both. A no-op while Super Admin → Notifications has the
   // feature switched off, which is how it ships. See
   // server/services/notificationEmail/ticker.ts.
-  startNotificationEmailTicker(config);
+  if (runsLoops) startNotificationEmailTicker(config);
 
   // Chat routing — waiting chats go to an operator as soon as one can take
   // them, a pre-chat form never sent stops holding routing after 2 minutes,
   // and an unanswered assignment moves on after the first-response timeout
   // (every 30 s, leased). See server/services/chatRoutingTicker.ts.
-  startChatRoutingTicker(config);
+  if (runsLoops) startChatRoutingTicker(config);
 
   // The inactivity close — a conversation of any chat channel nobody has
   // written in for its workspace's window (1–48 h, default 24) is closed by
@@ -1027,48 +1047,50 @@ const httpServer = app.listen(config.port, () => {
   // answer, never the App Review account's (every 5 min, leased; nothing
   // while the Super Admin's switch is off, a no-op before migration 284; the
   // widget only before 286). See server/services/conversationIdleCloseTicker.ts.
-  startConversationIdleCloseTicker(config);
+  if (runsLoops) startConversationIdleCloseTicker(config);
 
   // Colleague calls — a call still ringing 45 s after it was placed is
   // missed: the callee's Android phones stop, both members are told, and the
   // callee gets the missed-call notification (every 5 s, leased). See
   // server/services/teamCallTicker.ts.
-  startTeamCallTicker(config);
+  if (runsLoops) startTeamCallTicker(config);
 
   // The App Review demo's visitors, kept on the Visitors tab while that
   // account may sign in (migration 248). See
   // server/services/appReview/visitorsTicker.ts.
-  startAppReviewVisitorsTicker(config);
+  if (runsLoops) startAppReviewVisitorsTicker(config);
 
   // Scheduled database backups from Super Admin → Database → Backup (checked
   // every 5 min). A no-op until a schedule is switched on there. See
   // server/services/backup/databaseBackup.ts.
-  startDatabaseBackupScheduler(config);
+  if (runsLoops) startDatabaseBackupScheduler(config);
 
   // Phase 9 — Call invitation TTL sweeper (every 30s). Flips pending
   // invitations whose CALL_INVITATION_TTL_SECONDS window passed into
   // 'expired' and patches the system card so the widget UI updates.
-  startInvitationExpirySweeper(config);
+  if (runsLoops) startInvitationExpirySweeper(config);
 
   // AI KB Builder — optional in-process worker (dev/local only).
   // Production deploys MUST run a separate WORKER_KIND=intelligence
   // container. Preferred flag: AI_KB_INTELLIGENCE_WORKER_INPROC=1.
   // Legacy flag AI_KB_WORKER_INPROC=1 still works but is deprecated.
-  if (
-    process.env.AI_KB_INTELLIGENCE_WORKER_INPROC === '1' ||
-    process.env.AI_KB_WORKER_INPROC === '1'
-  ) {
-    if (process.env.AI_KB_WORKER_INPROC === '1' && process.env.AI_KB_INTELLIGENCE_WORKER_INPROC !== '1') {
-      console.warn('[worker] AI_KB_WORKER_INPROC is deprecated. Use AI_KB_INTELLIGENCE_WORKER_INPROC for intelligence worker in-process.');
+  if (runsLoops) {
+    if (
+      process.env.AI_KB_INTELLIGENCE_WORKER_INPROC === '1' ||
+      process.env.AI_KB_WORKER_INPROC === '1'
+    ) {
+      if (process.env.AI_KB_WORKER_INPROC === '1' && process.env.AI_KB_INTELLIGENCE_WORKER_INPROC !== '1') {
+        console.warn('[worker] AI_KB_WORKER_INPROC is deprecated. Use AI_KB_INTELLIGENCE_WORKER_INPROC for intelligence worker in-process.');
+      }
+      import('../worker/intelligence/index.js')
+        .then((m) => m.startAiKbWorker?.())
+        .catch((e) => console.warn('[ai-kb worker] inproc start failed:', e?.message));
     }
-    import('../worker/intelligence/index.js')
-      .then((m) => m.startAiKbWorker?.())
-      .catch((e) => console.warn('[ai-kb worker] inproc start failed:', e?.message));
   }
 
   // E10 — Scheduled regression worker (dev/local only).
   // Production: run WORKER_KIND=regression-runner in a separate container.
-  if (process.env.AI_AGENT_REGRESSION_WORKER_INPROC === '1') {
+  if (runsLoops && process.env.AI_AGENT_REGRESSION_WORKER_INPROC === '1') {
     import('../worker/regression-runner/index.js')
       .then((m) => m.startRegressionWorker?.())
       .catch((e) => console.warn('[regression-worker] inproc start failed:', e?.message));

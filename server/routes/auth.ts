@@ -176,7 +176,7 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     }
 
     const genericInvalid = async () => {
-      recordLoginAttempt(req, normalizedEmail, false);
+      await recordLoginAttempt(req, normalizedEmail, false);
       await logSecurityEvent(req, 'login_failed', 'warn', { email: normalizedEmail });
       await insertLoginAttempt(config, sb, req, normalizedEmail, false);
       return res.status(401).json({ error: 'Invalid email or password' });
@@ -186,7 +186,7 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     if (!identity) return genericInvalid();
 
     if (identity.status === 'disabled') {
-      recordLoginAttempt(req, normalizedEmail, false);
+      await recordLoginAttempt(req, normalizedEmail, false);
       await logSecurityEvent(req, 'login_failed', 'warn', { email: normalizedEmail, userId: identity.id, reason: 'disabled' });
       return res.status(403).json({ error: 'This account has been disabled.' });
     }
@@ -199,7 +199,7 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
       // same forgot-password flow), which is a different remediation than
       // "your password was wrong". It does not reveal anything an attacker
       // couldn't already learn by attempting "forgot password" for the email.
-      recordLoginAttempt(req, normalizedEmail, false);
+      await recordLoginAttempt(req, normalizedEmail, false);
       await logSecurityEvent(req, 'login_failed', 'info', { email: normalizedEmail, userId: identity.id, reason: 'password_setup_required' });
       return res.status(403).json({ error: 'Password setup required', passwordSetupRequired: true });
     }
@@ -232,7 +232,7 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     // does not reopen it. Verified/unverified is exposed to the client
     // (`emailVerified` in the response) so the UI can still nudge toward
     // verification.
-    recordLoginAttempt(req, normalizedEmail, true);
+    await recordLoginAttempt(req, normalizedEmail, true);
     await insertLoginAttempt(config, sb, req, normalizedEmail, true);
 
     // Silent rehash-on-login when stored params are weaker than current policy.

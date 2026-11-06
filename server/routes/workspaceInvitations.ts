@@ -15,6 +15,7 @@ import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { hubLimiterStore } from '../cluster/client.js';
 import crypto from 'node:crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -322,7 +323,11 @@ const publicLimiter = rateLimit({
   keyGenerator: (req) => `wi:${ipKeyGenerator(req.ip || '')}`,
 });
 
+// The OTP and accept limiters bound guesses of a secret: counted for the
+// whole container when the backend runs several processes (hubLimiterStore,
+// `{}` otherwise).
 const otpLimiter = rateLimit({
+  ...hubLimiterStore('invitation-otp'),
   windowMs: 60_000,
   max: 8,
   standardHeaders: true,
@@ -331,6 +336,7 @@ const otpLimiter = rateLimit({
 });
 
 const acceptLimiter = rateLimit({
+  ...hubLimiterStore('invitation-accept'),
   windowMs: 60_000,
   max: 10,
   standardHeaders: true,

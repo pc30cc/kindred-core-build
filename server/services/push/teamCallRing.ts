@@ -38,7 +38,12 @@
  * cancel for that call waits for it first; and a ring whose call stopped
  * ringing before its sends began sends nothing. The map is per process: one
  * replica is the common case, and with more the ring's own state check still
- * keeps most such rings from going out at all.
+ * keeps most such rings from going out at all. When the backend runs several
+ * processes in one container (BACKEND_PROCESSES, docs/operations/
+ * BACKEND_PROCESSES.md) the ring also holds the container-wide lock
+ * `ring:<call>` from before anyone can learn the call's id
+ * (holdTeamCallRing) until its sends are done, and a cancel on any worker
+ * waits on it (at most CANCEL_WAITS_FOR_RING_MS).
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -47,6 +52,7 @@ import { sendFcmData, isPushConfigured } from './fcm.js';
 import { disableToken, forgetVoipToken } from './devices.js';
 import { mobileAppAllowed } from '../mobileApp/planGate.js';
 import { getPlatformEditionOrNull } from '../platformRegion.js';
+import { hubActive, hubLock } from '../../cluster/client.js';
 import type { Edition } from '../../../shared/edition.js';
 import {
   TEAM_CALL_RING_SECONDS,
@@ -287,6 +293,34 @@ export async function teamCallRingTargets(
 /** Rings whose sends are not done yet, by call id (see the top of this file). */
 const ringsInFlight = new Map<string, Promise<unknown>>();
 
+/** Cluster mode: the release of each call's `ring:<call>` hold, by call id. */
+const ringHolds = new Map<string, () => void>();
+/** How long a cancel on another worker waits for the call's ring at most. */
+const CANCEL_WAITS_FOR_RING_MS = 10_000;
+
+function releaseRingHold(callId: string): void {
+  const release = ringHolds.get(callId);
+  if (!release) return;
+  ringHolds.delete(callId);
+  release();
+}
+
+/**
+ * Cluster mode only (a no-op in the single process): takes the
+ * container-wide hold on the call's ring, acknowledged by the primary, so a
+ * stop handled by another worker waits for the ring's sends. Await it before
+ * ringTeamCall, before the call is announced and before its id is answered;
+ * ringTeamCall releases it when its sends are done.
+ */
+export async function holdTeamCallRing(callId: string): Promise<void> {
+  if (!hubActive()) return;
+  const release = await hubLock(`ring:${callId}`, 0);
+  ringHolds.set(callId, release);
+  // Never longer than the ring itself, whatever happens to ringTeamCall.
+  const timer = setTimeout(() => releaseRingHold(callId), (TEAM_CALL_RING_SECONDS + 15) * 1000);
+  timer.unref?.();
+}
+
 /**
  * Rings [targets] for the call. Returns how many sends the transports
  * accepted, which the caller may log. Never rejects.
@@ -304,6 +338,7 @@ export function ringTeamCall(
   ringsInFlight.set(input.callId, ringing);
   void ringing.then(() => {
     if (ringsInFlight.get(input.callId) === ringing) ringsInFlight.delete(input.callId);
+    releaseRingHold(input.callId);
   });
   return ringing;
 }
@@ -435,6 +470,8 @@ export async function cancelTeamCallRing(
   if (!deviceIds.length || !isPushConfigured()) return;
   try {
     await ringsInFlight.get(input.callId);
+    // A ring sent by another worker of this container (cluster mode only).
+    if (hubActive()) (await hubLock(`ring:${input.callId}`, CANCEL_WAITS_FOR_RING_MS))();
     const sb = getServiceClient(config);
     const { data } = await sb
       .from('mobile_push_devices')

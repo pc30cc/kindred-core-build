@@ -29,7 +29,11 @@ import { takeAnonymousCallBootstrap } from '../services/widget/security.js';
 import { resolveEffectiveCallProvider, resolveCallProvider } from '../services/calls/providerResolver.js';
 import { clearInCall } from '../services/calls/availability.js';
 import { LIVE_CALL_STATES, isLiveCallState, syncAgentActiveCallCount } from '../services/calls/callStateGuards.js';
-import { takeCallRequest, giveBackCallRequest, mayRingForVisitor } from '../services/calls/callRequestLimiter.js';
+import {
+  takeSharedCallRequest,
+  giveBackSharedCallRequest,
+  mayRingSharedForVisitor,
+} from '../services/calls/callRequestShared.js';
 import type { CallProviderId } from '../services/calls/providers/types.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import {
@@ -1262,14 +1266,14 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   // per address (services/calls/callRequestLimiter.ts). A refusal further
   // down gives its share back, so only calls that were made count.
   const visitorKey = identity.visitorId ? `${ws.workspace_id}:${identity.visitorId}` : null;
-  const limit = takeCallRequest(visitorKey, getClientIp(req) || null);
+  const limit = await takeSharedCallRequest(visitorKey, getClientIp(req) || null);
   if ('retryAfterSeconds' in limit) {
     res.setHeader('Retry-After', String(limit.retryAfterSeconds));
     return res.status(429).json({ error: 'too_many_call_requests', retry_after: limit.retryAfterSeconds });
   }
   const ticket = limit.ticket;
   let madeCall = false;
-  res.once('finish', () => { if (!madeCall) giveBackCallRequest(ticket); });
+  res.once('finish', () => { if (!madeCall) giveBackSharedCallRequest(ticket); });
   // Provider check (fail closed)
   let providerId: string;
   try {
@@ -1444,15 +1448,16 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   setActiveCallCookie(res, req, config, ws.workspace_id, call!.id, getOrigin(req));
 
   await publishQueueEvent(config, ws.workspace_id, 'call_requested', { call_id: call!.id });
+  // The same visitor calling again within a minute (a request, cancel,
+  // request loop) is queued but does not ring the phones again.
+  const ring = await mayRingSharedForVisitor(visitorKey);
   try {
     await routeIncomingCall(config, {
       workspaceId: ws.workspace_id,
       callSessionId: call!.id,
       departmentId: chosenDepartmentId,
       callType: dbCallType,
-      // The same visitor calling again within a minute (a request, cancel,
-      // request loop) is queued but does not ring the phones again.
-      ring: mayRingForVisitor(visitorKey),
+      ring,
     });
   } catch (e) { /* best-effort: queue entry already created */ }
 

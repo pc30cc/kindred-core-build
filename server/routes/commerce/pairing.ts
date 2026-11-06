@@ -9,6 +9,7 @@
  */
 import { Router, type Request } from 'express';
 import rateLimit from 'express-rate-limit';
+import { hubLimiterStore } from '../../cluster/client.js';
 import { z } from 'zod';
 import { boundedRecord } from '../../lib/boundedZod.js';
 import type { ServerConfig } from '../../config.js';
@@ -30,7 +31,9 @@ function serverConfigOf(req: Request): ServerConfig {
 }
 
 // Pairing is a low-volume, security-sensitive flow — bound attempts hard.
-const pairingLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+// Bounds guesses of a pairing code: counted for the whole container when the
+// backend runs several processes (hubLimiterStore, `{}` otherwise).
+const pairingLimiter = rateLimit({ ...hubLimiterStore('commerce-pairing'), windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
 
 const registerSchema = z.object({
   state: z.string().min(16).max(200),

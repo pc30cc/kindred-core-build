@@ -7,7 +7,9 @@
  *     'queued' entry per workspace+channel and offer it.
  *
  * All steps are best-effort, idempotent, single-process. Workspace-scoped
- * iteration so one bad workspace can't poison the rest.
+ * iteration so one bad workspace can't poison the rest. When the backend runs
+ * several processes in one container (BACKEND_PROCESSES) this ticker runs only
+ * in the lead (server/index.ts, `runsLoops`), so it stays one per container.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';

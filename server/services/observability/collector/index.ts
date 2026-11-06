@@ -19,6 +19,8 @@ import { RealtimeCollector, type RealtimeMetricInput } from './realtimeCollector
 import { PerfCollector, type RequestSampleInput } from './perfCollector.js';
 import { ProcessCollector, type ProcessAverageMetric } from './processCollector.js';
 import { ReconnectClassifier } from './reconnectClassifier.js';
+import { usesClusterHub } from '../../../cluster/role.js';
+import { relayMonitoringCollector } from '../../../cluster/metricsRelay.js';
 
 const PROCESS_TREND_SAMPLE_MS = 60_000;
 
@@ -89,10 +91,20 @@ class InMemoryMonitoringCollector implements MonitoringCollector {
 }
 
 let instance: InMemoryMonitoringCollector | null = null;
+/** Cluster mode only: `instance` wrapped to share samples with the other workers. */
+let relayed: MonitoringCollector | null = null;
 
+/**
+ * The process's collector. In a cluster worker (BACKEND_PROCESSES,
+ * docs/operations/BACKEND_PROCESSES.md) the same collector wrapped by
+ * cluster/metricsRelay.ts, so it also holds the other workers' samples;
+ * otherwise the collector itself, as before.
+ */
 export function getMonitoringCollector(): MonitoringCollector {
   if (!instance) instance = new InMemoryMonitoringCollector();
-  return instance;
+  if (!usesClusterHub()) return instance;
+  if (!relayed) relayed = relayMonitoringCollector(instance);
+  return relayed;
 }
 
 /** Call once at boot (server/index.ts) — starts the process trend sampler. */
@@ -101,9 +113,15 @@ export function startMonitoringCollector(_config: ServerConfig): void {
   instance!.startTrendSampler();
 }
 
+/** Tests only: a collector of its own (cluster/metricsRelay.ts's tests wrap two). */
+export function __createMonitoringCollectorForTests(): MonitoringCollector {
+  return new InMemoryMonitoringCollector();
+}
+
 export function __resetMonitoringCollectorForTests(): void {
   if (instance) instance.stopTrendSampler();
   instance = null;
+  relayed = null;
 }
 
 export type { MonitoringCollector } from './types.js';

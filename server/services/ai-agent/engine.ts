@@ -44,6 +44,10 @@ import {
 } from '../ai-billing/runContext.js';
 import { AiBillingError } from '../ai-billing/errors.js';
 import { coalesceVisitorBurst, noteVisitorMessage } from './coalescing.js';
+import { hubActive, hubLock } from '../../cluster/client.js';
+
+/** A thrown value as the handlers below read it (an Error, or anything with a message). */
+type ThrownValue = { message?: string; stack?: string } | null | undefined;
 
 export type { MaybeRunInput, MaybeRunResult } from './engine/types.js';
 
@@ -52,9 +56,13 @@ export type { MaybeRunInput, MaybeRunResult } from './engine/types.js';
  * Two visitor messages arriving back-to-back used to start two independent
  * engine runs on the same conversation, which produced duplicated or
  * contradictory replies. The second caller now waits for the first to
- * settle, then re-evaluates freshness (and usually skips).
+ * settle, then re-evaluates freshness (and usually skips). With several
+ * backend processes in one container (BACKEND_PROCESSES) the wait is the
+ * cluster primary's lock `ai:<conversation>`, so the two runs never overlap
+ * whichever worker took each message (bounded at AI_RUN_LOCK_WAIT_MS).
  */
 const inFlightByConversation = new Map<string, Promise<unknown>>();
+const AI_RUN_LOCK_WAIT_MS = 120_000;
 
 export async function maybeRunAiAssistantAfterVisitorMessage(
   config: ServerConfig,
@@ -65,6 +73,14 @@ export async function maybeRunAiAssistantAfterVisitorMessage(
     // Register the message BEFORE any awaiting, so a burst partner that is
     // already sleeping in its debounce window sees it and stands down.
     if (input.visitorMessageId) noteVisitorMessage(convId, input.visitorMessageId);
+    if (hubActive()) {
+      const release = await hubLock(`ai:${convId}`, AI_RUN_LOCK_WAIT_MS);
+      try {
+        return await runGuarded(config, input);
+      } finally {
+        release();
+      }
+    }
     const prior = inFlightByConversation.get(convId);
     if (prior) await prior.catch(() => {});
   }
@@ -98,8 +114,9 @@ async function runGuarded(
     }
 
     return await runInternal(config, input);
-  } catch (err: any) {
-    console.warn('[ai-agent] engine failed:', err?.message || err);
+  } catch (err) {
+    const e = err as ThrownValue;
+    console.warn('[ai-agent] engine failed:', e?.message || err);
     // Persist the failure so a silent AI (no reply, no run row) is always
     // diagnosable from ai_agent_runs instead of only from server stdout.
     try {
@@ -111,10 +128,10 @@ async function runGuarded(
         status: 'failed',
         inputText: input.question || null,
         outputText: null,
-        metadata: { error: String(err?.message || err), stack: String(err?.stack || '').slice(0, 2000) },
+        metadata: { error: String(e?.message || err), stack: String(e?.stack || '').slice(0, 2000) },
       });
     } catch { /* logging must never mask the original failure */ }
-    return { ran: false, action: 'failed', reason: err?.message || 'engine_error' };
+    return { ran: false, action: 'failed', reason: e?.message || 'engine_error' };
   }
 }
 
@@ -137,8 +154,8 @@ async function runInternal(
     const result = await runStages(config, input, pre);
     if (runCtx) await closeTurnRun(config, runCtx, null);
     return result;
-  } catch (err: any) {
-    if (runCtx) await closeTurnRun(config, runCtx, String(err?.message || 'engine_error'));
+  } catch (err) {
+    if (runCtx) await closeTurnRun(config, runCtx, String((err as ThrownValue)?.message || 'engine_error'));
     throw err;
   }
 }
@@ -211,7 +228,7 @@ async function closeTurnRun(
     else await failAiRun(config, ctx, 'no_billable_usage');
   } catch (err) {
     // The recovery worker settles/releases anything left behind.
-    console.warn('[ai-billing] run not closed:', (err as any)?.message);
+    console.warn('[ai-billing] run not closed:', (err as ThrownValue)?.message);
   }
 }
 

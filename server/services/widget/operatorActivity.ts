@@ -28,11 +28,20 @@
  * The coarse `operator_activity_samples` fallback that used to cover that gap
  * went with its table (database/migrations/223).
  *
+ *   3. CLUSTER HUB (several processes in one container, no Redis URL) —
+ *      BACKEND_PROCESSES (docs/operations/BACKEND_PROCESSES.md): every local
+ *      stamp is also sent to the cluster primary's monotonic index
+ *      (operatorActivityIndex.ts), one message per interacted beat, and an
+ *      operator missing or stale here is asked of it, so `away` lands at
+ *      exactly 5 minutes across the workers too. With a Redis URL, Redis
+ *      keeps precedence and this path is not used.
+ *
  * This module never reads or writes PostgreSQL.
  */
 
 import type { ServerConfig } from '../../config.js';
 import { getRedisClient } from '../../lib/redisClient.js';
+import { hubActive, sharedCall, sharedSend } from '../../cluster/client.js';
 
 /** Inactivity threshold that separates `active` from `away`. */
 export const OPERATOR_ACTIVITY_ACTIVE_MS = 5 * 60_000;
@@ -58,7 +67,12 @@ const metrics = { writes: 0, writes_coalesced: 0, write_failures: 0, reads: 0, r
 export const operatorActivityKey = (workspaceId: string) => `op:activity:${workspaceId}`;
 
 export function getOperatorActivityMetrics() {
-  return { ...metrics, backend: activityRedisUrl() ? 'redis' : 'process_local' };
+  return { ...metrics, backend: activityRedisUrl() ? 'redis' : clusterHubActivity() ? 'cluster_hub' : 'process_local' };
+}
+
+/** The cluster primary holds activity for the container: cluster mode without a Redis URL. */
+function clusterHubActivity(): boolean {
+  return !activityRedisUrl() && hubActive();
 }
 
 function key(workspaceId: string, userId: string): string {
@@ -89,7 +103,28 @@ export function recordOperatorActivity(
     if (local.size >= MAX_ENTRIES) local.clear();
   }
   local.set(key(workspaceId, userId), at);
+  if (clusterHubActivity()) sharedSend('activity.stamp', { key: key(workspaceId, userId), at });
   void publishOperatorActivity(workspaceId, userId, at);
+}
+
+/** The cluster primary's stamps for the operators not known here (cluster mode, no Redis). */
+async function readHubActivity(workspaceId: string, userIds: string[]): Promise<Map<string, number> | null> {
+  if (!userIds.length || !clusterHubActivity()) return null;
+  const keys = userIds.map((id) => key(workspaceId, id));
+  const found = await sharedCall<Record<string, number> | null>('activity.get', { keys }, () => null, {
+    fallback: () => {
+      metrics.read_failures += 1;
+      return null;
+    },
+  });
+  if (!found) return null;
+  metrics.reads += 1;
+  const out = new Map<string, number>();
+  for (const id of userIds) {
+    const v = found[key(workspaceId, id)];
+    if (typeof v === 'number' && Number.isFinite(v)) out.set(id, v);
+  }
+  return out;
 }
 
 /**
@@ -280,7 +315,7 @@ export async function getOperatorLastActivity(
   // Exact distributed index — precise to the millisecond, so `away` triggers
   // at exactly 5 minutes even when the beat landed elsewhere. Without it only
   // this node's own map answers (see the header).
-  const exact = await readExactActivity(workspaceId, missing);
+  const exact = (await readExactActivity(workspaceId, missing)) ?? (await readHubActivity(workspaceId, missing));
   if (exact) {
     for (const [id, at] of exact) {
       const capped = Math.min(at, ts);

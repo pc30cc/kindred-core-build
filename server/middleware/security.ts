@@ -12,6 +12,8 @@ import { verifyWidgetSession } from '../services/callCenter/widgetSession.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
 import { onInvalidate } from '../lib/cacheBus.js';
 import { applyWidgetCorsHeaders } from './widgetCors.js';
+import { checkLoginKey, recordLoginKey, type BruteForceResult } from './loginAttempts.js';
+import { hubLimiterStore, sharedCall } from '../cluster/client.js';
 
 /**
  * What earlier middleware — and express-rate-limit — attach to a request,
@@ -289,7 +291,10 @@ function ipBlocked(req: Request, res: Response): void {
 // Auth: 5 attempts per minute per client address (login, signup, captcha,
 // brute-force check). Since req.ip is the visitor (utils/clientIp.ts) and no
 // longer the Cloudflare edge, this is one person's (or one NAT's) budget.
+// Counted for the whole container in cluster mode (hubLimiterStore; `{}`, the
+// in-process store as before, otherwise).
 export const authRateLimiter = rateLimit({
+  ...hubLimiterStore('auth'),
   windowMs: 60_000,
   max: 5,
   standardHeaders: true,
@@ -318,8 +323,10 @@ export function emailRateLimitKey(req: Request): string {
   return `email:${ipBucket(req)}`;
 }
 
-// Email: 10 per minute per IP on /api/email and /api/auth-email.
+// Email: 10 per minute per IP on /api/email and /api/auth-email. Counted for
+// the whole container in cluster mode, like the auth limiter.
 export const emailRateLimiter = rateLimit({
+  ...hubLimiterStore('email'),
   windowMs: 60_000,
   max: 10,
   standardHeaders: true,
@@ -765,11 +772,11 @@ export function createBillingWebhookRateLimiter(max = 120) {
 export const billingWebhookRateLimiter = createBillingWebhookRateLimiter();
 
 // ─── Brute Force Protection ─────────────────────────────────────
-
-const loginAttemptTracker = new Map<string, { count: number; firstAttempt: number; lockedUntil?: number }>();
-const BRUTE_FORCE_WINDOW = 15 * 60_000; // 15 min
-const MAX_FAILURES = 5;
-const LOCK_DURATION_BASE = 5 * 60_000; // 5 min base, doubles each lock
+// The tracker itself is middleware/loginAttempts.ts. In the single process
+// these two call it directly, on that module's map, as before; in a cluster
+// worker (docs/operations/BACKEND_PROCESSES.md) they ask the primary, which
+// holds one tracker for the whole container, so a lock counts on every worker.
+// Without an answer from the primary they count in this worker's own copy.
 
 /**
  * The brute-force tracker key: the client address as its rate-limit bucket
@@ -780,49 +787,18 @@ function bruteForceKey(req: Request, email: string): string {
   return `${ipBucket(req)}:${email}`;
 }
 
-export async function checkBruteForce(req: Request, email: string): Promise<{ blocked: boolean; retryAfter?: number; failCount?: number }> {
+export async function checkBruteForce(req: Request, email: string): Promise<BruteForceResult> {
   const key = bruteForceKey(req, email);
-  const now = Date.now();
-
-  const tracker = loginAttemptTracker.get(key);
-  if (tracker) {
-    // Check if locked
-    if (tracker.lockedUntil && tracker.lockedUntil > now) {
-      const retryAfter = Math.ceil((tracker.lockedUntil - now) / 1000);
-      return { blocked: true, retryAfter, failCount: tracker.count };
-    }
-    // Reset if window expired
-    if (now - tracker.firstAttempt > BRUTE_FORCE_WINDOW) {
-      loginAttemptTracker.delete(key);
-      return { blocked: false };
-    }
-    if (tracker.count >= MAX_FAILURES) {
-      // Progressive lockout: 5min, 10min, 20min...
-      const lockMultiplier = Math.pow(2, Math.floor(tracker.count / MAX_FAILURES) - 1);
-      const lockDuration = LOCK_DURATION_BASE * lockMultiplier;
-      tracker.lockedUntil = now + lockDuration;
-      return { blocked: true, retryAfter: Math.ceil(lockDuration / 1000), failCount: tracker.count };
-    }
-  }
-
-  return { blocked: false };
+  return sharedCall('login.check', { key }, () => checkLoginKey(key));
 }
 
-export function recordLoginAttempt(req: Request, email: string, success: boolean) {
+/**
+ * Records one login attempt. Awaited by the caller (routes/auth.ts), so the
+ * next attempt always sees it, on whichever worker it lands.
+ */
+export async function recordLoginAttempt(req: Request, email: string, success: boolean): Promise<void> {
   const key = bruteForceKey(req, email);
-  const now = Date.now();
-
-  if (success) {
-    loginAttemptTracker.delete(key);
-    return;
-  }
-
-  const tracker = loginAttemptTracker.get(key);
-  if (tracker && now - tracker.firstAttempt < BRUTE_FORCE_WINDOW) {
-    tracker.count++;
-  } else {
-    loginAttemptTracker.set(key, { count: 1, firstAttempt: now });
-  }
+  await sharedCall('login.record', { key, success }, () => recordLoginKey(key, success));
 }
 
 // ─── Captcha Verification ───────────────────────────────────────
@@ -1021,14 +997,9 @@ export function abuseDetectionMiddleware() {
 
 // ─── Cleanup stale tracking data periodically ───────────────────
 
+// The login tracker cleans itself (middleware/loginAttempts.ts).
 setInterval(() => {
   const now = Date.now();
-  // Clean login attempt tracker
-  for (const [key, val] of loginAttemptTracker) {
-    if (now - val.firstAttempt > BRUTE_FORCE_WINDOW * 2) {
-      loginAttemptTracker.delete(key);
-    }
-  }
   // Clean abuse counters
   for (const [key, val] of requestCounters) {
     if (now - val.windowStart > ABUSE_WINDOW * 2) {

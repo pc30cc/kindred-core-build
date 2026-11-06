@@ -2,22 +2,56 @@ import { Router } from 'express';
 import { getManifestDiagnostics } from '../services/widget/manifest.js';
 import { getInvitationWorkerStatus } from '../services/invitations/worker.js';
 import { databaseStatus } from '../db/status.js';
+import { clusterRole, clusterWorkerIndex, clusterWorkerReady } from '../cluster/role.js';
+import { sharedCall } from '../cluster/client.js';
+import type { ClusterStatus } from '../cluster/protocol.js';
 
 export const healthRouter = Router();
 
+/**
+ * The container's liveness probe (Coolify's health check). In cluster mode
+ * (BACKEND_PROCESSES, docs/operations/BACKEND_PROCESSES.md) a worker answers
+ * 503 `starting` until the primary reports every worker listening, so a new
+ * container counts as healthy only once the whole cluster is up, and the old
+ * one keeps serving until then; after that, 200 for the worker's whole life.
+ * The single process answers as it always did.
+ */
 healthRouter.get('/', (_req, res) => {
+  if (!clusterWorkerReady()) {
+    res.set('Cache-Control', 'no-store');
+    return res.status(503).json({ status: 'starting', timestamp: new Date().toISOString() });
+  }
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 /**
+ * Cluster mode only (not mounted otherwise): how many workers run, listen
+ * and were restarted. Counts only, no pid.
+ */
+if (clusterRole() !== 'single') {
+  healthRouter.get('/cluster', async (_req, res) => {
+    const status = await sharedCall<ClusterStatus | null>('cluster.status', null, () => null, { fallback: () => null });
+    res.set('Cache-Control', 'no-store');
+    if (!status) return res.status(503).json({ status: 'unavailable' });
+    return res.status(status.ready && status.listening === status.processes ? 200 : 503).json({
+      status: status.ready ? 'ok' : 'starting',
+      ...status,
+    });
+  });
+}
+
+/**
  * Database reachability: which driver is in use and, for a direct
  * DATABASE_URL connection, the server's major version, the role queries run
- * as and the round-trip time. Leaks no host, user or password.
+ * as and the round-trip time. Leaks no host, user or password. It checks the
+ * pool of the process that answered: in cluster mode (BACKEND_PROCESSES) the
+ * answer names that worker's index (`worker`), never its pid.
  */
 healthRouter.get('/database', async (_req, res) => {
   const status = await databaseStatus();
+  const worker = clusterRole() === 'single' ? {} : { worker: clusterWorkerIndex() };
   res.set('Cache-Control', 'no-store');
-  res.status(status.ok ? 200 : 503).json({ status: status.ok ? 'ok' : 'unavailable', ...status, error: status.ok ? undefined : 'database_unreachable' });
+  res.status(status.ok ? 200 : 503).json({ status: status.ok ? 'ok' : 'unavailable', ...status, ...worker, error: status.ok ? undefined : 'database_unreachable' });
 });
 
 /**

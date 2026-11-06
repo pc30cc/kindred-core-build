@@ -622,6 +622,8 @@ aiBillingRouter.get('/admin/health', async (req, res) => {
     unresolvedRuns: unresolved.data || [],
     staleReservations: staleRes.data || [],
     idempotencyConflicts: alerts.data || [],
+    // Per process: with BACKEND_PROCESSES, a follower answering this shows
+    // `scheduled: false` (the lead runs the recovery ticker).
     recoveryScheduler: getAiBillingRecoveryStatus(),
     meterOnlyMetrics: {
       cycleId: cycle,

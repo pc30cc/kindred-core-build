@@ -32,6 +32,10 @@
  * alert/failover decisions are correct with respect to whichever replica
  * currently holds the lease, not with respect to the whole fleet.
  *
+ * Within one container that runs several backend processes
+ * (BACKEND_PROCESSES) the collector data IS container-wide: each worker's
+ * collector also holds its siblings' samples (cluster/metricsRelay.ts).
+ *
  * Fleet-wide metric aggregation is intentionally out of scope here — it
  * belongs behind the MonitoringCollector interface (collector/types.ts) via
  * a future shared-state implementation (Redis, Prometheus federation,

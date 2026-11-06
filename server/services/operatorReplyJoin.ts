@@ -25,6 +25,7 @@ import { getServiceClient } from '../supabase.js';
 import { buildMessageEnvelope, publishConversationEvent } from './realtime/publish.js';
 import { onSupportConversationChanged } from './platformSupport/changes.js';
 import { agentJoinedBody, resolveAgentDisplayName } from './chatRouting.js';
+import { hubActive, hubLock } from '../cluster/client.js';
 
 /** How many of the newest messages the check reads. */
 export const JOIN_WINDOW = 200;
@@ -101,9 +102,12 @@ export function joinOwed(rows: readonly JoinWindowRow[], userId: string, windowF
 
 /**
  * The tail of each conversation's queue of replies. The backend (WebYar's
- * app 25, RESPOK's 32) is one Node process, and routing and every reply run
- * in it, so an in-process lock is enough: two different messages from the
- * same operator sent at once write one line between them.
+ * app 25, RESPOK's 32) is one Node process by default, and routing and every
+ * reply run in it, so an in-process lock is enough: two different messages
+ * from the same operator sent at once write one line between them. When it
+ * runs several processes in one container (BACKEND_PROCESSES, docs/
+ * operations/BACKEND_PROCESSES.md) the same lock, with the same rules, is the
+ * cluster primary's, for the whole container (cluster/keyedLock.ts).
  */
 const replyTails = new Map<string, Promise<void>>();
 
@@ -114,6 +118,7 @@ const replyTails = new Map<string, Promise<void>>();
  * that. Returns the release, which is safe to call more than once.
  */
 export async function lockConversationReplies(conversationId: string, maxWaitMs = 5000): Promise<() => void> {
+  if (hubActive()) return hubLock(`reply:${conversationId}`, maxWaitMs);
   const previous = replyTails.get(conversationId);
   let open: () => void = () => undefined;
   const mine = new Promise<void>((resolve) => { open = resolve; });

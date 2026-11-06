@@ -17,7 +17,10 @@
  * A request that resumes the visitor's call in progress is not a new call and
  * is not counted; a request refused later (a limit, a failure) gives its
  * share back. Counted per process, like the colleague-call ring limit
- * (routes/teamCalls.ts): one replica is the common case.
+ * (routes/teamCalls.ts): one replica is the common case. When the backend
+ * runs several processes in one container (BACKEND_PROCESSES) the route goes
+ * through callRequestShared.ts, and the primary counts with these same
+ * functions for the whole container.
  */
 
 export const VISITOR_MIN_GAP_MS = 3_000;

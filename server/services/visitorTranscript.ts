@@ -48,6 +48,7 @@ import { chatTemplateOptionKeys } from '../../shared/chatTemplateCatalog.js';
 import { VISITOR_EMAIL_FEATURES_ENABLED } from '../../shared/visitorEmail.js';
 import type { Edition } from '../../shared/edition.js';
 import { escapeTranscriptText, keptRowsFrom, transcriptRow } from './transcriptEmailRows.js';
+import { hubActive, hubClaim } from '../cluster/client.js';
 
 export const TRANSCRIPT_TEMPLATE_SLUG = 'visitor_conversation_transcript';
 /** Sent transcripts per conversation, ever. */
@@ -304,7 +305,12 @@ export type TranscriptSendResult =
     retryAfter?: number;
   };
 
-/** Conversations with a transcript being built or sent in this process (a double click). */
+/**
+ * Conversations with a transcript being built or sent in this process (a
+ * double click). With several backend processes in one container
+ * (BACKEND_PROCESSES) the claim is the cluster primary's, for the whole
+ * container (cluster/claims.ts).
+ */
 const inFlight = new Set<string>();
 
 /**
@@ -332,8 +338,14 @@ export async function emailVisitorTranscript(
   if (!to) return { ok: false, status: 409, error: 'no_email' };
   if (!(await humanOperatorAnswered(sb, conversationId))) return { ok: false, status: 409, error: 'nothing_to_send' };
 
-  if (inFlight.has(conversationId)) return { ok: false, status: 429, error: 'rate_limited', retryAfter: 10 };
-  inFlight.add(conversationId);
+  let releaseClaim: (() => void) | null = null;
+  if (hubActive()) {
+    releaseClaim = await hubClaim('transcript', conversationId);
+    if (!releaseClaim) return { ok: false, status: 429, error: 'rate_limited', retryAfter: 10 };
+  } else {
+    if (inFlight.has(conversationId)) return { ok: false, status: 429, error: 'rate_limited', retryAfter: 10 };
+    inFlight.add(conversationId);
+  }
   try {
     const ledger = await conversationLedger(sb, conversationId);
     if (!ledger) return { ok: false, status: 503, error: 'email_unavailable' };
@@ -417,6 +429,7 @@ export async function emailVisitorTranscript(
     }
     return { ok: true, to: maskEmail(to) };
   } finally {
-    inFlight.delete(conversationId);
+    if (releaseClaim) releaseClaim();
+    else inFlight.delete(conversationId);
   }
 }

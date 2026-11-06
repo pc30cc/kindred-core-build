@@ -35,7 +35,12 @@ their findings.
   `postgresql://webyar_app:…@oqzy9q4ovntam9jgf7nxzqun:5432/webyar?sslmode=disable`.
 - That variable is the only one the move changed. Signing and encryption
   secrets, `DATABASE_MODE`, pools (backend 3, workers 1) and application
-  names are as before.
+  names are as before. Since 2026-11-05 the backend's `DATABASE_POOL_MAX` is
+  15 on both brands; the six workers stay at 1. The backend container opens
+  at most `DATABASE_POOL_MAX + 1` (its pool plus the cache-bus LISTEN), also
+  when it runs several processes (`BACKEND_PROCESSES`, whose workers share
+  that total: docs/operations/BACKEND_PROCESSES.md, "Connections"). Steady:
+  16 + 6 = 22 of `webyar_app`'s 60; during a deploy 2 × 16 + 6 + 1 = 39.
 - The pooler's 15-connection budget no longer applies. Fourteen of 100
   connections were in use after the move.
 
@@ -159,6 +164,10 @@ project's REST, Auth and Storage services running for it.
   Never the transaction pooler (6543).
 
 ## Connection budget
+
+This section describes the Supabase session pooler of 2026-10-05 to
+2026-10-07, before the move to the self-hosted `webyar-postgres`; for the
+budget since then, see "The connection" above and docs/DATABASE.md §8.
 
 Supavisor admits at most **15** session-mode connections for this user
 (measured: the 16th is refused with `EMAXCONNSESSION`). A pool opens

@@ -15,7 +15,9 @@
  *
  * With several API nodes each node counts the copies that reach it; behind a
  * sticky load balancer that is still the full picture, otherwise the admin
- * page shows the node it asked.
+ * page shows the node it asked. Several processes of one container
+ * (BACKEND_PROCESSES) share one copy of this module's state: the cluster
+ * primary runs it for all of them (liveShared.ts, cluster/hub.ts).
  */
 import { randomUUID } from 'node:crypto';
 
@@ -148,12 +150,21 @@ export function addBroadcast(input: {
   url: string | null;
   platforms?: DesktopPlatform[];
   createdBy: string;
+  /**
+   * The caller's id for it (a cluster worker's, liveShared.ts), so it can be
+   * removed by that id when the caller never saw this answer; adding the
+   * same id again returns the broadcast already there. A new one otherwise.
+   */
+  id?: string;
 }): Broadcast {
   prune();
+  const { id, ...fields } = input;
+  const existing = id ? broadcasts.find((x) => x.id === id) : undefined;
+  if (existing) return existing;
   const b: Broadcast = {
-    ...input,
+    ...fields,
     platforms: [...new Set(input.platforms ?? [])],
-    id: randomUUID(),
+    id: id || randomUUID(),
     seq: ++seq,
     createdAt: new Date().toISOString(),
   };

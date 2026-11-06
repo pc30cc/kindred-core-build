@@ -66,7 +66,7 @@ https://api.example.com/api → https://api.example.com/api/...
 | **Dockerfile path** | `Dockerfile.server` |
 | **Internal port** | `3001` |
 | **Domain** | `api.example.com` (your API domain) |
-| **Health check path** | `/api/health` |
+| **Health check path** | `/api/health` (with `BACKEND_PROCESSES` set, it answers 503 until every worker of the container listens) |
 
 ### Environment Variables (set in Coolify)
 
@@ -77,6 +77,7 @@ https://api.example.com/api → https://api.example.com/api/...
 | `PLATFORM_SIGNING_SECRET` | `openssl rand -hex 32` (moving from Supabase: the old service-role key) | ✅ |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | | ❌ (only for the optional Supabase Realtime transport) |
 | `CORS_ORIGINS` | `https://example.com` | ✅ |
+| `BACKEND_PROCESSES` | `2` | ❌ (unset: one process. 2-16 runs that many processes in the container, sharing `DATABASE_POOL_MAX`; see `docs/operations/BACKEND_PROCESSES.md`) |
 | `WIDGET_ASSET_BASE_URL` | `https://example.com` | ✅ (split deploy) |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | ❌ (no effect — limits are fixed per route) |
 | `RATE_LIMIT_MAX` | `100` | ❌ (no effect — limits are fixed per route) |

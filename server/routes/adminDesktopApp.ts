@@ -39,14 +39,13 @@ import {
   invalidateCampaignCache,
   targetsPlatform,
 } from '../services/desktopApp/campaigns.js';
+import { DESKTOP_PLATFORMS, type DesktopPlatform } from '../services/desktopApp/live.js';
 import {
-  addBroadcast,
-  listBroadcasts,
-  removeBroadcast,
-  summary,
-  DESKTOP_PLATFORMS,
-  type DesktopPlatform,
-} from '../services/desktopApp/live.js';
+  addBroadcastShared,
+  listBroadcastsShared,
+  removeBroadcastShared,
+  summaryShared,
+} from '../services/desktopApp/liveShared.js';
 
 export const adminDesktopAppRouter = Router();
 
@@ -329,7 +328,8 @@ adminDesktopAppRouter.delete('/campaigns/:id', async (req, res) => {
 adminDesktopAppRouter.get('/live', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   const platform = platformQuery(req.query.platform);
-  return res.json({ live: summary(platform), broadcasts: listBroadcasts(platform) });
+  const [live, broadcasts] = await Promise.all([summaryShared(platform), listBroadcastsShared(platform)]);
+  return res.json({ live, broadcasts });
 });
 
 const broadcastSchema = z.object({
@@ -349,18 +349,28 @@ adminDesktopAppRouter.post('/broadcasts', async (req, res) => {
     return res.status(400).json(invalidInput(parsed.error));
   }
   const d = parsed.data;
-  const b = addBroadcast({
-    title: d.title ?? '',
-    body: d.body ?? '',
-    severity: d.severity ?? 'info',
-    url: d.url ?? null,
-    platforms: d.platforms ?? [],
-    createdBy: actorId,
-  });
-  return res.json({ success: true, broadcast: b, live: summary(platformQuery(req.query.platform)) });
+  let b: Awaited<ReturnType<typeof addBroadcastShared>>;
+  try {
+    b = await addBroadcastShared({
+      title: d.title ?? '',
+      body: d.body ?? '',
+      severity: d.severity ?? 'info',
+      url: d.url ?? null,
+      platforms: d.platforms ?? [],
+      createdBy: actorId,
+    });
+  } catch {
+    // Cluster mode only: the primary that keeps the broadcasts did not answer.
+    return res.status(503).json({ error: 'broadcasts_unavailable' });
+  }
+  return res.json({ success: true, broadcast: b, live: await summaryShared(platformQuery(req.query.platform)) });
 });
 
 adminDesktopAppRouter.delete('/broadcasts/:id', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
-  return res.json({ success: removeBroadcast(String(req.params.id)) });
+  try {
+    return res.json({ success: await removeBroadcastShared(String(req.params.id)) });
+  } catch {
+    return res.status(503).json({ error: 'broadcasts_unavailable' });
+  }
 });

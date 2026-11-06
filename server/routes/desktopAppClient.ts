@@ -22,7 +22,8 @@ import type { ServerConfig } from '../config.js';
 import { authorizeWorkspaceAccess, requireUser } from '../lib/workspaceAuth.js';
 import { getWorkspacePlanInfo } from '../middleware/featureGating.js';
 import { loadLiveCampaigns, pickLocale, targetsPlan, targetsPlatform, toClient } from '../services/desktopApp/campaigns.js';
-import { broadcastsAfter, goodbye, heartbeat, HEARTBEAT_SECONDS, platformOf } from '../services/desktopApp/live.js';
+import { HEARTBEAT_SECONDS, platformOf } from '../services/desktopApp/live.js';
+import { goodbyeShared, heartbeatAndBroadcasts } from '../services/desktopApp/liveShared.js';
 
 export const desktopAppClientRouter = Router();
 
@@ -73,15 +74,18 @@ desktopAppClientRouter.post('/heartbeat', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   const b = parsed.data;
   const platform = platformOf(b.platform, b.os);
-  heartbeat({
-    sessionId: b.session_id,
-    userId,
-    workspaceId: b.workspace_id ?? null,
-    version: b.version ?? null,
-    os: b.os ?? null,
+  const { items, latest } = await heartbeatAndBroadcasts(
+    {
+      sessionId: b.session_id,
+      userId,
+      workspaceId: b.workspace_id ?? null,
+      version: b.version ?? null,
+      os: b.os ?? null,
+      platform,
+    },
+    b.after_seq ?? -1,
     platform,
-  });
-  const { items, latest } = broadcastsAfter(b.after_seq ?? -1, platform);
+  );
   return res.json({
     interval_seconds: HEARTBEAT_SECONDS,
     latest_seq: latest,
@@ -101,6 +105,6 @@ desktopAppClientRouter.post('/goodbye', async (req, res) => {
   const userId = await requireUser(req, res);
   if (!userId) return;
   const sessionId = String(req.body?.session_id ?? '');
-  if (sessionId) goodbye(sessionId, userId);
+  if (sessionId) goodbyeShared(sessionId, userId);
   return res.json({ ok: true });
 });

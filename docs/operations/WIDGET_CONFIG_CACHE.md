@@ -200,7 +200,12 @@ platform N times each process ceiling. That is deliberate: these are abuse
 backstops, not quotas, and a shared (Redis) limiter would put a network round
 trip and a single point of failure in front of every request. Size the process
 ceilings for one process; route by client IP at the balancer if exactness per
-address is ever needed.
+address is ever needed. The workers of one container (`BACKEND_PROCESSES`,
+docs/operations/BACKEND_PROCESSES.md) count as processes here too. Only the
+seven limiters that bound guesses of a secret, or mail, SMS or rings sent to a
+person (the auth and email limiters, the invitation OTP and accept limiters,
+the commerce guest-verification and pairing limiters, the colleague-call
+caller limiter) count for the whole container, in the cluster primary.
 
 ### Client IP (Cloudflare in front, origin reachable directly)
 

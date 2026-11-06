@@ -98,5 +98,7 @@ ENV NODE_ENV=production
 
 EXPOSE 3001
 
-# Run TypeScript directly with tsx
-CMD ["npx", "tsx", "index.ts"]
+# Run TypeScript directly with tsx. start.ts only loads index.ts unless
+# BACKEND_PROCESSES asks for several processes (docs/operations/
+# BACKEND_PROCESSES.md): unset, the backend runs exactly as before.
+CMD ["npx", "tsx", "start.ts"]

@@ -77,6 +77,7 @@ import { resolveOperatorIdentities } from './widget/senderIdentity.js';
 import { workspaceChatTemplate } from './widget/configSnapshot.js';
 import { isResolveClosedLine, isWidgetConversation } from './widget/visitorConversations.js';
 import { isRelationMissing } from './billing/entitlementParse.js';
+import { hubActive, hubLock } from '../cluster/client.js';
 
 export const CONVERSATION_CLOSED_KIND = 'conversation_closed';
 
@@ -302,8 +303,12 @@ export async function prepareClosedLine(
  * close of the same conversation (two operators' PATCHes landing together, a
  * PATCH next to a "Send & resolve") waits for the first, so its "is the line
  * already there" read sees the row the first one wrote: never two lines.
+ * With several backend processes in one container (BACKEND_PROCESSES) the
+ * wait is the cluster primary's lock `close:<conversation>`, bounded at
+ * CLOSE_LOCK_WAIT_MS (the statement timeout) instead of unbounded.
  */
 const writing = new Map<string, Promise<{ id: string } | null>>();
+const CLOSE_LOCK_WAIT_MS = 120_000;
 
 /**
  * Writes and publishes the closed line when the rules above allow it.
@@ -316,6 +321,7 @@ export function recordConversationClosed(
   input: ConversationClosedInput,
 ): Promise<{ id: string } | null> {
   if ((input.status as string) !== 'closed') return Promise.resolve(null);
+  if (hubActive()) return writeClosedLineUnderHubLock(config, input);
   const key = input.conversationId;
   const before = writing.get(key);
   // writeClosedLine never rejects, so neither does the chain.
@@ -323,6 +329,18 @@ export function recordConversationClosed(
   writing.set(key, run);
   void run.then(() => { if (writing.get(key) === run) writing.delete(key); });
   return run;
+}
+
+async function writeClosedLineUnderHubLock(
+  config: ServerConfig,
+  input: ConversationClosedInput,
+): Promise<{ id: string } | null> {
+  const release = await hubLock(`close:${input.conversationId}`, CLOSE_LOCK_WAIT_MS);
+  try {
+    return await writeClosedLine(config, input);
+  } finally {
+    release();
+  }
 }
 
 async function writeClosedLine(

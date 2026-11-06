@@ -452,6 +452,13 @@ over unchanged. A full disk stops Postgres too.
   connection and the workers must stay under 60 (about 40 now). The change
   was the Coolify variable and a no-build redeploy of the running commit
   (`deploy.php` with `ROLLBACK=1`; `/root/perf-20261105/pool-change.log`).
+- `BACKEND_PROCESSES` (unset on 25 and 32: one process, as before) runs
+  several backend processes in the container with `node:cluster`. Then
+  `DATABASE_POOL_MAX` is the container's total: the workers share
+  P + 1 − N pool slots plus one LISTEN each, so the rule above holds for any
+  N. One core was not a limit when measured (2026-11-05: about 0.6% of a
+  core per backend), so it stays off until measurements say otherwise.
+  Switching on and off, limits: `docs/operations/BACKEND_PROCESSES.md`.
 - Backups: Coolify dumps `webyar` daily at 02:13 UTC and keeps 14 copies in
   `/data/coolify/backups/databases/root-team-0/webyar-postgres-oqzy9q4ovntam9jgf7nxzqun/`
   (on the server's own disk; Coolify has no S3 storage). The off-site copy is

@@ -3,8 +3,9 @@
  * workspace session). Rate-limited harder than public product lookups
  * (spec §47 — order/customer endpoints need stricter limits).
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import rateLimit from 'express-rate-limit';
+import { hubLimiterStore } from '../../cluster/client.js';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { CommerceError } from '../../../shared/commerce/types.js';
@@ -14,11 +15,13 @@ import { withoutWidgetShimKeys } from './widgetBody.js';
 
 export const commerceGuestVerificationRouter = Router();
 
-function serverConfigOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig: ServerConfig }).serverConfig;
 }
 
-const strictLimiter = rateLimit({ windowMs: 15 * 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
+// Bounds guesses of a verification code: counted for the whole container when
+// the backend runs several processes (hubLimiterStore, `{}` otherwise).
+const strictLimiter = rateLimit({ ...hubLimiterStore('commerce-guest-verification'), windowMs: 15 * 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
 
 const startSchema = z.object({
   workspaceId: z.string().uuid(),

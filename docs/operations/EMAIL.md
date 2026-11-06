@@ -308,7 +308,13 @@ brand (291's header says the same):
   The HTTP server keeps answering while they drain and closes last (its
   drain is registered `last`): Traefik routes to the old container until it
   exits, so a listener closed first answered those requests with 502. A new
-  loop registers there, never with `process.on('SIGTERM')` of its own.
+  loop registers there, never with `process.on('SIGTERM')` of its own. The
+  one exception is the cluster primary of `BACKEND_PROCESSES`
+  (`server/cluster/primary.ts`, docs/operations/BACKEND_PROCESSES.md): it
+  holds no loop, and its own SIGTERM listener only sends each worker one
+  SIGTERM and waits for them; each worker drains through `onProcessShutdown`
+  as above. A loop that must run once per container also starts in index.ts's
+  lead block (`if (runsLoops)`).
 - Re-sending receipts a provider lost (RESPOK's of 2026-10-09 to 10-15, 36
   mails refused by Resend with 403): `server/scripts/resendFailedBillingReceipts.ts`,
   inside the backend container, dry run first, `--apply` after the owner's

@@ -13,7 +13,8 @@ import * as crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveSubject } from '../services/privacy/identity.js';
-import { issueReauthToken, consumeReauthToken } from '../services/privacy/reauth.js';
+import { issueReauth, consumeReauth } from '../services/privacy/reauth.js';
+import { takePrivacyJobSlot } from '../services/privacy/jobRateLimit.js';
 import { writePrivacyAudit } from '../services/privacy/audit.js';
 import { readLegacyArtifact, deleteLegacyArtifact } from '../services/privacy/artifactStore.js';
 import { resolvePrivacyStoragePolicy } from '../services/privacy/storageResolver.js';
@@ -52,23 +53,10 @@ async function requireWorkspaceAdmin(req: Request, res: Response, userId: string
 }
 
 // ─── Ad-hoc rate limiter ───────────────────────────────────────────
-// Per project policy: no shared rate-limit primitives. We track in-memory
-// per-workspace and per-user counters with simple windows.
-const rlExport = new Map<string, { count: number; windowStart: number }>();
-const rlDelete = new Map<string, { count: number; windowStart: number }>();
-const HOUR = 60 * 60_000;
-
-function rateLimit(map: Map<string, { count: number; windowStart: number }>, key: string, max: number): boolean {
-  const now = Date.now();
-  const entry = map.get(key);
-  if (!entry || now - entry.windowStart > HOUR) {
-    map.set(key, { count: 1, windowStart: now });
-    return true;
-  }
-  if (entry.count >= max) return false;
-  entry.count++;
-  return true;
-}
+// Per project policy: no shared rate-limit primitives. In-memory
+// per-workspace and per-user counters with simple windows
+// (services/privacy/jobRateLimit.ts), held by the cluster primary for the
+// whole container when the backend runs several processes.
 
 // ─── POST /api/privacy/reauth ───────────────────────────────────────
 // The password is the only proof. An `oauth: true` branch used to issue a
@@ -95,7 +83,14 @@ privacyRouter.post('/reauth', async (req, res) => {
     return res.status(401).json({ error: 'Invalid password' });
   }
 
-  const { token, expiresAt } = issueReauthToken(me.userId);
+  let issued: { token: string; expiresAt: number };
+  try {
+    issued = await issueReauth(me.userId);
+  } catch {
+    // Cluster mode only: the primary that keeps the tokens did not answer.
+    return res.status(503).json({ error: 'Re-authentication is unavailable, try again' });
+  }
+  const { token, expiresAt } = issued;
   await writePrivacyAudit(config, {
     workspaceId: null,
     userId: me.userId,
@@ -161,17 +156,14 @@ privacyRouter.post('/jobs', async (req, res) => {
   // Required for: any delete job, and user-subject self-export.
   const needsReauth = body.action === 'delete' || (body.action === 'export' && body.subject_type === 'user');
   if (needsReauth) {
-    if (!consumeReauthToken(me.userId, body.reauth_token)) {
+    if (!(await consumeReauth(me.userId, body.reauth_token))) {
       return res.status(401).json({ error: 'Re-authentication required', code: 'REAUTH_REQUIRED' });
     }
   }
 
   // ─── Rate limit ──────────────────────────────────────────────
   const wsKey = body.workspace_id || `user:${me.userId}`;
-  const ok =
-    body.action === 'export'
-      ? rateLimit(rlExport, wsKey, 5)
-      : rateLimit(rlDelete, wsKey, 2);
+  const ok = await takePrivacyJobSlot(body.action, wsKey);
   if (!ok) return res.status(429).json({ error: 'Rate limit exceeded for privacy jobs in this workspace' });
 
   // ─── Self-delete ownership guard (user-subject) ──────────────

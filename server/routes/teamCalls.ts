@@ -94,7 +94,14 @@ import {
   teamCallPeers,
   workspaceDisplayName,
 } from '../services/calls/teamCallPeople.js';
-import { ringTeamCall, teamCallRingTargets } from '../services/push/teamCallRing.js';
+import { holdTeamCallRing, ringTeamCall, teamCallRingTargets } from '../services/push/teamCallRing.js';
+import {
+  __resetCalleeRings,
+  giveBackSharedCalleeRing,
+  takeSharedCalleeRing,
+  type CalleeRing,
+} from '../services/calls/calleeRingLimit.js';
+import { hubLimiterStore } from '../cluster/client.js';
 
 export const teamCallsRouter = Router();
 
@@ -125,13 +132,16 @@ teamCallsRouter.use((req: Request, res: Response, next: NextFunction) => {
 // second is per process, counted only for calls that ring: a ring taken
 // before the placement is given back when the placement does not place the
 // call (busy, a failure), so attempts that never rang — a burst of them
-// racing the busy check included — cannot use up a colleague's share. One
-// replica is the common case, and the caller's limit holds whatever the count.
+// racing the busy check included — cannot use up a colleague's share
+// (services/calls/calleeRingLimit.ts). Both are counted per process, and for
+// the whole container when the backend runs several (BACKEND_PROCESSES,
+// docs/operations/BACKEND_PROCESSES.md): the primary holds the callee's
+// share and the caller limiter's store. One replica is the common case.
 const CALLER_RINGS_PER_MINUTE = 10;
-const CALLEE_RINGS_PER_MINUTE = 6;
 const WINDOW_MS = 60_000;
 
 const callerLimiter = rateLimit({
+  ...hubLimiterStore('team-call-caller'),
   windowMs: WINDOW_MS,
   limit: CALLER_RINGS_PER_MINUTE,
   standardHeaders: true,
@@ -158,45 +168,9 @@ const rangLimiter = rateLimit({
   },
 });
 
-const calleeRings = new Map<string, number[]>();
-
-/** A ring taken from a callee's share, to keep or give back. */
-interface CalleeRing {
-  calleeId: string;
-  at: number;
-}
-
-/** Takes one of the callee's rings for this minute; null when they have had their share. */
-function takeCalleeRing(calleeId: string, now: number = Date.now()): CalleeRing | null {
-  const since = now - WINDOW_MS;
-  const recent = (calleeRings.get(calleeId) ?? []).filter((t) => t > since);
-  if (recent.length >= CALLEE_RINGS_PER_MINUTE) {
-    calleeRings.set(calleeId, recent);
-    return null;
-  }
-  recent.push(now);
-  calleeRings.set(calleeId, recent);
-  // Keep the map to the callees rung within the window.
-  if (calleeRings.size > 5_000) {
-    for (const [id, times] of calleeRings) {
-      if (!times.some((t) => t > since)) calleeRings.delete(id);
-    }
-  }
-  return { calleeId, at: now };
-}
-
-/** Gives back a ring the placement did not use: the callee was never rung. */
-function giveBackCalleeRing(ring: CalleeRing): void {
-  const times = calleeRings.get(ring.calleeId);
-  if (!times) return;
-  const i = times.indexOf(ring.at);
-  if (i >= 0) times.splice(i, 1);
-  if (!times.length) calleeRings.delete(ring.calleeId);
-}
-
 /** Tests: forget every callee's rings, and these callers' attempts. */
 export function __resetTeamCallRateLimitsForTests(callerIds: readonly string[] = []): void {
-  calleeRings.clear();
+  __resetCalleeRings();
   for (const id of callerIds) {
     callerLimiter.resetKey(`team-call:${id}`);
     rangLimiter.resetKey(`team-call-rang:${id}`);
@@ -342,7 +316,7 @@ teamCallsRouter.post('/', callerLimiter, async (req, res) => {
     const busy = await busyMembers(config, [callerId, calleeId]);
     if (busy.has(callerId)) return res.status(409).json({ error: 'caller_busy' });
     if (busy.has(calleeId)) return res.status(409).json({ error: 'callee_busy' });
-    heldRing = takeCalleeRing(calleeId);
+    heldRing = await takeSharedCalleeRing(calleeId);
     if (!heldRing) return res.status(429).json({ error: 'too_many_calls' });
 
     const { id: providerId, provider } = await resolveEffectiveCallProvider(config, workspaceId);
@@ -444,7 +418,9 @@ teamCallsRouter.post('/', callerLimiter, async (req, res) => {
     // and sends its stop after it (teamCallRing.ts). Never rejects. Only
     // while the call, as the room's write read it back, still rings: one
     // ended meanwhile (the caller's account deleted while it was being
-    // placed) rings nobody.
+    // placed) rings nobody. With several backend processes the ring's hold
+    // is taken first, acknowledged, for the same reason (a no-op otherwise).
+    if (row.state === 'ringing') await holdTeamCallRing(row.id);
     if (row.state === 'ringing') void ringTeamCall(config, {
       callId: row.id,
       workspaceId,
@@ -469,7 +445,7 @@ teamCallsRouter.post('/', callerLimiter, async (req, res) => {
   } catch (err) {
     return failure(res, 'create', err);
   } finally {
-    if (heldRing) giveBackCalleeRing(heldRing);
+    if (heldRing) giveBackSharedCalleeRing(heldRing);
   }
 });
 

@@ -527,7 +527,8 @@ Inspected read-only. Nothing has been deleted.
 | `PLUGIN_SECRETS_MASTER_KEY` | — | Encrypts plugin and channel secrets stored in the database. Keep it across a move, or those secrets cannot be read. |
 | `DATABASE_SSL` | `disable` for localhost and container names, `require` otherwise | `disable`, `require` (encrypted, not verified) or `verify-full`. `sslmode=` in the URL works too. |
 | `DATABASE_SSL_CA` | — | CA certificate, as PEM text or a file path, for `verify-full`. |
-| `DATABASE_POOL_MAX` | `10` for the backend; `3` per worker container (`5` for `all` or several kinds) | Most connections this process opens (below). |
+| `DATABASE_POOL_MAX` | `10` for the backend; `3` per worker container (`5` for `all` or several kinds) | Most connections this process opens (below). With `BACKEND_PROCESSES` it is the backend container's total: its workers share it (below). |
+| `BACKEND_PROCESSES` | unset (one process) | How many processes the backend container runs, `2` to `16` (docs/operations/BACKEND_PROCESSES.md). Unset, empty or `1` is the one process, as before. |
 | `DATABASE_ROLE` | `service_role` | Role every session assumes. The login role must be allowed to `SET ROLE` to it (§4). `none` means stay the login role. |
 | `DATABASE_SCHEMAS` | `public` | Exposed schemas, as PostgREST's `db-schemas`. |
 | `DATABASE_MAX_ROWS` | `1000` | Row cap on reads; `0` means no cap. |
@@ -547,23 +548,38 @@ PostgREST's single pool: 11 connections on the hosted project. With
 - every worker container;
 - the `migrate` job while it runs.
 
+Each backend process also holds **one LISTEN connection** of its own, outside
+the pool, for the cache bus (`server/lib/cacheBus.ts`,
+`application_name` `webyar-cache-bus`). So the backend container opens at
+most `DATABASE_POOL_MAX + 1`. With `BACKEND_PROCESSES` (N processes in the
+one container, docs/operations/BACKEND_PROCESSES.md) that ceiling holds for
+every N: the workers share `DATABASE_POOL_MAX + 1 − N` pool slots, the lead
+first and never below 3 (it runs every background loop), and each holds its
+LISTEN. The cluster primary opens none.
+
 The channels gateway and the AI runtime hold no database credentials.
 
 A pool opens connections only as queries need them, up to its maximum, and
 closes them after 30 s idle. So the worst case is the sum of the maxima:
 
 ```
-DATABASE_POOL_MAX(backend) + Σ DATABASE_POOL_MAX(each worker container)
+DATABASE_POOL_MAX(backend) + 1 + Σ DATABASE_POOL_MAX(each worker container)
   ≤ max_connections − superuser_reserved − what else connects
 ```
+
+During a deploy the old and the new backend container run side by side
+until the new one is healthy, so the backend's part counts twice then.
 
 On the hosted project (read on 2026-10-05) `max_connections` is 60, with 3
 reserved, and Supabase's own processes hold about 11. That leaves about 45
 for the application. With the defaults, the backend (10) plus, say, seven
 worker containers (7 × 3) comes to 31 at most. That is more than the 11 the
 whole application has today through PostgREST, and well within the limit.
-Each process logs its maximum at boot ("pool up to N connection(s)").
-Sum them before adding containers or raising `DATABASE_POOL_MAX`. A server
+Each process logs its maximum at boot ("pool up to N connection(s)"); with
+`BACKEND_PROCESSES` the cluster primary also logs the container's total
+(`[cluster] BACKEND_PROCESSES=2: … pools 7+7 + 2 cache-bus LISTEN = 16
+connections at most`). Sum them before adding containers or raising
+`DATABASE_POOL_MAX`. A server
 that runs out refuses new connections to every client, Supabase's own
 included.
 

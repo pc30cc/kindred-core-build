@@ -377,17 +377,22 @@ export function useConversationMessages(conversationId: string | undefined) {
 export function applyReactionsToThread(qc: QueryClient, conversationId: string, payload: Record<string, unknown> | null | undefined): boolean {
   const messageId = typeof payload?.message_id === 'string' ? payload.message_id : null;
   const list = Array.isArray(payload?.reactions) ? payload!.reactions : null;
+  // `at`: when the server read the counts; an older news arriving late is
+  // ignored (the row remembers the newest it took, client-side only).
+  const at = typeof payload?.at === 'number' && Number.isFinite(payload.at) ? payload.at : null;
   if (!messageId || !list) return false;
   let found = false;
   qc.setQueryData<ConversationMessageWithAttachment[]>(['messages', conversationId], (rows) => rows?.map((row) => {
     if (row.id !== messageId) return row;
     found = true;
+    const heldAt = (row as { reactions_at?: number }).reactions_at;
+    if (at !== null && typeof heldAt === 'number' && heldAt > at) return row;
     const mineBefore = new Map((row.reactions || []).map((r) => [r.emoji, !!r.mine]));
     const next: MessageReaction[] = list
       .filter((r): r is { emoji: string; count: number; visitor?: boolean } =>
         !!r && typeof (r as { emoji?: unknown }).emoji === 'string' && Number((r as { count?: unknown }).count) > 0)
       .map((r) => ({ emoji: r.emoji, count: Math.floor(Number(r.count)), visitor: !!r.visitor, mine: mineBefore.get(r.emoji) ?? false }));
-    return { ...row, reactions: next.length ? next : undefined };
+    return { ...row, reactions: next.length ? next : undefined, ...(at !== null ? { reactions_at: at } : {}) };
   }));
   return found;
 }

@@ -509,7 +509,13 @@ export default function InboxPage() {
   useEffect(() => {
     const prev = seenView.current;
     seenView.current = { id: selectedId, on: onScreen };
-    if (selectedId && onScreen && !prev.on && prev.id === selectedId) markSeen.mutate(selectedId);
+    if (selectedId && onScreen && !prev.on && prev.id === selectedId) {
+      markSeen.mutate(selectedId);
+      // And read again once: without realtime (polling) nothing else
+      // refreshes the thread while it was off screen (the mark no longer
+      // re-reads it).
+      void qc.invalidateQueries({ queryKey: ['messages', selectedId] });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, onScreen]);
 

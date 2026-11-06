@@ -150,4 +150,23 @@ describe('the open thread\'s reads for one visitor message', () => {
     });
     expect(gets).toBe(2);
   });
+
+  it('a thread that subscribed while the socket was down reads once when it comes up; a quick open does not', async () => {
+    await opened();
+    // The socket comes up right away: the first read is fresh, nothing more.
+    await act(async () => {
+      conv().onStatus!('connecting');
+      conv().onStatus!('open');
+      await sleep(700);
+    });
+    expect(gets).toBe(0);
+    // It stays down a while after the read (subscribed during an outage).
+    await act(async () => {
+      conv().onStatus!('connecting');
+      await sleep(1200);
+      conv().onStatus!('open');
+      await sleep(700);
+    });
+    expect(gets).toBe(1);
+  });
 });

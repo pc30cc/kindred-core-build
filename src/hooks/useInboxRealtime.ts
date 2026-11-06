@@ -73,6 +73,7 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
 
     let cancelled = false;
     let threadWasDown = false;
+    let threadConnecting = false;
     const subs: RealtimeSubscription[] = [];
     const channel = `ws:${workspaceId}:conv:${conversationId}`;
     const inboxChannel = `ws:${workspaceId}:inbox`;
@@ -161,12 +162,21 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
             }
             // Messages sent while the socket was down are lost: after a
             // reconnect the open thread reads its newest page once (as the
-            // lists do, useInboxListRealtime).
+            // lists do, useInboxListRealtime). So does a thread that
+            // subscribed while the socket was down ('connecting' until the
+            // socket is back): what its first read missed meanwhile.
             if (status === 'closed' || status === 'error') {
               threadWasDown = true;
-            } else if (status === 'open' && threadWasDown) {
+            } else if (status === 'connecting') {
+              threadConnecting = true;
+            } else if (status === 'open') {
+              const readAt = queryClient.getQueryState(['messages', conversationId])?.dataUpdatedAt ?? 0;
+              const stale = threadConnecting && readAt > 0 && readAt < Date.now() - 1000;
+              if (threadWasDown || stale) {
+                invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
+              }
               threadWasDown = false;
-              invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
+              threadConnecting = false;
             }
           },
         });

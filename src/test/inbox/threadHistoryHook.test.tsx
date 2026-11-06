@@ -148,8 +148,12 @@ describe('useConversationMessages: the thread page by page', () => {
     const reactionsOf = () => (hook.result.current.data as Array<{ id: string; reactions?: unknown }>).find((r) => r.id === old)?.reactions;
     await waitFor(() => expect(reactionsOf()).toEqual([{ emoji: '👍', count: 2, visitor: false, mine: false }]));
     // Taken back: none left.
-    act(() => { applyReactionsToThread(qc, CID, { message_id: old, reactions: [] }); });
+    act(() => { applyReactionsToThread(qc, CID, { message_id: old, reactions: [], at: 2000 }); });
     await waitFor(() => expect(reactionsOf()).toBeUndefined());
+    // An older news arriving late changes nothing.
+    act(() => { applyReactionsToThread(qc, CID, { message_id: old, reactions: [{ emoji: '😂', count: 1, visitor: true }], at: 1000 }); });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reactionsOf()).toBeUndefined();
     // A message the thread does not hold: nothing to do.
     expect(applyReactionsToThread(qc, CID, { message_id: idOf(5), reactions: [] })).toBe(false);
   });

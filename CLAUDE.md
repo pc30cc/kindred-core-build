@@ -631,6 +631,16 @@ over unchanged. A full disk stops Postgres too.
     file applied is the merged one (sha256 `b9a54814…`). It only adds a
     function and writes no data. A schema dump, the dry run and the run's log:
     `/root/webyar-migrate-302/`. RESPOK by its migrator on push.
+    Then `303_conversation_list_summaries.sql` (the Inbox list's per-row
+    summaries, `conversation_list_summaries()`, read only past the 2000-message
+    window; PR #420), applied by hand before its merge, 2026-11-06 22:19:07
+    UTC, after dry runs inside `BEGIN … ROLLBACK` on both databases (results
+    equal to the window's for every conversation, 46/46 and 2/2; nothing left
+    after the rollback; a second run a no-op; EXECUTE for `service_role` only).
+    The file applied is the merged one (sha256 `4060bb0f…`). It adds a
+    function and the row type `_cls_turn_at` and writes no data. A schema
+    dump, the run's log and the checks: `/root/webyar-migrate-303/`. RESPOK by
+    its migrator on push.
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

@@ -2303,6 +2303,19 @@ export function parseThreadBefore(rawBefore: unknown, rawId: unknown): { created
   return { createdAt: rawBefore, id: rawId };
 }
 
+/**
+ * `?limit=<n>`: messages per page of a full or an older read, 1 to
+ * THREAD_PAGE; without one, THREAD_PAGE (the native apps' contract: their
+ * full read is the thread's newest 1000, and they keep their cache by it).
+ * Null without one, 'invalid' when malformed. A delta (`?since`) ignores it.
+ */
+export function parseThreadLimit(raw: unknown): number | null | 'invalid' {
+  if (raw === undefined) return null;
+  if (typeof raw !== 'string' || !/^\d{1,4}$/.test(raw)) return 'invalid';
+  const n = Number(raw);
+  return n >= 1 && n <= THREAD_PAGE ? n : 'invalid';
+}
+
 /** The rows before (created_at, id) in thread order, as a PostgREST `or`. */
 function olderThan(createdAt: string, id: string): string {
   return `created_at.lt."${createdAt}",and(created_at.eq."${createdAt}",id.lt.${id})`;
@@ -2361,6 +2374,8 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
     if (!rows) {
       const before = parseThreadBefore(req.query.before, req.query.before_id);
       if (before === 'invalid') return res.status(400).json({ error: 'invalid_before' });
+      const limit = parseThreadLimit(req.query.limit);
+      if (limit === 'invalid') return res.status(400).json({ error: 'invalid_limit' });
       let page = threadRows();
       if (before) {
         page = page.or(olderThan(before.createdAt, before.id));
@@ -2368,18 +2383,21 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       const { data, error } = await page
         .order('created_at', { ascending: false })
         .order('id', { ascending: false })
-        .limit(THREAD_PAGE);
+        .limit(limit ?? THREAD_PAGE);
       if (error) return res.status(500).json({ error: error.message });
       rows = ((data || []) as MessageRow[]).reverse();
       const first = rows[0];
       if (first) {
-        const { data: earlier } = await sb
+        const { data: earlier, error: earlierError } = await sb
           .from('conversation_messages')
           .select('id')
           .eq('conversation_id', conversationId)
           .or(olderThan(first.created_at, first.id))
           .limit(1);
-        if ((earlier || []).length > 0) older = { before: first.created_at, before_id: first.id };
+        // A failed look is not "the start of the thread": the client may ask
+        // for the page before, which answers empty with `older: null` if
+        // there is none.
+        if (earlierError || (earlier || []).length > 0) older = { before: first.created_at, before_id: first.id };
       }
     }
     // An older page (`before`) hands back a cursor no newer than the client's

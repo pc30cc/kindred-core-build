@@ -42,7 +42,12 @@ only while unassigned).
 - A thread (`GET /api/conversations/:id/messages`) answers its newest 1000
   messages (fewer when `DATABASE_MAX_ROWS` is lower), in thread order, with
   `older: { before, before_id }` while there are earlier ones; the same
-  route with `?before=…&before_id=…` reads the page before. The notes and
+  route with `?before=…&before_id=…` reads the page before. `?limit=1…1000`
+  makes a page smaller (the web panel reads 100 at a time and loads earlier
+  ones on request); without it a page stays 1000, which the native apps
+  rely on (their full read replaces their cached thread). `limit` is ignored
+  by a `?since` delta, and a client never sends `since` with `before`. The
+  messages carry every reaction they have (read per page). The notes and
   the timeline keep the plan's retention lock (403 `conversation_locked`;
   deleting a note stays allowed). "Delete all conversations" deletes every
   one in batches, with its notes and timeline, and cancels the channel

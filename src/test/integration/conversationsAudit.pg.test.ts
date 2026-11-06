@@ -254,6 +254,29 @@ suite('the operator conversations API, rows past DATABASE_MAX_ROWS (audit 2026-1
     expect((await request(app).get(`/api/conversations/${cid}/messages?before=yesterday&before_id=x`).set(as(a))).status).toBe(400);
   });
 
+  it('F5 `limit` makes a page smaller, for the newest page and older ones alike; without it a page is THREAD_PAGE (capped here at 5)', async () => {
+    const cid = await conversation();
+    const bodies = await messages(cid, 7);
+    const seen: string[] = [];
+    let path = `/api/conversations/${cid}/messages?limit=2`;
+    for (let i = 0; i < 6; i++) {
+      const res = await request(app).get(path).set(as(a));
+      expect(res.status).toBe(200);
+      const page = (res.body.messages as Row[]).map((m) => String(m.body));
+      expect(page.length).toBeLessThanOrEqual(2);
+      seen.unshift(...page);
+      const older = res.body.older as { before: string; before_id: string } | null;
+      if (!older) break;
+      path = `/api/conversations/${cid}/messages?limit=2&before=${encodeURIComponent(older.before)}&before_id=${older.before_id}`;
+    }
+    expect(seen).toEqual(bodies);
+    // No limit: the page is the cap's (DATABASE_MAX_ROWS is 5 here; 1000 in production).
+    expect(((await request(app).get(`/api/conversations/${cid}/messages`).set(as(a))).body.messages as Row[]).length).toBe(5);
+    for (const bad of ['0', '1001', '-1', 'x', '2.5']) {
+      expect((await request(app).get(`/api/conversations/${cid}/messages?limit=${bad}`).set(as(a))).status, bad).toBe(400);
+    }
+  });
+
   it('F6 the notes (list, add, edit) and the timeline of a chat the plan locked: 403 conversation_locked; deleting a note stays allowed', async () => {
     const cid = await conversation();
     const note = String((await one(`INSERT INTO public.conversation_notes (workspace_id, conversation_id, author_id, body) VALUES ($1, $2, $3, 'before') RETURNING id`, [ws, cid, a])).id);

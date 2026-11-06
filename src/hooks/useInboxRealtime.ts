@@ -36,6 +36,7 @@ import type { OperatorEventPayload } from '@/realtime/types';
 import { rtDebug, rtWarn } from '@/realtime/debug';
 import { invalidateThrottled } from '@/realtime/invalidationThrottle';
 import { refreshConversations } from '@/hooks/inboxListCache';
+import { applySeenToThread } from '@/hooks/useConversations';
 
 /**
  * The open thread's message list is small and latency-visible, so its burst
@@ -71,6 +72,7 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
     if (!enabled || !workspaceId || !conversationId) return;
 
     let cancelled = false;
+    let threadWasDown = false;
     const subs: RealtimeSubscription[] = [];
     const channel = `ws:${workspaceId}:conv:${conversationId}`;
     const inboxChannel = `ws:${workspaceId}:inbox`;
@@ -138,9 +140,13 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
             rtDebug('inbox', 'event:typing', { vendor: provider.vendor, channel });
             handlersRef.current.onTyping?.(payload);
           },
-          onSeen: () => {
+          onSeen: (payload) => {
             rtDebug('inbox', 'event:seen', { vendor: provider.vendor, channel });
-            invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
+            // The server's ids and time, patched in; a news without them
+            // (an older server) still re-reads the thread.
+            if (!applySeenToThread(queryClient, conversationId, payload)) {
+              invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
+            }
           },
           // No onEvent: an `event` here is the visitor's copy of one the
           // inbox channel below delivers whole.
@@ -149,6 +155,15 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
               rtWarn('inbox', 'status=error', { vendor: provider.vendor, reason: info?.reason });
             } else {
               rtDebug('inbox', `status=${status}`, { vendor: provider.vendor });
+            }
+            // Messages sent while the socket was down are lost: after a
+            // reconnect the open thread reads its newest page once (as the
+            // lists do, useInboxListRealtime).
+            if (status === 'closed' || status === 'error') {
+              threadWasDown = true;
+            } else if (status === 'open' && threadWasDown) {
+              threadWasDown = false;
+              invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
             }
           },
         });

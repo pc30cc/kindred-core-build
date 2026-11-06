@@ -454,12 +454,37 @@ export const conversationsApi = {
     return json;
   },
 
-  /** Thread for one conversation, enriched with attachment + sender identity. */
-  async getMessages(conversationId: string): Promise<{ messages: unknown[] }> {
-    const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/messages`, { credentials: 'include', headers: JSON_HEADERS });
+  /**
+   * A page of one conversation's thread, enriched with attachment + sender
+   * identity, in thread order: the newest `limit` messages, or with
+   * `before` (the `older` an answer handed back, sent as given) the page
+   * before them. `older` is null at the thread's start. `signal` aborts the
+   * request (a superseded refresh).
+   */
+  async getMessages(
+    conversationId: string,
+    opts: { limit?: number; before?: { before: string; before_id: string } | null; signal?: AbortSignal } = {},
+  ): Promise<{
+    messages: unknown[];
+    sync?: { mode: 'full' | 'delta'; cursor: string | null } | null;
+    older: { before: string; before_id: string } | null;
+  }> {
+    const params = new URLSearchParams();
+    if (opts.limit) params.set('limit', String(opts.limit));
+    if (opts.before) {
+      params.set('before', opts.before.before);
+      params.set('before_id', opts.before.before_id);
+    }
+    const query = params.toString();
+    const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/messages${query ? `?${query}` : ''}`, {
+      credentials: 'include',
+      headers: JSON_HEADERS,
+      signal: opts.signal,
+    });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `Messages failed: ${res.status}`);
-    return json;
+    // An older server sends no `older`: a page it answers is the thread.
+    return { ...json, older: json.older ?? null };
   },
 
   /** Mark every unseen visitor message in a conversation as seen. */

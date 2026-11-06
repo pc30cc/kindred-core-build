@@ -1258,6 +1258,7 @@ const tr: TranslationKeys = {
     reactionTeamOne: 'bir ekip arkadaşı',
     reactionTeam: '{{count}} ekip arkadaşı',
     reactionFailed: 'Tepki kaydedilemedi',
+    loadOlder: 'Önceki mesajları yükle',
     today: 'Bugün',
     yesterday: 'Dün',
     mainInbox: 'Ana gelen kutusu',

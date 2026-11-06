@@ -1254,6 +1254,7 @@ const en = {
     reactionTeamOne: 'a teammate',
     reactionTeam: '{{count}} teammates',
     reactionFailed: "Couldn't save the reaction",
+    loadOlder: "Load earlier messages",
     today: 'Today',
     yesterday: 'Yesterday',
     mainInbox: 'Main inbox',

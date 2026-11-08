@@ -63,6 +63,27 @@ abstract class CacheStoreContract {
         cachedAt = sortAt,
     )
 
+    /**
+     * The keys a newest-page read windows its deletions and its contiguity
+     * check by (docs/operations/THREAD_PAGING_APPS.md): where each row sits,
+     * and whether a server read wrote it (a realtime-only row has no
+     * `updated_at`). A thread's paging state rides in its sync row's payload.
+     */
+    @Test
+    fun `keys carry created_at and updated_at, and the sync payload round-trips`() = runBlocking {
+        val store = store()
+        store.thread(a, "c-1") {
+            upsert(listOf(message(a, "s:m1", sortAt = 5), message(a, "s:m2", sortAt = 7).copy(updatedAt = null)))
+            putState(SyncStateEntity(a.accountId, a.workspaceId, SyncKeys.thread("c-1"), "cur", null, 1, "{\"older\":null}", 1))
+        }
+        val keys = store.thread(a, "c-1") { keys() }.associateBy { it.localId }
+        assertEquals(5L, keys.getValue("s:m1").createdAt)
+        assertEquals(5L, keys.getValue("s:m1").updatedAt)
+        assertEquals(7L, keys.getValue("s:m2").createdAt)
+        assertEquals(null, keys.getValue("s:m2").updatedAt)
+        assertEquals("{\"older\":null}", store.syncState(a, SyncKeys.thread("c-1"))?.payload)
+    }
+
     @Test
     fun `a queue lists newest first and a full read replaces it`() = runBlocking {
         val store = store()

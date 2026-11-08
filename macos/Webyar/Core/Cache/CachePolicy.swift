@@ -25,8 +25,12 @@ enum CachePolicy {
     // MARK: Thread sync
 
     /// Even with deltas, a thread is read whole this often: deletions and anything a
-    /// delta cannot express come back into line.
-    static let fullReconcileInterval: TimeInterval = 10 * 60
+    /// delta cannot express come back into line. The server deletes a message only
+    /// with its whole conversation (the thread then answers 404) or, rarely, one
+    /// "joined" line whose reply failed (`operatorReplyJoin.ts`), so an hour, as on
+    /// Windows, keeps those bounded; 10 minutes (until 2026-11-08) read 1000 rows
+    /// every 10-12 minutes of every open thread for them.
+    static let fullReconcileInterval: TimeInterval = 60 * 60
     /// A realtime message is shown at once; the delta that fills in its sender and files
     /// follows this soon after, one read for a burst of messages.
     static let realtimeDeltaDelay: TimeInterval = 0.4

@@ -26,8 +26,10 @@ protocol WebyarAPI: SupportAPI, EmailAPI {
     /// have. Nil when the server has nothing by that id in `workspaceID`.
     func conversation(id: String, workspaceID: String) async throws -> Conversation?
     func messages(conversationID: String) async throws -> [Message]
-    /// The thread, or only what changed since the cursor (`ThreadPage.delta`).
-    func messagePage(conversationID: String, since: String?) async throws -> ThreadPage
+    /// A page of the thread (its newest, `request.limit` long, or the one
+    /// before `request.before`), or only what changed since `request.since`
+    /// (`ThreadPage.delta`).
+    func messagePage(conversationID: String, request: ThreadSync.Request) async throws -> ThreadPage
     // Realtime — the Centrifugo tokens the console and the desktop apps use.
     func realtimeConnect(workspaceID: String, intent: String) async throws -> RealtimeConnect
     func realtimeInboxSubscribe(workspaceID: String) async throws -> RealtimeSubscribe
@@ -233,6 +235,12 @@ enum Backend {
 }
 
 extension WebyarAPI {
+    /// The thread (its newest 1000, the server's default), or only what
+    /// changed since the cursor.
+    func messagePage(conversationID: String, since: String?) async throws -> ThreadPage {
+        try await messagePage(conversationID: conversationID, request: ThreadSync.Request(since: since))
+    }
+
     /// An upload nobody is watching the progress of.
     func uploadAttachment(
         conversationID: String?,

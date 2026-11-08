@@ -385,9 +385,20 @@ struct ChatView: View {
                     // The operator's own message is followed to the bottom
                     // wherever they were reading — and so is the photo in it
                     // as it finishes laying out.
-                    follow: model.sentCount
+                    follow: model.sentCount,
+                    // Older messages put before the transcript keep the row
+                    // the reader was on where it was.
+                    prepend: model.prependCount,
+                    prependAnchor: model.prependAnchor
                 ) {
                     LazyVStack(spacing: Theme.Space.xxs) {
+                        if model.canLoadEarlier {
+                            // Reaching the top loads the page before it
+                            // (docs/operations/THREAD_PAGING_APPS.md).
+                            EarlierMessagesRow(loading: model.loadingEarlier)
+                                .onAppear { model.topRow(visible: true) }
+                                .onDisappear { model.topRow(visible: false) }
+                        }
                         ForEach(days) { day in
                             Section {
                                 ForEach(Array(day.messages.enumerated()), id: \.element.id) { index, message in
@@ -426,14 +437,32 @@ struct ChatView: View {
         return messages[index + 1].senderType != messages[index].senderType
     }
 
-    /// Changes whenever the transcript does — a message arriving, or the
-    /// newest one being replaced. A plain count is not enough: an edit or a
-    /// delivery receipt leaves the count alone and still moves the bottom.
+    /// Changes whenever the bottom of the transcript does — a message
+    /// arriving, or the newest one being replaced (an edit, a delivery
+    /// receipt). Not the count: older messages put before the transcript
+    /// change it and must never pull the reader down.
     private func revisionOf(_ days: [MessageDay]) -> Int {
         var hasher = Hasher()
-        hasher.combine(days.reduce(0) { $0 + $1.messages.count })
-        hasher.combine(days.last?.messages.last?.id)
+        let newest = days.last?.messages.last
+        hasher.combine(newest?.id)
+        hasher.combine(newest?.updatedAt)
         return hasher.finalize()
+    }
+}
+
+// MARK: - Earlier messages
+
+/// The top of a transcript that has earlier messages: its appearing loads
+/// them. A spinner while they load, room for one otherwise.
+private struct EarlierMessagesRow: View {
+    let loading: Bool
+
+    var body: some View {
+        ZStack {
+            if loading { ProgressView() }
+        }
+        .frame(maxWidth: .infinity, minHeight: 32)
+        .accessibilityHidden(!loading)
     }
 }
 

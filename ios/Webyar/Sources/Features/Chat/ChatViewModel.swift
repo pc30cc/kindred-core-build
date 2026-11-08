@@ -49,6 +49,15 @@ final class ChatViewModel {
     /// Goes up each time the operator sends something: the transcript
     /// follows their own message to the bottom wherever they were reading.
     private(set) var sentCount = 0
+    /// Earlier messages than the ones shown exist on the server: the top of
+    /// the transcript loads them (docs/operations/THREAD_PAGING_APPS.md).
+    private(set) var canLoadEarlier = false
+    private(set) var loadingEarlier = false
+    /// Goes up each time older messages are put before the transcript, with
+    /// the row that was first before them: the view keeps that row where the
+    /// reader saw it instead of jumping.
+    private(set) var prependCount = 0
+    private(set) var prependAnchor: String?
 
     var draft = ""
 
@@ -65,6 +74,13 @@ final class ChatViewModel {
     @ObservationIgnored private var readAgain = false
     @ObservationIgnored private var saving: Task<Void, Never>?
     @ObservationIgnored private var readSoon: Task<Void, Never>?
+    /// The top of the transcript is on screen.
+    @ObservationIgnored private var topVisible = false
+    /// When the thread's first server answer landed: the first moments of a
+    /// screen are layout settling, and the top row shows for a frame before
+    /// the transcript is pinned to its newest message.
+    @ObservationIgnored private var settledAt: Date?
+    @ObservationIgnored private var earlierSoon: Task<Void, Never>?
     @ObservationIgnored private weak var appState: AppState?
     /// The last text send that failed, and the key it went out with. Sending
     /// the same words again reuses the key — the first attempt may have
@@ -125,6 +141,7 @@ final class ChatViewModel {
             if let store = sync.store(for: conversation.workspaceId),
                let saved = await store.thread(conversation.id),
                isCurrentScope, thread.applyCached(saved) {
+                canLoadEarlier = thread.canLoadEarlier
                 publish()
             }
             await loadVisitor()
@@ -150,7 +167,8 @@ final class ChatViewModel {
     private func readOnce() async {
         let request = thread.beginFetch()
         do {
-            let page = try await api.messagePage(conversationID: conversation.id, since: request.since)
+            var page = try await api.messagePage(conversationID: conversation.id, request: request)
+            if !page.delta { page = try await readPastEmpty(page) }
             guard isCurrentScope else {
                 thread.fetchFailed(transport: true)
                 return
@@ -158,7 +176,10 @@ final class ChatViewModel {
             let applied = thread.applyResponse(page)
             if let write = applied.write { save(write) }
             syncStatus = .idle
+            canLoadEarlier = thread.canLoadEarlier
             if applied.changed || !state.isLoaded { publish() }
+            if settledAt == nil { settledAt = Date() }
+            if topVisible { loadEarlierSoon() }
             markSeenIfLooking()
         } catch APIError.unauthorized {
             thread.fetchFailed(transport: true)
@@ -185,15 +206,97 @@ final class ChatViewModel {
         }
     }
 
+    /// A page with nothing to show (the server hides Telegram menu taps after
+    /// taking the page) while earlier messages exist is read past, a few pages
+    /// at most, so a thread never opens empty. The pages read are one run:
+    /// the first page's cursor, the last one's `older`.
+    private func readPastEmpty(_ first: ThreadPage) async throws -> ThreadPage {
+        var page = first
+        var hops = 0
+        while page.messages.isEmpty, let older = page.older, hops < Self.emptyPageHops {
+            hops += 1
+            let before = try await api.messagePage(
+                conversationID: conversation.id,
+                request: ThreadSync.Request(since: nil, limit: ThreadSync.pageSize, before: older)
+            )
+            page.messages = before.messages
+            page.older = before.older
+        }
+        return page
+    }
+
+    static let emptyPageHops = 4
+
+    // MARK: - Earlier messages
+
+    /// The top of the transcript came into view, or left it.
+    func topRow(visible: Bool) {
+        topVisible = visible
+        if visible { loadEarlierSoon() }
+    }
+
+    /// Loads the page before the transcript once the screen has settled and
+    /// while its top is still in view.
+    private func loadEarlierSoon() {
+        guard canLoadEarlier, !loadingEarlier, earlierSoon == nil else { return }
+        earlierSoon = Task { [weak self] in
+            if let settled = self?.settledAt {
+                let wait = Self.settleDelay - Date().timeIntervalSince(settled)
+                if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.earlierSoon = nil
+            guard self.topVisible, self.settledAt != nil else { return }
+            guard await self.loadEarlier() else { return }
+            // A short page leaves the top in view: once the transcript has
+            // moved to keep the reader's row, the next page if it still is.
+            try? await Task.sleep(nanoseconds: UInt64(Self.settleDelay / 2 * 1_000_000_000))
+            if self.topVisible { self.loadEarlierSoon() }
+        }
+    }
+
+    static let settleDelay: TimeInterval = 1
+
+    /// The page before the transcript, put before it. The reading position
+    /// stays (`prependAnchor`); the thread's cursor does not move.
+    /// Returns whether a page was added.
+    @discardableResult
+    func loadEarlier() async -> Bool {
+        guard !loadingEarlier, let request = thread.olderRequest(), let asked = request.before else { return false }
+        loadingEarlier = true
+        defer { loadingEarlier = false }
+        do {
+            let page = try await readPastEmpty(try await api.messagePage(conversationID: conversation.id, request: request))
+            guard isCurrentScope else { return false }
+            let anchor = thread.messages.first?.id
+            guard let applied = thread.applyOlder(page, asked: asked) else { return false }
+            if let write = applied.write { save(write) }
+            canLoadEarlier = thread.canLoadEarlier
+            if applied.changed {
+                prependAnchor = anchor
+                prependCount += 1
+                publish()
+            }
+            return applied.changed
+        } catch APIError.unauthorized {
+            await appState?.handleUnauthorized()
+            return false
+        } catch {
+            // Nothing is lost: the top row asks again when it is next shown.
+            return false
+        }
+    }
+
     /// The server's rows (never the outbox), written in order so an older
     /// copy never lands after a newer one.
     private func save(_ write: ThreadWrite) {
         guard let store = sync.store(for: conversation.workspaceId) else { return }
         let id = conversation.id, cursor = thread.cursor, fullAt = thread.fullAt
+        let older = thread.older, olderKnown = thread.olderKnown
         let previous = saving
         saving = Task {
             await previous?.value
-            await store.saveThread(id, write, cursor: cursor, fullAt: fullAt)
+            await store.saveThread(id, write, cursor: cursor, fullAt: fullAt, older: older, olderKnown: olderKnown)
         }
     }
 

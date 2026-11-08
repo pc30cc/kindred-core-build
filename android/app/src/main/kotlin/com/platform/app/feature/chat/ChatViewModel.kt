@@ -18,6 +18,8 @@ import com.platform.app.core.net.ApiError
 import com.platform.app.core.net.Assignee
 import com.platform.app.core.net.ServerApi
 import com.platform.app.core.runCatchingUnlessCancelled
+import com.platform.app.core.sync.OlderLoad
+import com.platform.app.core.sync.OlderState
 import com.platform.app.core.sync.SendOutcome
 import com.platform.app.core.sync.SyncGraph
 import com.platform.app.core.sync.ThreadSync
@@ -97,6 +99,18 @@ class ChatViewModel(
     private val _sayNowVoice = MutableStateFlow(SayNowVoice.SPECIALIST)
     val sayNowVoice: StateFlow<SayNowVoice> = _sayNowVoice.asStateFlow()
 
+    /**
+     * Earlier messages exist before the ones held: scrolling to the top
+     * loads them ([loadEarlier]). False until the server said where the
+     * thread's start is, and at the start.
+     */
+    private val _canLoadEarlier = MutableStateFlow(false)
+    val canLoadEarlier: StateFlow<Boolean> = _canLoadEarlier.asStateFlow()
+
+    /** An earlier page is being read. */
+    private val _loadingEarlier = MutableStateFlow(false)
+    val loadingEarlier: StateFlow<Boolean> = _loadingEarlier.asStateFlow()
+
     /** The last thing worth telling the operator, shown once and dismissed. */
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
@@ -143,6 +157,8 @@ class ChatViewModel(
         _notes.value = emptyList()
         usedShortcuts.clear()
         seenUpTo = null
+        _canLoadEarlier.value = false
+        _loadingEarlier.value = false
         sync.coordinator.ensureFocus(scope)
         if (visible) sync.coordinator.openThread(conversationId)
 
@@ -167,6 +183,9 @@ class ChatViewModel(
                     rows = it
                     publish()
                     markSeenIfUnseen()
+                    // Any read (here or the coordinator's) may have moved
+                    // where the run starts: a newest page, a restart.
+                    updateCanLoadEarlier(scope, conversationId)
                 }
             },
             viewModelScope.launch { refresh("open") },
@@ -270,6 +289,38 @@ class ChatViewModel(
             }
         publish()
         markSeenIfUnseen()
+        updateCanLoadEarlier(scope, id)
+    }
+
+    private suspend fun updateCanLoadEarlier(scope: CacheScope, id: String) {
+        val state = sync.messages.olderState(scope, id)
+        if (this.scope == scope && conversationId == id) _canLoadEarlier.value = state is OlderState.Before
+    }
+
+    /**
+     * Reads the page before the messages held and puts it in front; the
+     * screen calls it when the top of the transcript comes into view. One at
+     * a time; a failure is a notice and the operator can scroll up again.
+     */
+    fun loadEarlier() {
+        val scope = scope ?: return
+        val id = conversationId ?: return
+        if (_loadingEarlier.value || !_canLoadEarlier.value) return
+        _loadingEarlier.value = true
+        viewModelScope.launch {
+            val result = runCatchingUnlessCancelled { sync.messages.loadOlder(scope, id) }
+            if (this@ChatViewModel.scope != scope || conversationId != id) return@launch
+            result
+                .onSuccess { outcome ->
+                    if (outcome == OlderLoad.Gone) {
+                        gone = true
+                        publish()
+                    }
+                }
+                .onFailure { _notice.value = it.displayText(language()) }
+            updateCanLoadEarlier(scope, id)
+            _loadingEarlier.value = false
+        }
     }
 
     private fun publish() {

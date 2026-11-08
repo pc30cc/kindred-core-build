@@ -43,6 +43,7 @@ import com.platform.app.core.model.WorkspaceMember
 import com.platform.app.core.model.ConversationSlice
 import com.platform.app.core.model.InboxPage
 import com.platform.app.core.model.MessagesPage
+import com.platform.app.core.model.OlderCursor
 import com.platform.app.core.model.PushDeviceRegistration
 import com.platform.app.core.model.PushDeviceResponse
 import com.platform.app.core.model.RealtimeConnect
@@ -190,6 +191,19 @@ interface ServerApi {
      */
     suspend fun messagesPage(conversationId: String, cursor: String?): MessagesPage =
         MessagesPage(messages(conversationId), sync = null)
+
+    /**
+     * One page of the thread: the newest [limit] messages, or with [before]
+     * the [limit] before that row. Ignored by a delta ([cursor] set). A
+     * backend without paging answers the whole thread with no `older`, which
+     * reads as "the page is the whole thread".
+     */
+    suspend fun messagesPage(
+        conversationId: String,
+        cursor: String?,
+        limit: Int?,
+        before: OlderCursor? = null,
+    ): MessagesPage = messagesPage(conversationId, cursor)
 
     /**
      * Sends, and answers with the row the server stored — which is how a

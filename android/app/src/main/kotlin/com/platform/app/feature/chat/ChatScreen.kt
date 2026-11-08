@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -59,6 +60,7 @@ import com.platform.app.ui.components.Avatar
 import com.platform.app.ui.components.Glyph
 import com.platform.app.ui.design.Size
 import com.platform.app.ui.components.AttachmentView
+import com.platform.app.ui.components.KeepPositionOnPrepend
 import com.platform.app.ui.components.StickToNewest
 import com.platform.app.ui.components.DayHeader
 import com.platform.app.ui.components.MessageBubble
@@ -162,6 +164,12 @@ fun ChatScreen(
     onRetry: (Message) -> Unit = {},
     /** Takes an unsent message out of the thread. */
     onDiscard: (Message) -> Unit = {},
+    /** Earlier messages exist before the ones shown (docs/operations/THREAD_PAGING_APPS.md). */
+    canLoadEarlier: Boolean = false,
+    /** The page before is being read. */
+    loadingEarlier: Boolean = false,
+    /** Reads the page before; called when the top of the transcript comes into view. */
+    onLoadEarlier: () -> Unit = {},
     /**
      * What is known about the visitor's device and where they are — the same
      * facts the inbox row draws its face from, so the face in the bar and
@@ -229,6 +237,9 @@ fun ChatScreen(
                         source = source,
                         onRetry = onRetry,
                         onDiscard = onDiscard,
+                        canLoadEarlier = canLoadEarlier,
+                        loadingEarlier = loadingEarlier,
+                        onLoadEarlier = onLoadEarlier,
                         visitorFace = { size ->
                             VisitorFace(
                                 conversation,
@@ -336,14 +347,37 @@ private fun Transcript(
     source: AttachmentSource?,
     onRetry: (Message) -> Unit,
     onDiscard: (Message) -> Unit,
+    canLoadEarlier: Boolean,
+    loadingEarlier: Boolean,
+    onLoadEarlier: () -> Unit,
     visitorFace: @Composable (Dp) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val rows = remember(messages) { layout(messages) }
+    val keys = remember(rows) { rows.map { it.message.stableKey } }
 
     // A transcript opens on its newest message, not its oldest, and stays
-    // there while that message settles — see [StickToNewest].
-    StickToNewest(listState, rows.size)
+    // there while that message settles — see [StickToNewest]. Only a new
+    // newest message re-pins it: an earlier page put in front does not.
+    StickToNewest(listState, rows.size, newestKey = keys.lastOrNull())
+    // An earlier page put in front leaves the operator where they were reading.
+    KeepPositionOnPrepend(listState, keys)
+    // The top in view after the operator scrolled up (or a thread that fits
+    // on screen): read the page before. Never on the first frames, while the
+    // pin is still taking the transcript to its newest message.
+    val atTop by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            // Laid out (before the first measure nothing can scroll, which is not "fits").
+            val laidOut = info.visibleItemsInfo.isNotEmpty()
+            val fits = laidOut && info.visibleItemsInfo.first().index == 0 &&
+                info.visibleItemsInfo.last().index == info.totalItemsCount - 1 && !listState.canScrollForward
+            laidOut && listState.firstVisibleItemIndex <= 1 && (listState.lastScrolledBackward || fits)
+        }
+    }
+    LaunchedEffect(atTop, canLoadEarlier, loadingEarlier, rows.size) {
+        if (atTop && canLoadEarlier && !loadingEarlier) onLoadEarlier()
+    }
 
     Box(Modifier.fillMaxSize()) {
     LazyColumn(
@@ -432,6 +466,14 @@ private fun Transcript(
         onClick = { listState.animateScrollToItem(rows.lastIndex.coerceAtLeast(0)) },
         modifier = Modifier.align(Alignment.BottomEnd).padding(Space.lg),
     )
+    // Over the list, not in it: an item at the top would move the rows under
+    // the operator as it comes and goes.
+    if (loadingEarlier) {
+        LoadingIndicator(
+            size = 32.dp,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = Space.sm).testTag(A11y.CHAT_LOADING_EARLIER),
+        )
+    }
     }
 }
 

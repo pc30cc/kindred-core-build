@@ -283,6 +283,9 @@ final class LocalFirstTests: XCTestCase {
         sync.applyResponse(ThreadPage(messages: [], delta: false, cursor: "c"), now: then)
         XCTAssertEqual(sync.beginFetch(now: then.addingTimeInterval(5)).since, "c")
         XCTAssertNil(sync.beginFetch(now: then.addingTimeInterval(CachePolicy.fullReconcileInterval + 1)).since)
+        // An hour since 2026-11-08 (10 minutes before), as on Windows.
+        XCTAssertEqual(CachePolicy.fullReconcileInterval, 60 * 60)
+        XCTAssertNotNil(sync.beginFetch(now: then.addingTimeInterval(59 * 60)).since)
     }
 
     // MARK: 11. Out-of-order messages

@@ -64,6 +64,11 @@ actor TestAPI: TestAPIBase {
     var pages: [String: [ThreadPage]] = [:]
     var threadError: APIError?
     private(set) var threadReads: [(conversation: String, since: String?)] = []
+    /// Every thread read as asked (limit and before too).
+    private(set) var threadRequests: [ThreadSync.Request] = []
+    /// What an older-page read answers, by the `before_id` it asks with.
+    var olderPages: [String: ThreadPage] = [:]
+    var olderError: APIError?
     var threadDelay: UInt64 = 0
 
     // Lists
@@ -100,6 +105,8 @@ actor TestAPI: TestAPIBase {
     func setFailing(_ id: String, _ failing: Bool) { if failing { failingFiles.insert(id) } else { failingFiles.remove(id) } }
     func setFileDelay(_ nanoseconds: UInt64) { fileDelay = nanoseconds }
     func setPages(_ conversationID: String, _ queue: [ThreadPage]) { pages[conversationID] = queue }
+    func setOlderPage(before id: String, _ page: ThreadPage) { olderPages[id] = page }
+    func setOlderError(_ error: APIError?) { olderError = error }
     func setThreadError(_ error: APIError?) { threadError = error }
     func setThreadDelay(_ nanoseconds: UInt64) { threadDelay = nanoseconds }
     func setList(_ workspaceID: String, _ conversations: [Conversation], etag: String? = nil) {
@@ -152,7 +159,14 @@ actor TestAPI: TestAPIBase {
         return url
     }
 
-    func messagePage(conversationID: String, since: String?) async throws -> ThreadPage {
+    func messagePage(conversationID: String, request: ThreadSync.Request) async throws -> ThreadPage {
+        let since = request.since
+        threadRequests.append(request)
+        if let before = request.before {
+            if threadDelay > 0 { try? await Task.sleep(nanoseconds: threadDelay) }
+            if let olderError { throw olderError }
+            return olderPages[before.beforeID] ?? ThreadPage(messages: [], delta: false, cursor: nil, older: nil)
+        }
         threadReads.append((conversationID, since))
         if threadDelay > 0 { try? await Task.sleep(nanoseconds: threadDelay) }
         if let threadError { throw threadError }

@@ -96,9 +96,10 @@ actor SampleAPI: WebyarAPI {
         }
     }
 
-    /// Always the whole thread, with no cursor: what a server without
-    /// incremental sync answers, which the app has to handle anyway.
-    func messagePage(conversationID: String, since: String?) async throws -> ThreadPage {
+    /// Always the whole thread, with no cursor and no page before it: what a
+    /// server without incremental sync answers, which the app has to handle
+    /// anyway.
+    func messagePage(conversationID: String, request: ThreadSync.Request) async throws -> ThreadPage {
         ThreadPage(messages: try await messages(conversationID: conversationID), delta: false, cursor: nil)
     }
 

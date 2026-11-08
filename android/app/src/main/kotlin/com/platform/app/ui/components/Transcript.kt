@@ -261,7 +261,7 @@ private val BUBBLE_MAX_WIDTH = 300.dp
  * message arrives. Reading back through a thread should not be fought.
  */
 @Composable
-fun StickToNewest(listState: LazyListState, rowCount: Int) {
+fun StickToNewest(listState: LazyListState, rowCount: Int, newestKey: Any? = rowCount) {
     var pinned by remember { mutableStateOf(true) }
 
     LaunchedEffect(listState) {
@@ -270,7 +270,11 @@ fun StickToNewest(listState: LazyListState, rowCount: Int) {
         }
     }
     // A new message re-pins: it is the thing the operator is waiting for.
-    LaunchedEffect(rowCount) { pinned = true }
+    // Keyed on the newest row, not the count, where the screen can put an
+    // earlier page in front (the chat): those rows are not new messages, and
+    // re-pinning on them would throw the operator back to the bottom while
+    // they read up. Without a key it is the count, as before.
+    LaunchedEffect(newestKey) { pinned = true }
 
     LaunchedEffect(listState, rowCount, pinned) {
         if (rowCount == 0 || !pinned) return@LaunchedEffect
@@ -281,6 +285,33 @@ fun StickToNewest(listState: LazyListState, rowCount: Int) {
         snapshotFlow { listState.canScrollForward }.collect { more ->
             if (more) listState.scrollToItem(rowCount - 1, PAST_THE_END)
         }
+    }
+}
+
+/**
+ * Keeps the operator's place when an earlier page is put in front of the
+ * transcript: the row that was first on screen stays where it was, and the
+ * new rows are above it, out of view until the operator scrolls up.
+ *
+ * A lazy list keyed by row already keeps its first visible row on an insert
+ * before it; this holds that line explicitly — only when the first key of
+ * the list changed and the row that was first on screen is still there —
+ * so it does not depend on that, and does nothing on any other change.
+ */
+@Composable
+fun KeepPositionOnPrepend(listState: LazyListState, keys: List<Any>) {
+    var held by remember { mutableStateOf<Pair<Any, Int>?>(null) }
+    var firstKey by remember { mutableStateOf<Any?>(null) }
+    LaunchedEffect(keys) {
+        val anchor = held
+        val prepended = firstKey != null && keys.firstOrNull() != firstKey
+        firstKey = keys.firstOrNull()
+        if (anchor != null && prepended) {
+            val at = keys.indexOf(anchor.first)
+            if (at > 0 && at != listState.firstVisibleItemIndex) listState.scrollToItem(at, anchor.second)
+        }
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { (index, offset) -> held = keys.getOrNull(index)?.let { it to offset } }
     }
 }
 

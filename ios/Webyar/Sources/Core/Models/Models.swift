@@ -469,6 +469,10 @@ struct MessagesResponse: Decodable, Sendable {
     /// predates incremental sync, which is read as "the whole thread, no
     /// cursor" — exactly what it sent.
     let sync: MessageSyncInfo?
+    /// Where the page before this one starts (`{before, before_id}`); null at
+    /// the thread's start, on a delta, and absent from a server older than
+    /// paging.
+    let older: OlderCursor?
 }
 
 /// `sync` on the thread response (`server/services/messageSync.ts`).

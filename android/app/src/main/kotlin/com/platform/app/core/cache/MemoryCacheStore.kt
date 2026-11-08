@@ -209,7 +209,9 @@ class MemoryCacheStore : CacheStore {
         }
 
         override suspend fun keys(): List<MessageKeyRow> =
-            messages.values.filter(::inThread).map { MessageKeyRow(it.localId, it.serverId, it.sendState, it.cachedAt) }
+            messages.values.filter(::inThread).map {
+                MessageKeyRow(it.localId, it.serverId, it.sendState, it.cachedAt, it.createdAt, it.updatedAt)
+            }
 
         override suspend fun upsert(rows: List<MessageEntity>) {
             for (row in rows) {

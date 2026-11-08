@@ -415,6 +415,8 @@ fun ChatRoute(
     val cachedConversation by chatModel.conversation.collectAsStateWithLifecycle()
     val draft by chatModel.draft.collectAsStateWithLifecycle()
     val sending by chatModel.sending.collectAsStateWithLifecycle()
+    val canLoadEarlier by chatModel.canLoadEarlier.collectAsStateWithLifecycle()
+    val loadingEarlier by chatModel.loadingEarlier.collectAsStateWithLifecycle()
     val shortcuts by chatModel.shortcuts.collectAsStateWithLifecycle()
     val notes by chatModel.notes.collectAsStateWithLifecycle()
     val members by chatModel.members.collectAsStateWithLifecycle()
@@ -636,6 +638,9 @@ fun ChatRoute(
         attachments = attachmentSource,
         onRetry = chatModel::retry,
         onDiscard = chatModel::discard,
+        canLoadEarlier = canLoadEarlier,
+        loadingEarlier = loadingEarlier,
+        onLoadEarlier = chatModel::loadEarlier,
         visitor = intel[conversationId],
         onOpenVisitor = conversation?.let { c ->
             {

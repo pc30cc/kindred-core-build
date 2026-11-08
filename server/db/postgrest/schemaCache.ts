@@ -10,8 +10,22 @@
  * It is loaded on first use and reloaded (a) on a miss — a table, column,
  * function or relationship the request names but the cache does not have, so
  * a migration applied while the process runs is picked up on the next request
- * that needs it — and (b) every few minutes as a safety net. Reloads are
- * single-flight.
+ * that needs it — and (b) every few minutes as a safety net, for the changes
+ * that raise no miss (a new unique key turning an embed to-one, a new primary
+ * key moving the upsert target, a default under `missing=default`, a type
+ * change, a new overload). Reloads are single-flight.
+ *
+ * The first load and a miss's reload are awaited: the request needs them.
+ * The age refresh (b) is not (2026-11-08): the request is answered from the
+ * snapshot it has, the refresh runs once in the background, and a failure is
+ * logged and retried after a gap — it used to make the first request of
+ * every five minutes (and everyone arriving meanwhile) wait for the catalog,
+ * and fail every one of them when the read failed, the IP blocklist's read
+ * included, although a usable snapshot was in memory.
+ *
+ * The catalog is read in ONE statement, so it is one snapshot: four separate
+ * autocommit reads could straddle a migration's commit (its table read
+ * before, its columns after), and took up to four pool connections.
  */
 import { fuzzyBest } from './fuzzy.js';
 import type { Queryable } from './types.js';
@@ -193,19 +207,31 @@ export function functionFromRow(r: FunctionRow): FunctionInfo {
   };
 }
 
+/**
+ * The four catalog reads as one statement (one snapshot, one connection),
+ * each as a JSON array. Columns keep their table's attnum order.
+ */
+export const CATALOG_SQL = `
+  SELECT (SELECT coalesce(json_agg(t), '[]'::json) FROM (${TABLES_SQL}) t) AS tables,
+         (SELECT coalesce(json_agg(t), '[]'::json) FROM (${COLUMNS_SQL}) t) AS columns,
+         (SELECT coalesce(json_agg(t), '[]'::json) FROM (${CONSTRAINTS_SQL}) t) AS constraints,
+         (SELECT coalesce(json_agg(t), '[]'::json) FROM (${FUNCTIONS_SQL}) t) AS functions`;
+
+interface CatalogRow {
+  tables: { oid: string | number; schema: string; name: string; kind: string }[];
+  columns: { oid: string | number; name: string; type: string; typname: string; generated: boolean; default_expr: string | null }[];
+  constraints: { name: string; type: string; rel: string | number; frel: string | number; cols: string[]; fcols: string[] }[];
+  functions: FunctionRow[];
+}
+
 export async function loadSchema(db: Queryable, schemas: string[]): Promise<SchemaSnapshot> {
-  const [tablesRes, columnsRes, constraintsRes, functionsRes] = await Promise.all([
-    db.query<{ oid: string; schema: string; name: string; kind: string }>(TABLES_SQL, [schemas]),
-    db.query<{ oid: string; name: string; type: string; typname: string; generated: boolean; default_expr: string | null }>(
-      COLUMNS_SQL,
-      [schemas],
-    ),
-    db.query<{ name: string; type: string; rel: string; frel: string; cols: string[]; fcols: string[] }>(
-      CONSTRAINTS_SQL,
-      [schemas],
-    ),
-    db.query<FunctionRow>(FUNCTIONS_SQL, [schemas]),
-  ]);
+  const { rows } = await db.query<CatalogRow>(CATALOG_SQL, [schemas]);
+  const catalog = rows[0];
+  if (!catalog) throw new Error('schema cache: the catalog read returned no row');
+  const tablesRes = { rows: catalog.tables };
+  const columnsRes = { rows: catalog.columns };
+  const constraintsRes = { rows: catalog.constraints };
+  const functionsRes = { rows: catalog.functions };
 
   const byOid = new Map<string, TableInfo>();
   const tables = new Map<string, TableInfo>();
@@ -285,6 +311,8 @@ export async function loadSchema(db: Queryable, schemas: string[]): Promise<Sche
 export class SchemaCache {
   private current: SchemaSnapshot | null = null;
   private inflight: Promise<SchemaSnapshot> | null = null;
+  /** When the last reload failed (0: the last one did not). */
+  private failedAt = 0;
 
   constructor(
     private readonly db: Queryable,
@@ -292,11 +320,27 @@ export class SchemaCache {
     private readonly maxAgeMs = 5 * 60_000,
     /** A miss may force a reload at most this often. */
     private readonly minReloadGapMs = 1_000,
+    /** After a failed reload, the age refresh waits this long before it tries again. */
+    private readonly retryGapMs = 10_000,
+    private readonly now: () => number = Date.now,
   ) {}
 
+  /**
+   * The snapshot to answer with. Only the first load is awaited; an old
+   * snapshot is served while one refresh runs in the background.
+   */
   async get(): Promise<SchemaSnapshot> {
-    if (this.current && Date.now() - this.current.loadedAt < this.maxAgeMs) return this.current;
-    return this.reload();
+    const current = this.current;
+    if (!current) return this.reload();
+    if (this.now() - current.loadedAt >= this.maxAgeMs) this.refreshInBackground();
+    return current;
+  }
+
+  /** Starts the age refresh unless one runs, or the last one failed less than retryGapMs ago. */
+  private refreshInBackground(): void {
+    if (this.inflight) return;
+    if (this.failedAt && this.now() - this.failedAt < this.retryGapMs) return;
+    this.reload().catch(() => undefined); // logged by reload()
   }
 
   /**
@@ -307,7 +351,9 @@ export class SchemaCache {
    */
   async refreshAfterMiss(seen: SchemaSnapshot): Promise<SchemaSnapshot | null> {
     if (this.current && this.current !== seen) return this.current;
-    if (Date.now() - seen.loadedAt < this.minReloadGapMs) return null;
+    const now = this.now();
+    // A failed reload counts as one: a miss right after it does not try again.
+    if (now - seen.loadedAt < this.minReloadGapMs || (this.failedAt && now - this.failedAt < this.minReloadGapMs)) return null;
     const next = await this.reload();
     return next === seen ? null : next;
   }
@@ -316,8 +362,18 @@ export class SchemaCache {
     if (!this.inflight) {
       this.inflight = loadSchema(this.db, this.schemas)
         .then((snap) => {
+          snap.loadedAt = this.now();
           this.current = snap;
+          this.failedAt = 0;
           return snap;
+        })
+        .catch((err: unknown) => {
+          this.failedAt = this.now();
+          console.warn(
+            `[db] schema cache reload failed${this.current ? ', serving the snapshot loaded ' + Math.round((this.now() - this.current.loadedAt) / 1000) + ' s ago' : ''}:`,
+            (err as Error | null)?.message || err,
+          );
+          throw err;
         })
         .finally(() => {
           this.inflight = null;

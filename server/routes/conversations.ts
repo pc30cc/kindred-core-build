@@ -48,7 +48,7 @@ import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { authorizeInboxAccess, holdsInboxSeat, supervisesInbox } from '../lib/inboxAccess.js';
-import { readRows } from '../lib/pagedRows.js';
+import { keyPage, readRows, readRowsByKey, ROWS_PAGE } from '../lib/pagedRows.js';
 import {
   announceManualAssignment,
   checkAssignmentTarget,
@@ -102,7 +102,14 @@ import { publicOperatorIdentity } from '../services/widget/senderIdentity.js';
 import { publishVisitorSeen } from '../services/widget/visitorSeen.js';
 import { isChannelMenuEvent, loadInboxUnread, publishConversationSeen } from '../services/inboxUnread.js';
 import { wakeVisitorWidget } from '../services/widget/visitorWake.js';
-import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from '../services/messageSync.js';
+import {
+  changedAfter,
+  deltaLowerBound,
+  inThreadOrder,
+  nextSyncCursor,
+  parseSyncCursor,
+  SYNC_DELTA_MAX,
+} from '../services/messageSync.js';
 import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
 import { queueTranscript } from '../services/notificationEmail/producers.js';
 import { operatorLocale } from '../services/operatorLocale.js';
@@ -2321,6 +2328,16 @@ function olderThan(createdAt: string, id: string): string {
   return `created_at.lt."${createdAt}",and(created_at.eq."${createdAt}",id.lt.${id})`;
 }
 
+/**
+ * A thread read narrowed to the rows before (created_at, id): the plain
+ * `created_at <= before` bound lets Postgres range-scan the thread-order
+ * index (migration 304) from that row back, the `or` keeps the exact
+ * keyset. The text is the client's own, microseconds kept.
+ */
+function beforeRow<Q extends { lte(column: string, value: string): Q; or(filters: string): Q }>(query: Q, createdAt: string, id: string): Q {
+  return query.lte('created_at', createdAt).or(olderThan(createdAt, id));
+}
+
 conversationsRouter.get('/:id/messages', async (req, res) => {
   try {
     const config: ServerConfig = serverConfigOf(req);
@@ -2353,15 +2370,40 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
     let syncMode: 'full' | 'delta' = 'full';
     let rows: MessageRow[] | null = null;
     if (since) {
-      const { data: changed, error: deltaError } = await threadRows()
-        .gt('updated_at', deltaLowerBound(since))
-        .order('updated_at', { ascending: true });
-      if (!deltaError) {
-        rows = inThreadOrder((changed || []) as MessageRow[]);
-        syncMode = 'delta';
-      } else {
+      // Every row changed since the cursor (minus the overlap), page by page
+      // in (updated_at, id) order: one read stops at DATABASE_MAX_ROWS
+      // without a word, and a capped delta never got past 1000 rows changed
+      // inside one overlap window (services/messageSync.ts, SYNC_DELTA_MAX).
+      const lower = deltaLowerBound(since);
+      const changed: MessageRow[] = [];
+      let deltaError: { message?: string } | null = null;
+      let overflow = false;
+      for (let after: MessageRow | null = null; ;) {
+        let q = threadRows();
+        q = after && typeof after.updated_at === 'string'
+          ? q.gte('updated_at', after.updated_at).or(changedAfter(after.updated_at, after.id))
+          : q.gt('updated_at', lower);
+        const { data, error } = await q
+          .order('updated_at', { ascending: true })
+          .order('id', { ascending: true })
+          .limit(Math.min(ROWS_PAGE, SYNC_DELTA_MAX + 1 - changed.length));
+        if (error) { deltaError = error; break; }
+        const page = (data || []) as MessageRow[];
+        if (page.length === 0) break;
+        changed.push(...page);
+        if (changed.length > SYNC_DELTA_MAX) { overflow = true; break; }
+        const last = page[page.length - 1];
+        if (typeof last.updated_at !== 'string') { deltaError = { message: 'rows lack updated_at' }; break; }
+        after = last;
+      }
+      if (deltaError) {
         // Not migrated yet (no updated_at column): answer in full rather than fail.
         console.warn('[conversations messages] delta read unavailable, full read instead:', deltaError.message);
+      } else if (overflow) {
+        console.warn(`[conversations messages] more than ${SYNC_DELTA_MAX} rows changed since the cursor, full read instead`);
+      } else {
+        rows = inThreadOrder(changed);
+        syncMode = 'delta';
       }
     }
     // A full read is the NEWEST page of the thread, in thread order: one
@@ -2377,9 +2419,7 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       const limit = parseThreadLimit(req.query.limit);
       if (limit === 'invalid') return res.status(400).json({ error: 'invalid_limit' });
       let page = threadRows();
-      if (before) {
-        page = page.or(olderThan(before.createdAt, before.id));
-      }
+      if (before) page = beforeRow(page, before.createdAt, before.id);
       const { data, error } = await page
         .order('created_at', { ascending: false })
         .order('id', { ascending: false })
@@ -2388,11 +2428,10 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       rows = ((data || []) as MessageRow[]).reverse();
       const first = rows[0];
       if (first) {
-        const { data: earlier, error: earlierError } = await sb
+        const { data: earlier, error: earlierError } = await beforeRow(sb
           .from('conversation_messages')
           .select('id')
-          .eq('conversation_id', conversationId)
-          .or(olderThan(first.created_at, first.id))
+          .eq('conversation_id', conversationId), first.created_at, first.id)
           .limit(1);
         // A failed look is not "the start of the thread": the client may ask
         // for the page before, which answers empty with `older: null` if
@@ -2437,12 +2476,19 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       if (fromMeta.size) orFilters.push(`id.in.(${Array.from(fromMeta).join(',')})`);
       // Only this workspace's files: `metadata.attachment_id` is whatever id
       // the sender named, and must never describe another workspace's file.
-      const { data: atts } = await sb
+      // Only the files a message shows (uploaded or attached; an upload in
+      // progress or a failed one is not shown), page by page by id: one read
+      // stops at DATABASE_MAX_ROWS without a word.
+      const { data: atts, error: attsError } = await readRowsByKey<{
+        id: string; file_name: string; mime_type: string; size_bytes: number; status: string; message_id: string | null; created_at: string;
+      }>('id', (after, size) => keyPage(sb
         .from('conversation_attachments')
         .select('id, file_name, mime_type, size_bytes, status, message_id, created_at')
         .eq('workspace_id', conv.workspace_id)
-        .or(orFilters.join(','));
-      for (const a of (atts || [])) {
+        .in('status', ['attached', 'uploaded'])
+        .or(orFilters.join(',')), 'id', after, size));
+      if (attsError) console.warn('[conversations messages] attachments read failed:', attsError.message);
+      for (const a of atts) {
         if (a.status !== 'attached' && a.status !== 'uploaded') continue;
         const mime = String(a.mime_type || '');
         const meta = {

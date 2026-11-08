@@ -1,7 +1,7 @@
 /**
  * Startup and health checks for the database connection.
  */
-import { dataDriver, directPool } from './index.js';
+import { dataDriver, directPool, warmSchemaCache } from './index.js';
 import { databaseMode, ignoredSupabaseVars, type DatabaseMode } from './mode.js';
 import { databaseSettings } from './pool.js';
 
@@ -79,6 +79,10 @@ export async function waitForDatabase(label: string, attempts = Number(process.e
       if (Number(status.serverVersion) < 15) {
         console.warn(`[${label}] PostgreSQL ${status.serverVersion} is older than 15, the oldest version the migrations are tested on`);
       }
+      // The first request then needs no catalog read of its own.
+      await warmSchemaCache().catch((err) => {
+        console.warn(`[${label}] schema cache not loaded at boot (the first request loads it):`, (err as Error).message);
+      });
       return;
     }
     if (i >= attempts) {

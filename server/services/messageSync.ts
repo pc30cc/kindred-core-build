@@ -22,6 +22,18 @@
 /** How far behind the client's cursor a delta reaches, for transactions committed out of order. */
 export const SYNC_OVERLAP_MS = 10_000;
 
+/**
+ * The most rows one delta answers. A delta is read page by page in
+ * (updated_at, id) order, so it always sees every changed row: one read
+ * stops at DATABASE_MAX_ROWS (1000) without a word, and a delta capped there
+ * stalled when 1000 or more rows had changed inside one overlap window (a
+ * visitor's backlog marked seen in one statement, say): every delta returned
+ * the same 1000 rows and its cursor never passed them. Past this bound the
+ * answer is a full read (`sync.mode: 'full'`), which every client already
+ * handles.
+ */
+export const SYNC_DELTA_MAX = 5000;
+
 /** A cursor further ahead than this is treated as a clock problem and ignored (full read). */
 const MAX_FUTURE_SKEW_MS = 5 * 60_000;
 
@@ -44,6 +56,14 @@ export function parseSyncCursor(raw: unknown, now: number = Date.now()): Date | 
 /** The lower bound the delta query uses: the cursor, minus the overlap. */
 export function deltaLowerBound(cursor: Date): string {
   return new Date(cursor.getTime() - SYNC_OVERLAP_MS).toISOString();
+}
+
+/**
+ * The PostgREST `or` filter for the rows after (updated_at, id) in delta
+ * order. `updatedAt` is the text the database gave (microseconds kept).
+ */
+export function changedAfter(updatedAt: string, id: string): string {
+  return `updated_at.gt."${updatedAt}",and(updated_at.eq."${updatedAt}",id.gt.${id})`;
 }
 
 interface SyncRow {

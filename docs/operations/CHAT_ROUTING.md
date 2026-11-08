@@ -56,8 +56,18 @@ only while unassigned).
   makes a page smaller (the web panel reads 100 at a time and loads earlier
   ones on request); without it a page stays 1000, which the native apps
   rely on (their full read replaces their cached thread). `limit` is ignored
-  by a `?since` delta, and a client never sends `since` with `before`. The
-  messages carry every reaction they have (read per page). The notes and
+  by a `?since` delta, and a client never sends `since` with `before`. A
+  page reads the thread-order index `conversation_messages_thread_order_idx`
+  (`(conversation_id, created_at DESC, id DESC)`, migration 304): a range
+  scan of `limit` rows, and an older page starts at its `created_at <=
+  before` bound (the exact text the client sent, microseconds kept). A
+  `?since` delta reads every row changed since the cursor (minus 10 s),
+  page by page in `(updated_at, id)` order, so it never stops at one read's
+  1000 rows (a capped delta stalled when 1000 or more rows changed inside
+  one 10 s window, a visitor's backlog marked seen, say); past 5000 changed
+  rows (`SYNC_DELTA_MAX`) it answers a full read instead (`sync.mode`
+  `full`). The messages carry every reaction and every shown attachment
+  they have (both read per page, by key). The notes and
   the timeline keep the plan's retention lock (403 `conversation_locked`;
   deleting a note stays allowed). "Delete all conversations" deletes every
   one in batches, with its notes and timeline, and cancels the channel

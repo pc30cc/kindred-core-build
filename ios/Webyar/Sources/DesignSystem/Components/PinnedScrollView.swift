@@ -29,6 +29,12 @@ struct PinnedScrollView<Content: View>: View {
     /// Changing this is "the operator sent something" — follow it down,
     /// wherever they were reading, and keep following while it lays out.
     var follow: Int = 0
+    /// Changing this is "older rows were put before the content": the row
+    /// `prependAnchor` names (the one that was first) is kept at the top
+    /// where the reader saw it, instead of the scroll view jumping — on
+    /// iOS 17 a ScrollView keeps its offset, not its content, on a prepend.
+    var prepend: Int = 0
+    var prependAnchor: String? = nil
     @ViewBuilder var content: Content
 
     @State private var metrics = ScrollMetrics()
@@ -87,6 +93,14 @@ struct PinnedScrollView<Content: View>: View {
                         withAnimation(Theme.Motion.bubble) {
                             proxy.scrollTo(Self.anchorID, anchor: .bottom)
                         }
+                    }
+                }
+                .onChange(of: prepend) {
+                    guard let anchor = prependAnchor, !isNearBottom else { return }
+                    // The content grew above the reader; hold their row.
+                    Task { @MainActor in
+                        await Task.yield()
+                        proxy.scrollTo(anchor, anchor: .top)
                     }
                 }
                 .onChange(of: conversationKey) {

@@ -199,6 +199,15 @@ actor APIClient {
 
     // MARK: - Request plumbing
 
+    /// A query string for these items. URLComponents leaves "+" as it is,
+    /// and a server reads "+" in a query as a space: a thread's `before`
+    /// (`…+00:00`) would arrive broken. Every "+" here is a value's own.
+    static func percentEncodedQuery(_ items: [URLQueryItem]) -> String? {
+        var components = URLComponents()
+        components.queryItems = items
+        return components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+    }
+
     private func makeRequest(
         _ method: String,
         _ path: String,
@@ -208,7 +217,7 @@ actor APIClient {
         guard var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else {
             throw APIError.transport
         }
-        if !query.isEmpty { components.queryItems = query }
+        if !query.isEmpty { components.percentEncodedQuery = Self.percentEncodedQuery(query) }
         guard let url = components.url else { throw APIError.transport }
 
         var request = URLRequest(url: url)
@@ -442,13 +451,27 @@ actor APIClient {
     /// back too), and says which it did. A server that predates this — or
     /// whose database is not migrated yet — ignores the cursor and sends the
     /// whole thread, which is read as exactly that.
-    func messagePage(conversationID: String, since: String?) async throws -> ThreadPage {
+    ///
+    /// Paging (docs/operations/THREAD_PAGING_APPS.md): `limit` makes a page
+    /// of the newest messages, `before` asks for the page before that cursor,
+    /// sent exactly as the server gave it; the answer's `older` says where
+    /// the page before this one starts. A delta carries neither.
+    func messagePage(conversationID: String, request: ThreadSync.Request) async throws -> ThreadPage {
         var query: [URLQueryItem] = []
-        if let since { query.append(URLQueryItem(name: "since", value: since)) }
-        let request = try makeRequest("GET", "/api/conversations/\(Self.escape(conversationID))/messages", query: query)
-        let response = try await perform(request, as: MessagesResponse.self)
-        let delta = since != nil && response.sync?.mode == "delta"
-        return ThreadPage(messages: response.messages, delta: delta, cursor: response.sync?.cursor)
+        if let since = request.since {
+            query.append(URLQueryItem(name: "since", value: since))
+        } else {
+            if let limit = request.limit { query.append(URLQueryItem(name: "limit", value: String(limit))) }
+            if let before = request.before {
+                query.append(URLQueryItem(name: "before", value: before.before))
+                query.append(URLQueryItem(name: "before_id", value: before.beforeID))
+            }
+        }
+        let http = try makeRequest("GET", "/api/conversations/\(Self.escape(conversationID))/messages", query: query)
+        let response = try await perform(http, as: MessagesResponse.self)
+        let delta = request.since != nil && response.sync?.mode == "delta"
+        return ThreadPage(messages: response.messages, delta: delta, cursor: response.sync?.cursor,
+                          older: delta ? nil : response.older)
     }
 
     private static func escape(_ id: String) -> String {

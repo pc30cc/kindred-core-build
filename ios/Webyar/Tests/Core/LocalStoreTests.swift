@@ -83,6 +83,48 @@ final class LocalStoreTests: XCTestCase {
         XCTAssertNil(sync.beginFetch(now: t0).since)
     }
 
+    // Paging: where the saved run starts
+
+    func testWhereTheRunStartsIsSavedAsTheServerSentIt() async {
+        let s = store()
+        let older = OlderCursor(before: "2026-11-08T10:00:00.123456+00:00", beforeID: "m1")
+        await s.saveThread("c1", .replace([msg("a", at: 1)]), cursor: "c", fullAt: t0, older: older, olderKnown: true)
+        var thread = await s.thread("c1")
+        XCTAssertEqual(thread?.olderKnown, true)
+        XCTAssertEqual(thread?.older, older)
+        // At the thread's start: known, and nil.
+        await s.saveThread("c1", .upsert([msg("z", at: 0)]), cursor: "c", fullAt: t0, older: nil, olderKnown: true)
+        thread = await s.thread("c1")
+        XCTAssertEqual(thread?.olderKnown, true)
+        XCTAssertNil(thread?.older)
+    }
+
+    func testACopySavedWithoutItsStartReadsAsUnknown() async {
+        let s = store()
+        await s.saveThread("c1", .replace([msg("a", at: 1)]), cursor: "c", fullAt: t0)
+        let thread = await s.thread("c1")
+        XCTAssertEqual(thread?.olderKnown, false)
+    }
+
+    func testACutRunForgetsWhereItStarts() async {
+        let s = store()
+        let many = (0..<(CachePolicy.maxMessagesPerThread + 5)).map { msg("m\($0)", at: Double($0), updated: Double($0)) }
+        await s.saveThread("c1", .replace(many), cursor: "c", fullAt: t0,
+                           older: OlderCursor(before: "x", beforeID: "m0"), olderKnown: true)
+        let thread = await s.thread("c1")
+        XCTAssertEqual(thread?.olderKnown, false, "what was cut cannot be asked for by the old start")
+    }
+
+    func testForgettingAThreadForgetsWhereItStarts() async {
+        let s = store()
+        await s.saveThread("c1", .replace([msg("a", at: 1)]), cursor: "c", fullAt: t0,
+                           older: OlderCursor(before: "x", beforeID: "a"), olderKnown: true)
+        await s.forgetConversation("c1")
+        await s.saveThread("c1", .replace([msg("b", at: 2)]), cursor: "c", fullAt: t0)
+        let thread = await s.thread("c1")
+        XCTAssertEqual(thread?.olderKnown, false)
+    }
+
     // 13. Workspace isolation
 
     func testWorkspacesNeverShareASavedCopy() async throws {

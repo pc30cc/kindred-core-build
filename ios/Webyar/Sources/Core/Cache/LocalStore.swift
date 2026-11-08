@@ -12,6 +12,12 @@ struct CachedThread: Sendable {
     /// False when the thread had more messages than the store keeps: the
     /// newest are shown, and the next read is a whole one.
     var complete: Bool
+    /// Where the page before the saved run starts (nil: at the thread's
+    /// start). Meaningful only when `olderKnown`, which a copy saved before
+    /// paging (2026-11-08) is not: that copy is shown, then its newest page
+    /// is read again.
+    var older: OlderCursor? = nil
+    var olderKnown = false
 }
 
 /// A conversation list as last read from the server.
@@ -123,14 +129,25 @@ actor LocalStore {
             deleteThread(db, conversationID)
             return nil
         }
+        var older: OlderCursor?
+        var olderKnown = false
+        query(db, "SELECT before, before_id FROM thread_older WHERE conversation_id = ?", [.text(conversationID)]) { row in
+            olderKnown = true
+            if let before = row.text(0), let id = row.text(1) { older = OlderCursor(before: before, beforeID: id) }
+        }
         run(db, "UPDATE threads SET opened_at = ? WHERE conversation_id = ?",
             [.double(Date().timeIntervalSince1970), .text(conversationID)])
-        return CachedThread(messages: messages, cursor: cursor, fullAt: fullAt, complete: complete)
+        return CachedThread(messages: messages, cursor: cursor, fullAt: fullAt, complete: complete,
+                            older: older, olderKnown: olderKnown)
     }
 
     /// Writes what the server said about a thread: its rows (never the ones
-    /// still being sent from this phone) and the cursor for the next delta.
-    func saveThread(_ conversationID: String, _ write: ThreadWrite, cursor: String?, fullAt: Date?) {
+    /// still being sent from this phone), the cursor for the next delta and,
+    /// when `olderKnown`, where the page before the run starts (`older`, nil
+    /// at the thread's start). A run cut by the per-thread limit forgets it:
+    /// what was cut cannot be asked for by the cursor that came before it.
+    func saveThread(_ conversationID: String, _ write: ThreadWrite, cursor: String?, fullAt: Date?,
+                    older: OlderCursor? = nil, olderKnown: Bool = false) {
         guard let db = connection() else { return }
         let now = Date().timeIntervalSince1970
         transaction(db) { db in
@@ -182,6 +199,14 @@ actor LocalStore {
                 [.text(conversationID), .optionalText(cursor),
                  fullAt.map { Bind.double($0.timeIntervalSince1970) } ?? .null,
                  .int(complete && wasComplete ? 1 : 0), .double(now)])
+            if olderKnown && complete && wasComplete {
+                run(db, """
+                    INSERT INTO thread_older (conversation_id, before, before_id) VALUES (?, ?, ?)
+                    ON CONFLICT(conversation_id) DO UPDATE SET before = excluded.before, before_id = excluded.before_id
+                    """, [.text(conversationID), .optionalText(older?.before), .optionalText(older?.beforeID)])
+            } else {
+                run(db, "DELETE FROM thread_older WHERE conversation_id = ?", [.text(conversationID)])
+            }
         }
     }
 
@@ -193,6 +218,7 @@ actor LocalStore {
     private func deleteThread(_ db: OpaquePointer, _ conversationID: String) {
         run(db, "DELETE FROM messages WHERE conversation_id = ?", [.text(conversationID)])
         run(db, "DELETE FROM threads WHERE conversation_id = ?", [.text(conversationID)])
+        run(db, "DELETE FROM thread_older WHERE conversation_id = ?", [.text(conversationID)])
     }
 
     // MARK: - Conversation lists
@@ -325,6 +351,7 @@ actor LocalStore {
                   SELECT conversation_id FROM threads ORDER BY opened_at DESC LIMIT ?)
                 """, [.int(keepThreads)])
             run(db, "DELETE FROM messages WHERE conversation_id NOT IN (SELECT conversation_id FROM threads)")
+            run(db, "DELETE FROM thread_older WHERE conversation_id NOT IN (SELECT conversation_id FROM threads)")
             run(db, "DELETE FROM list_members WHERE list_key IN (SELECT key FROM lists WHERE saved_at < ?)", [.double(listCutoff)])
             run(db, "DELETE FROM lists WHERE saved_at < ?", [.double(listCutoff)])
             // A conversation no list carries any more, and not opened lately, goes too.
@@ -357,7 +384,7 @@ actor LocalStore {
     func reset() {
         guard let db = connection() else { return }
         transaction(db) { db in
-            for table in ["messages", "threads", "list_members", "lists", "conversations", "meta"] {
+            for table in ["messages", "threads", "thread_older", "list_members", "lists", "conversations", "meta"] {
                 run(db, "DELETE FROM \(table)")
             }
         }
@@ -516,6 +543,13 @@ actor LocalStore {
                 return Self.isDamage(lastCode) ? .unusable : .unavailable
             }
         }
+        // Added with paging (2026-11-08) to every file, an existing one too:
+        // a table of its own, so the schema version (and every phone's saved
+        // copy) stays as it was. Missing, the store reads every run's start
+        // as unknown, which only costs a newest-page read.
+        if sqlite3_exec(h, Self.threadOlderTable, nil, nil, nil) != SQLITE_OK {
+            StoreLog.write("thread_older could not be created")
+        }
         FileProtection.apply(to: url)
         return .open(h)
     }
@@ -525,6 +559,13 @@ actor LocalStore {
         try FileProtection.createDirectory(root)
         try FileProtection.createDirectory(folder)
     }
+
+    /// Where the page before each saved run starts: no row is "unknown", a
+    /// row with NULLs is "at the thread's start".
+    static let threadOlderTable = """
+        CREATE TABLE IF NOT EXISTS thread_older (
+          conversation_id TEXT PRIMARY KEY, before TEXT, before_id TEXT);
+        """
 
     private func create(_ db: OpaquePointer) -> Bool {
         let schema = """

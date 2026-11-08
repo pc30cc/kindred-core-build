@@ -37,8 +37,10 @@ enum CachePolicy {
     /// forward. Credentials and preferences are never in it.
     static let schemaVersion: Int32 = 1
 
-    /// Messages kept per conversation. A longer thread keeps its newest and is
-    /// marked incomplete, so its next open reads it whole.
+    /// Messages kept per conversation. A longer run keeps its newest and is
+    /// marked incomplete (where it starts is then unknown), so its next open
+    /// shows them and reads its newest page again (100 rows, no longer the
+    /// whole 1000).
     static let maxMessagesPerThread = 800
     /// Conversations whose messages are kept; the least recently opened go.
     static let maxThreads = 200
@@ -54,9 +56,17 @@ enum CachePolicy {
 
     // MARK: - Thread sync
 
-    /// Even with deltas, a thread is read whole this often while it is open:
-    /// a delta cannot say that a message was deleted, a whole read can.
-    static let fullReconcileInterval: TimeInterval = 10 * 60
+    /// Even with deltas, a thread's newest page is read again this often while
+    /// it is open: a delta cannot say that a message was deleted, a page read
+    /// can (for its own range). The server deletes a message only with its
+    /// whole conversation (the thread then answers 404) or, rarely, one
+    /// "joined" line whose reply failed (`operatorReplyJoin.ts`), so an hour,
+    /// as on Windows, keeps those bounded; 10 minutes (until 2026-11-08) read
+    /// 1000 rows every 10-12 minutes of every open thread for them.
+    static let fullReconcileInterval: TimeInterval = 60 * 60
+    /// Messages per page of a thread (docs/operations/THREAD_PAGING_APPS.md):
+    /// the newest page on open, one more each time the reader reaches the top.
+    static let threadPageSize = 100
     /// A realtime message shows at once; the delta that fills in its sender
     /// and files follows this soon after — one read for a burst of messages.
     static let realtimeDeltaDelay: TimeInterval = 0.4

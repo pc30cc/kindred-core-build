@@ -19,10 +19,27 @@ import kotlinx.serialization.json.JsonElement
 data class MessagesPage(
     val messages: List<Message> = emptyList(),
     val sync: SyncInfo? = null,
+    /**
+     * Where the page before this one starts; null at the thread's start, on
+     * a delta, and from a server older than paging (`caaad24`).
+     */
+    val older: OlderCursor? = null,
 ) {
     /** True only when the server says so; anything else replaces the thread. */
     val isDelta: Boolean get() = sync?.mode == "delta"
 }
+
+/**
+ * The oldest row of a page, as the server named it, to ask for the page
+ * before it (`?before=&before_id=`). Both strings are kept exactly as
+ * received: `before` carries microseconds a phone's clock does not keep,
+ * and the server compares it to the microsecond.
+ */
+@Serializable
+data class OlderCursor(
+    val before: String,
+    @SerialName("before_id") val beforeId: String,
+)
 
 @Serializable
 data class SyncInfo(

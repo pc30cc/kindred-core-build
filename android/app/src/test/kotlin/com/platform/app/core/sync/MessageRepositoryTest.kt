@@ -3,7 +3,9 @@ package com.platform.app.core.sync
 import com.platform.app.core.Diag
 import com.platform.app.core.cache.CacheScope
 import com.platform.app.core.cache.MemoryCacheStore
+import com.platform.app.core.cache.SyncKeys
 import com.platform.app.core.model.Message
+import com.platform.app.core.model.OlderCursor
 import com.platform.app.core.model.SenderType
 import com.platform.app.testing.ScriptedApi
 import kotlinx.coroutines.flow.first
@@ -54,7 +56,9 @@ class MessageRepositoryTest {
     @Test
     fun `one new message in a long thread costs the overlap, not the thread`() = runTest {
         api.seed("c-1", 2_000)
-        repo.sync(scope, "c-1", "open")
+        // The first open is the newest page, not the thread.
+        assertEquals(ThreadSync.Full(MessageRepository.PAGE_SIZE), repo.sync(scope, "c-1", "open"))
+        assertEquals(listOf<Int?>(MessageRepository.PAGE_SIZE), api.pageLimits)
         api.tick(60_000)
         api.post("c-1", "hello")
 
@@ -63,8 +67,8 @@ class MessageRepositoryTest {
         // One new row plus whatever changed in the ten seconds before the
         // cursor (ten rows here, one a second) — never the 2,000.
         assertEquals(ThreadSync.Delta(11), second)
-        assertEquals(2_001, thread().size)
-        assertEquals(2_001, thread().map { it.id }.toSet().size)
+        assertEquals(MessageRepository.PAGE_SIZE + 1, thread().size)
+        assertEquals(MessageRepository.PAGE_SIZE + 1, thread().map { it.id }.toSet().size)
     }
 
     @Test
@@ -319,5 +323,213 @@ class MessageRepositoryTest {
             buildJsonObject { put("client_message_id", JsonPrimitive("client-1")) },
             thread().single().metadata,
         )
+    }
+
+    // MARK: - Pages (docs/operations/THREAD_PAGING_APPS.md)
+
+    private suspend fun older(): OlderState = repo.olderState(scope, "c-1")
+
+    @Test
+    fun `a long thread opens on its newest page, and loading earlier puts the page before in front`() = runTest {
+        val rows = api.seed("c-1", 250)
+        repo.sync(scope, "c-1", "open")
+        assertEquals(rows.takeLast(100).map { it.id }, thread().map { it.id })
+        assertTrue(older() is OlderState.Before)
+
+        assertEquals(OlderLoad.Loaded(100, more = true), repo.loadOlder(scope, "c-1"))
+        assertEquals(rows.takeLast(200).map { it.id }, thread().map { it.id })
+        assertEquals(OlderLoad.Loaded(50, more = false), repo.loadOlder(scope, "c-1"))
+        assertEquals(rows.map { it.id }, thread().map { it.id })
+        assertEquals(OlderState.AtStart, older())
+        assertEquals(OlderLoad.NoMore, repo.loadOlder(scope, "c-1"))
+    }
+
+    // Hard case 1: a delta can bring a message older than the run (a seen,
+    // a reaction or a file bumps its updated_at); it would sit above a hole.
+    @Test
+    fun `case 1 - a delta or realtime row older than the run is not written until loading earlier brings it`() = runTest {
+        val rows = api.seed("c-1", 250)
+        repo.sync(scope, "c-1", "open")
+        api.tick(60_000)
+        val bumped = api.edit("c-1", rows[10].id, "seen now")
+        val newest = api.post("c-1", "new")
+
+        repo.sync(scope, "c-1", "delta")
+        val held = thread().map { it.id }
+        assertFalse("the old row is not above a hole", bumped.id in held)
+        assertTrue(newest.id in held)
+        // Realtime alike: an old row is not written, a new one is.
+        assertFalse(repo.applyRealtime(scope, rows[20].copy(updatedAt = null)))
+        assertFalse(rows[20].id in thread().map { it.id })
+        // An edit of a row the run holds still lands.
+        api.edit("c-1", rows[240].id, "edited in the run")
+        repo.sync(scope, "c-1", "delta")
+        assertEquals("edited in the run", thread().single { it.id == rows[240].id }.body)
+
+        repo.loadOlder(scope, "c-1")
+        repo.loadOlder(scope, "c-1")
+        assertEquals("seen now", thread().single { it.id == bumped.id }.body)
+        assertEquals(251, thread().size)
+    }
+
+    // Hard case 2: hidden Telegram menu taps are filtered after the limit,
+    // so the newest page can come back empty while earlier messages exist.
+    @Test
+    fun `case 2 - an empty newest page is read past, so the thread never opens empty`() = runTest {
+        val rows = api.seed("c-1", 150)
+        api.hidden += rows.takeLast(100).map { it.id }
+        assertEquals(ThreadSync.Full(50), repo.sync(scope, "c-1", "open"))
+        assertEquals(rows.take(50).map { it.id }, thread().map { it.id })
+        assertEquals(1, api.olderReads.size)
+        assertEquals(OlderState.AtStart, older())
+
+        // An older page with nothing to show is read past too.
+        val more = api.seed("c-2", 350)
+        api.hidden += more.subList(150, 250).map { it.id }
+        repo.sync(scope, "c-2", "open")
+        assertEquals(OlderLoad.Loaded(100, more = true), repo.loadOlder(scope, "c-2"))
+        assertEquals(more.subList(50, 150).map { it.id }, thread(id = "c-2").take(100).map { it.id })
+    }
+
+    // Hard case 3: `older` stays the server's strings, microseconds kept.
+    @Test
+    fun `case 3 - the older cursor goes back exactly as the server wrote it`() = runTest {
+        val rows = api.seed("c-1", 150)
+        repo.sync(scope, "c-1", "open")
+        val first = rows[50]
+        val expected = OlderCursor(api.micros(first.createdAt!!), first.id)
+        assertEquals(OlderState.Before(expected), older())
+        assertTrue(expected.before.endsWith(".000000+00:00"))
+
+        repo.loadOlder(scope, "c-1")
+        assertEquals(listOf(expected), api.olderReads)
+    }
+
+    // Hard case 4: an older page's own cursor is the newest updated_at of
+    // that page; it never moves the thread's cursor nor its full-read time.
+    @Test
+    fun `case 4 - an older page never moves the sync cursor nor the full-read time`() = runTest {
+        val rows = api.seed("c-1", 150)
+        repo.sync(scope, "c-1", "open")
+        val before = store.syncState(scope, SyncKeys.thread("c-1"))!!
+        api.tick(60_000)
+        // The older page's newest updated_at is now ahead of the thread's cursor.
+        api.edit("c-1", rows[3].id, "edited")
+        api.tick(60_000)
+
+        repo.loadOlder(scope, "c-1")
+        val after = store.syncState(scope, SyncKeys.thread("c-1"))!!
+        assertEquals(before.cursor, after.cursor)
+        assertEquals(before.fullReadAt, after.fullReadAt)
+        // And the next delta still brings what is new since that cursor.
+        val fresh = api.post("c-1", "new")
+        repo.sync(scope, "c-1", "delta")
+        assertTrue(fresh.id in thread().map { it.id })
+    }
+
+    // Hard case 5: a newest-page read keeps the older pages while they are
+    // contiguous, and restarts the run (never a hole) when more than a page arrived.
+    @Test
+    fun `case 5 - a newest-page read keeps contiguous older pages and restarts after a gap`() = runTest {
+        val rows = api.seed("c-1", 250)
+        repo.sync(scope, "c-1", "open")
+        repo.loadOlder(scope, "c-1")
+        val loadedStart = older()
+        val few = (1..3).map { api.post("c-1", "few $it") }
+
+        repo.sync(scope, "c-1", "reconcile", forceFull = true)
+        assertEquals(rows.takeLast(200).map { it.id } + few.map { it.id }, thread().map { it.id })
+        assertEquals(loadedStart, older())
+
+        val many = (1..150).map { api.post("c-1", "many $it") }
+        repo.sync(scope, "c-1", "reconcile", forceFull = true)
+        // The run starts again from the page: the newest 100, no hole.
+        assertEquals(many.takeLast(100).map { it.id }, thread().map { it.id })
+        assertEquals(OlderState.Before(OlderCursor(api.micros(many[50].createdAt!!), many[50].id)), older())
+    }
+
+    @Test
+    fun `case 5 - a realtime row past a gap does not make the run look contiguous`() = runTest {
+        api.seed("c-1", 150)
+        repo.sync(scope, "c-1", "open")
+        // 150 more arrive; only the newest reaches the phone, by realtime
+        // (no updated_at), so it sits past a gap after the run.
+        val more = (1..150).map { api.post("c-1", "more $it") }
+        assertTrue(repo.applyRealtime(scope, more.last().copy(updatedAt = null)))
+
+        repo.sync(scope, "c-1", "reconcile", forceFull = true)
+        // Restarted from the page: no hole between the old run and the page.
+        assertEquals(more.takeLast(100).map { it.id }, thread().map { it.id })
+        assertEquals(OlderState.Before(OlderCursor(api.micros(more[50].createdAt!!), more[50].id)), older())
+    }
+
+    @Test
+    fun `an older page that answers after the run restarted is dropped`() = runTest {
+        var during: (suspend () -> Unit)? = null
+        val racing = object : ScriptedApi() {
+            override suspend fun messagesPage(
+                conversationId: String,
+                cursor: String?,
+                limit: Int?,
+                before: OlderCursor?,
+            ): com.platform.app.core.model.MessagesPage {
+                if (before != null) during?.let { during = null; it() }
+                return super.messagesPage(conversationId, cursor, limit, before)
+            }
+        }
+        val repo = MessageRepository(racing, store, clock = { racing.now }, diag = Diag.Silent)
+        racing.seed("c-1", 250)
+        repo.sync(scope, "c-1", "open")
+        // While the older page is out, more than a page arrives and a
+        // newest-page read restarts the run.
+        during = {
+            repeat(150) { racing.post("c-1", "flood $it") }
+            repo.sync(scope, "c-1", "reconcile", forceFull = true)
+        }
+        assertEquals(OlderLoad.Stale, repo.loadOlder(scope, "c-1"))
+        assertEquals(racing.threads.getValue("c-1").takeLast(100).map { it.id }, thread().map { it.id })
+    }
+
+    // Hard case 6: deletions inside the newest page are reconciled; in
+    // older loaded pages they are not (documented).
+    @Test
+    fun `case 6 - deletions in the newest page are reconciled, in older loaded pages they stay`() = runTest {
+        val rows = api.seed("c-1", 250)
+        repo.sync(scope, "c-1", "open")
+        repo.loadOlder(scope, "c-1")
+        api.threads.getValue("c-1").removeAll { it.id == rows[240].id || it.id == rows[60].id }
+
+        repo.sync(scope, "c-1", "reconcile", forceFull = true)
+        val held = thread().map { it.id }
+        assertFalse(rows[240].id in held)
+        assertTrue("an older page's deletion is not seen by a newest-page read", rows[60].id in held)
+    }
+
+    // Hard case 8: a saved copy from before pages (no `older` stored).
+    @Test
+    fun `case 8 - a saved copy from before pages is read from its newest page, then pages`() = runTest {
+        val rows = api.seed("c-1", 250)
+        repo.sync(scope, "c-1", "open")
+        // What an installed 1.9.1 left: a cursor, a recent full read, no payload.
+        store.thread(scope, "c-1") { putState(state()!!.copy(payload = null)) }
+        assertEquals(OlderState.Unknown, older())
+
+        val reads = api.threadReads.size
+        repo.sync(scope, "c-1", "open")
+        assertNull("a newest-page read, not a delta", api.threadReads[reads])
+        assertTrue(older() is OlderState.Before)
+        assertEquals(rows.takeLast(100).map { it.id }, thread().map { it.id })
+        // A payload this build cannot read is unknown too, never an error.
+        store.thread(scope, "c-1") { putState(state()!!.copy(payload = "{not json")) }
+        assertEquals(OlderState.Unknown, older())
+    }
+
+    @Test
+    fun `the older state round-trips through its payload`() {
+        val cursor = OlderCursor("2026-11-08T10:00:00.123456+00:00", "4443f8b3-d060-4b9f-90f7-c9b5dbc6c83e")
+        assertEquals(OlderState.Before(cursor), OlderState.of(OlderState.Before(cursor).encode()))
+        assertEquals(OlderState.AtStart, OlderState.of(OlderState.AtStart.encode()))
+        assertEquals(OlderState.Unknown, OlderState.of(null))
+        assertEquals(OlderState.Unknown, OlderState.of("{}"))
     }
 }

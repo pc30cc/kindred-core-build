@@ -9,8 +9,11 @@ import com.platform.app.core.cache.SendState
 import com.platform.app.core.cache.SyncKeys
 import com.platform.app.core.cache.SyncStateEntity
 import com.platform.app.core.cache.ThreadWriter
+import com.platform.app.core.model.DateParsing
 import com.platform.app.core.model.Message
 import com.platform.app.core.model.MessageAttachment
+import com.platform.app.core.model.MessagesPage
+import com.platform.app.core.model.OlderCursor
 import com.platform.app.core.model.SenderType
 import com.platform.app.core.model.SentMessage
 import com.platform.app.core.net.ApiError
@@ -18,8 +21,13 @@ import com.platform.app.core.net.ServerApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -40,6 +48,19 @@ import java.util.concurrent.ConcurrentHashMap
  * its whole conversation — which the thread endpoint then answers 404, and
  * [sync] removes the conversation — so a full re-read is needed rarely:
  * every [FULL_RECONCILE_MS], and after Clear Cache or eviction.
+ *
+ * ## Pages (docs/operations/THREAD_PAGING_APPS.md)
+ *
+ * A "full" read is the thread's newest [PAGE_SIZE] messages, and the cache
+ * holds one contiguous run of the thread ending at its newest message.
+ * [loadOlder] puts the page before it in front. Where that page starts is
+ * the run's [OlderState], kept in the thread's sync row (`payload`), its
+ * strings exactly as the server sent them. A newest-page read reconciles
+ * only its own range: a row after the page's first one that the page does
+ * not hold is gone; rows before it are the older pages, kept while the run
+ * still touches the page and dropped (the run restarts) when more than a
+ * page arrived meanwhile. A delta or realtime row older than the run is not
+ * written — it would sit above a hole; loading earlier brings it.
  *
  * ## One message, however many times it arrives
  *
@@ -110,9 +131,12 @@ class MessageRepository(
     ): ThreadSync = lockFor(conversationId).withLock {
         val state = store.syncState(scope, SyncKeys.thread(conversationId))
         val started = clock()
-        val cursor = state?.cursor?.takeUnless { forceFull || fullReadDue(state, started) }
+        // A run whose start is unknown (a cache from before pages) is read
+        // from its newest page again, which tells where it starts.
+        val unknownStart = OlderState.of(state?.payload) == OlderState.Unknown
+        val cursor = state?.cursor?.takeUnless { forceFull || unknownStart || fullReadDue(state, started) }
         val page = try {
-            api.messagesPage(conversationId, cursor)
+            if (cursor != null) api.messagesPage(conversationId, cursor, null) else newestPage(conversationId)
         } catch (e: ApiError.Server) {
             if (e.status == 404) {
                 store.removeConversation(scope, conversationId)
@@ -125,7 +149,7 @@ class MessageRepository(
         // not do it answers in full, and a full answer must replace.
         val delta = cursor != null && page.isDelta
         store.thread(scope, conversationId) {
-            merge(page.messages, delta = delta, cursor = page.sync?.cursor, startedAt = started)
+            merge(page.messages, delta = delta, cursor = page.sync?.cursor, startedAt = started, older = page.older)
         }
         diag.info(
             AREA,
@@ -133,6 +157,69 @@ class MessageRepository(
                 "${page.messages.size} rows ($reason) in ${clock() - started}ms",
         )
         if (delta) ThreadSync.Delta(page.messages.size) else ThreadSync.Full(page.messages.size)
+    }
+
+    /**
+     * The newest page, read past pages with nothing to show (the server hides
+     * Telegram menu taps after its limit, so a page can come back empty while
+     * earlier messages exist): a thread never opens empty. The pages read are
+     * one run, and the sync cursor is the newest page's.
+     */
+    private suspend fun newestPage(conversationId: String): MessagesPage {
+        val first = api.messagesPage(conversationId, null, PAGE_SIZE)
+        if (first.isDelta) return first
+        var page = first
+        var hops = 0
+        while (page.messages.none { it.conversationId == conversationId } && page.older != null && hops < READ_PAST_HOPS) {
+            val back = api.messagesPage(conversationId, null, PAGE_SIZE, page.older)
+            page = MessagesPage(back.messages, first.sync ?: back.sync, back.older)
+            hops++
+        }
+        return page
+    }
+
+    /** Where the run of this thread the phone holds starts. */
+    suspend fun olderState(scope: CacheScope, conversationId: String): OlderState =
+        runCatching { OlderState.of(store.syncState(scope, SyncKeys.thread(conversationId))?.payload) }
+            .getOrDefault(OlderState.Unknown)
+
+    /**
+     * Reads the page before the run and puts it in front (scrolled to the
+     * top). The request runs outside the thread's lock — a slow page must not
+     * hold up the deltas — and its answer is applied only while the run
+     * still starts where it was asked from: a newest-page read that
+     * restarted the run meanwhile makes it someone else's page. It never
+     * moves the sync cursor nor the full-read time: its cursor is the newest
+     * `updated_at` of an older page.
+     */
+    suspend fun loadOlder(scope: CacheScope, conversationId: String): OlderLoad {
+        val asked = (olderState(scope, conversationId) as? OlderState.Before)?.cursor ?: return OlderLoad.NoMore
+        var page = try {
+            api.messagesPage(conversationId, null, PAGE_SIZE, asked)
+        } catch (e: ApiError.Server) {
+            if (e.status == 404) {
+                store.removeConversation(scope, conversationId)
+                return OlderLoad.Gone
+            }
+            throw e
+        }
+        var hops = 0
+        while (page.messages.none { it.conversationId == conversationId } && page.older != null && hops < READ_PAST_HOPS) {
+            page = api.messagesPage(conversationId, null, PAGE_SIZE, page.older).let { MessagesPage(it.messages, page.sync, it.older) }
+            hops++
+        }
+        return lockFor(conversationId).withLock {
+            store.thread(scope, conversationId) {
+                val previous = state()
+                if ((OlderState.of(previous?.payload) as? OlderState.Before)?.cursor != asked || previous == null) {
+                    return@thread OlderLoad.Stale
+                }
+                val written = upsertServerRows(page.messages)
+                putState(previous.copy(payload = OlderState.from(page.older).encode(), updatedAt = clock()))
+                diag.info(AREA, "thread ${Diag.id(conversationId)} older page: $written rows, more: ${page.older != null}")
+                OlderLoad.Loaded(written, more = page.older != null)
+            }
+        }
     }
 
     private fun fullReadDue(state: SyncStateEntity, now: Long): Boolean {
@@ -155,12 +242,16 @@ class MessageRepository(
         val conversationId = message.conversationId
         if (conversationId.isBlank()) return false
         return lockFor(conversationId).withLock {
-            val hasCursor = store.syncState(scope, SyncKeys.thread(conversationId))?.cursor != null
+            val state = store.syncState(scope, SyncKeys.thread(conversationId))
+            val hasCursor = state?.cursor != null
+            val older = OlderState.of(state?.payload)
             store.thread(scope, conversationId) {
                 val existing = byServerIds(listOf(message.id)).firstOrNull()
                     ?: message.clientMessageId?.let { byClientIds(listOf(it)).firstOrNull() }
                 when {
                     existing == null && !hasCursor && conversationId !in watched -> false
+                    // Older than the run: it would sit above a hole.
+                    existing == null && older.isBeforeRun(message) -> false
                     existing != null && existing.sendState == SendState.SENT.code && existing.serverId != null -> false
                     else -> {
                         upsert(listOf(CacheMapping.toEntity(scope, message, existing, clock())))
@@ -183,10 +274,89 @@ class MessageRepository(
         delta: Boolean,
         cursor: String?,
         startedAt: Long,
+        older: OlderCursor?,
     ) {
         val now = clock()
+        val previous = state()
+        val heldOlder = OlderState.of(previous?.payload)
+        // What the thread held before this answer, for the run's rules below.
+        val held = if (delta) emptyList() else keys()
         // A row that names another conversation is not this thread's,
-        // however it got into this answer.
+        // however it got into this answer. A delta row that is new here and
+        // older than the run would sit above a hole: loading earlier brings it.
+        val known = if (delta && heldOlder is OlderState.Before) {
+            byServerIds(incoming.map { it.id }).mapNotNull { it.serverId }.toSet() +
+                byClientIds(incoming.mapNotNull { it.clientMessageId }).mapNotNull { it.clientMessageId }.toSet()
+        } else {
+            emptySet()
+        }
+        val rows = incoming.filter { it.conversationId == conversationId }
+            .filter { !delta || it.id in known || it.clientMessageId?.let { c -> c in known } == true || !heldOlder.isBeforeRun(it) }
+        upsertServerRows(rows)
+
+        var nextOlder = heldOlder
+        if (!delta) {
+            val present = rows.map { it.id }.toSet()
+            // Only rows no newer than the read: a realtime row that landed
+            // while it was in flight is newer than the answer. (One that
+            // landed in the very millisecond it began is dropped, and the
+            // next delta brings it back — its `updated_at` is past the
+            // cursor this read hands back.)
+            val confirmed = held.filter {
+                it.sendState == SendState.SENT.code && (it.serverId == null || it.serverId !in present) && it.cachedAt <= startedAt
+            }
+            val boundary = older?.let { DateParsing.parse(it.before)?.toEpochMilli() }
+            val doomed = if (older == null || boundary == null) {
+                // The page reaches the thread's start (or a server without
+                // pages sent the whole thread): it is the whole thread.
+                nextOlder = OlderState.AtStart.takeIf { older == null } ?: OlderState.from(older)
+                confirmed
+            } else {
+                // Strictly after the page's first row, in ms: a row inside
+                // that millisecond may be before it, and is kept.
+                val inPage = confirmed.filter { (it.createdAt ?: Long.MAX_VALUE) > boundary }
+                val before = confirmed - inPage.toSet()
+                // The run touches the page when the newest row it held is at
+                // or after the page's start; otherwise more than a page came
+                // in meanwhile, and the run starts again from the page.
+                // Only rows a server read wrote (they carry `updated_at`): a
+                // realtime-only copy past a gap would make the run look
+                // contiguous and leave a hole between it and the page.
+                val newestHeld = held.filter { it.sendState == SendState.SENT.code && it.updatedAt != null }
+                    .mapNotNull { it.createdAt }.maxOrNull()
+                val touches = newestHeld != null && newestHeld >= boundary
+                if (before.isEmpty() || !touches || heldOlder == OlderState.Unknown) {
+                    nextOlder = OlderState.from(older)
+                    confirmed
+                } else {
+                    inPage
+                }
+            }.map { it.localId }
+            if (doomed.isNotEmpty()) delete(doomed)
+        }
+
+        putState(
+            SyncStateEntity(
+                accountId = scope.accountId,
+                workspaceId = scope.workspaceId,
+                key = SyncKeys.thread(conversationId),
+                // A full answer from a server with no cursor support leaves
+                // none, which keeps every later read full — correct for it.
+                cursor = if (delta) cursor ?: previous?.cursor else cursor,
+                etag = null,
+                fullReadAt = if (delta) previous?.fullReadAt else now,
+                payload = if (delta) previous?.payload else nextOlder.encode(),
+                updatedAt = now,
+            ),
+        )
+    }
+
+    /**
+     * Writes server rows by the merge order (server id, then client id),
+     * never over a newer copy; returns how many were written.
+     */
+    private suspend fun ThreadWriter.upsertServerRows(incoming: List<Message>): Int {
+        val now = clock()
         val rows = incoming.filter { it.conversationId == conversationId }
         val byServer = byServerIds(rows.map { it.id }).associateBy { it.serverId }
         val byClient = byClientIds(rows.mapNotNull { it.clientMessageId }).associateBy { it.clientMessageId }
@@ -208,36 +378,7 @@ class MessageRepository(
         }
         if (duplicates.isNotEmpty()) delete(duplicates)
         upsert(writes.values.toList())
-
-        if (!delta) {
-            val present = rows.map { it.id }.toSet()
-            val doomed = keys()
-                .filter { it.sendState == SendState.SENT.code && (it.serverId == null || it.serverId !in present) }
-                // Only rows no newer than the read: a realtime row that landed
-                // while it was in flight is newer than the answer. (One that
-                // landed in the very millisecond it began is dropped, and the
-                // next delta brings it back — its `updated_at` is past the
-                // cursor this read hands back.)
-                .filter { it.cachedAt <= startedAt }
-                .map { it.localId }
-            if (doomed.isNotEmpty()) delete(doomed)
-        }
-
-        val previous = state()
-        putState(
-            SyncStateEntity(
-                accountId = scope.accountId,
-                workspaceId = scope.workspaceId,
-                key = SyncKeys.thread(conversationId),
-                // A full answer from a server with no cursor support leaves
-                // none, which keeps every later read full — correct for it.
-                cursor = if (delta) cursor ?: previous?.cursor else cursor,
-                etag = null,
-                fullReadAt = if (delta) previous?.fullReadAt else now,
-                payload = null,
-                updatedAt = now,
-            ),
-        )
+        return writes.size
     }
 
     // MARK: - Sending
@@ -391,8 +532,14 @@ class MessageRepository(
     companion object {
         private const val AREA = "Sync"
 
-        /** How often a thread is re-read whole, to notice what a delta cannot say. */
+        /** How often a thread's newest page is re-read, to notice what a delta cannot say. */
         const val FULL_RECONCILE_MS = 6 * 60 * 60 * 1000L
+
+        /** Messages per page: the newest read and every older one. */
+        const val PAGE_SIZE = 100
+
+        /** Pages with nothing to show read past, at most, before giving up. */
+        const val READ_PAST_HOPS = 4
 
         /** How old a pending send can be and still be re-sent without asking. */
         const val RESUME_WINDOW_MS = 10 * 60 * 1000L
@@ -406,6 +553,69 @@ sealed interface ThreadSync {
     data class Full(val count: Int) : ThreadSync
     data class Delta(val count: Int) : ThreadSync
     data object Gone : ThreadSync
+}
+
+/** What [MessageRepository.loadOlder] did. */
+sealed interface OlderLoad {
+    data class Loaded(val count: Int, val more: Boolean) : OlderLoad
+    /** The run already reaches the thread's start, or its start is not known yet. */
+    data object NoMore : OlderLoad
+    /** The run changed while the page was out; nothing was written. */
+    data object Stale : OlderLoad
+    data object Gone : OlderLoad
+}
+
+/**
+ * Where the run of a thread the phone holds starts, as stored in its sync
+ * row's `payload`: `{"older":{"before":"…","before_id":"…"}}`, or
+ * `{"older":null}` at the thread's start. No payload (a cache from before
+ * pages, or anything unreadable) is [Unknown], which makes the next read a
+ * newest-page read.
+ */
+sealed interface OlderState {
+    data object Unknown : OlderState
+    data object AtStart : OlderState
+    data class Before(val cursor: OlderCursor) : OlderState
+
+    /** Whether a row is older than the run, so not contiguous with it. */
+    fun isBeforeRun(message: Message): Boolean {
+        val cursor = (this as? Before)?.cursor ?: return false
+        val boundary = DateParsing.parse(cursor.before)?.toEpochMilli() ?: return false
+        val at = message.createdAt?.toEpochMilli() ?: return false
+        return at < boundary
+    }
+
+    fun encode(): String? = when (this) {
+        Unknown -> null
+        AtStart -> buildJsonObject { put("older", JsonNull) }.toString()
+        is Before -> buildJsonObject {
+            put(
+                "older",
+                buildJsonObject {
+                    put("before", JsonPrimitive(cursor.before))
+                    put("before_id", JsonPrimitive(cursor.beforeId))
+                },
+            )
+        }.toString()
+    }
+
+    companion object {
+        fun from(cursor: OlderCursor?): OlderState = cursor?.let(::Before) ?: AtStart
+
+        fun of(payload: String?): OlderState {
+            if (payload.isNullOrBlank()) return Unknown
+            return runCatching {
+                val root = kotlinx.serialization.json.Json.parseToJsonElement(payload).jsonObject
+                if (!root.containsKey("older")) return@runCatching Unknown
+                val older = root["older"]
+                if (older == null || older is JsonNull) return@runCatching AtStart
+                val obj = older as JsonObject
+                val before = obj["before"]?.jsonPrimitive?.contentOrNull
+                val id = obj["before_id"]?.jsonPrimitive?.contentOrNull
+                if (before.isNullOrBlank() || id.isNullOrBlank()) Unknown else Before(OlderCursor(before, id))
+            }.getOrDefault(Unknown)
+        }
+    }
 }
 
 sealed interface SendOutcome {

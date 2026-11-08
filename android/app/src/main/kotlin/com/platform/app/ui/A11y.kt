@@ -62,6 +62,8 @@ object A11y {
     const val COMPOSER_RECORDED = "composer.recorded"
     const val COMPOSER_SEND = "composer.send"
     const val CHAT_TRANSCRIPT = "chat.transcript"
+    /** The spinner over the transcript while an earlier page is read. */
+    const val CHAT_LOADING_EARLIER = "chat.loadingEarlier"
     const val CHAT_MENU = "chat.menu"
     const val COMPOSER_ATTACH = "composer.attach"
     const val COMPOSER_SHORTCUTS = "composer.shortcuts"

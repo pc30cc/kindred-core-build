@@ -9,6 +9,9 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.performTextInput
 import com.platform.app.core.model.InboxFilter
 import com.platform.app.core.net.SampleApi
@@ -182,5 +185,73 @@ class ChatScreenTest {
             )
         }
         compose.onNodeWithTag(A11y.CHAT_OPEN_VISITOR).assertDoesNotExist()
+    }
+
+    // MARK: - Pages (docs/operations/THREAD_PAGING_APPS.md), hard case 7
+
+    private val paged = com.platform.app.testing.ScriptedApi().let { api ->
+        api.seed("c-1", 50)
+    }
+
+    /** Up the thread to row [index], the way an operator gets there: a drag (which lets go of the pin). */
+    private fun scrollUpTo(index: Int) {
+        compose.onNodeWithTag(A11y.CHAT_TRANSCRIPT).performTouchInput { swipeDown(startY = centerY, endY = centerY + 40f) }
+        compose.waitForIdle()
+        compose.onNodeWithTag(A11y.CHAT_TRANSCRIPT).performScrollToIndex(index)
+        compose.waitForIdle()
+    }
+
+    /**
+     * An earlier page put in front leaves the operator where they were: the
+     * row at the top stays at the top, and the screen is not thrown back to
+     * the bottom (only a new newest message re-pins).
+     */
+    @Test
+    fun `case 7 - an earlier page put in front keeps the reading position`() {
+        val earlier = paged.take(20)
+        val shown = paged.drop(20)
+        var state by mutableStateOf<ChatState>(ChatState.Loaded(shown))
+        compose.setContent { ChatScreen(state, Language.EN, {}, canLoadEarlier = true) }
+        compose.onNodeWithTag(A11y.messageRow(shown.last().id)).assertIsDisplayed()
+
+        scrollUpTo(10)
+        compose.onNodeWithTag(A11y.messageRow(shown[10].id)).assertIsDisplayed()
+
+        state = ChatState.Loaded(earlier + shown)
+        compose.waitForIdle()
+        compose.onNodeWithTag(A11y.messageRow(shown[10].id)).assertIsDisplayed()
+        compose.onNodeWithTag(A11y.messageRow(shown.last().id)).assertDoesNotExist()
+    }
+
+    /** A new newest message still brings the transcript to the bottom. */
+    @Test
+    fun `case 7 - a new newest message still re-pins after an earlier page`() {
+        val shown = paged.drop(20)
+        var state by mutableStateOf<ChatState>(ChatState.Loaded(shown))
+        compose.setContent { ChatScreen(state, Language.EN, {}) }
+        scrollUpTo(5)
+        state = ChatState.Loaded(paged.take(20) + shown)
+        compose.waitForIdle()
+        val fresh = com.platform.app.testing.ScriptedApi().message("c-1", "fresh").copy(
+            id = "m-fresh",
+            createdAt = shown.last().createdAt!!.plusSeconds(60),
+        )
+        state = ChatState.Loaded(paged + fresh)
+        compose.waitForIdle()
+        compose.onNodeWithTag(A11y.messageRow(fresh.id)).assertIsDisplayed()
+    }
+
+    /** The top in view after scrolling up asks for the page before; the first frames do not. */
+    @Test
+    fun `scrolling up to the top asks for the page before, opening does not`() {
+        var asked = 0
+        compose.setContent {
+            ChatScreen(ChatState.Loaded(paged), Language.EN, {}, canLoadEarlier = true, onLoadEarlier = { asked++ })
+        }
+        compose.waitForIdle()
+        assertEquals("not on open, while the pin takes the transcript to its newest message", 0, asked)
+        repeat(30) { compose.onNodeWithTag(A11y.CHAT_TRANSCRIPT).performTouchInput { swipeDown() } }
+        compose.waitForIdle()
+        assertTrue("asked once the top came into view", asked >= 1)
     }
 }

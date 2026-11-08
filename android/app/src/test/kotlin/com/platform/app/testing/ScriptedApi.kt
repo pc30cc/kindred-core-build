@@ -8,7 +8,9 @@ import com.platform.app.core.model.InboxCounts
 import com.platform.app.core.model.InboxFilter
 import com.platform.app.core.model.InboxPage
 import com.platform.app.core.model.Message
+import com.platform.app.core.model.DateParsing
 import com.platform.app.core.model.MessagesPage
+import com.platform.app.core.model.OlderCursor
 import com.platform.app.core.model.PushDeviceRegistration
 import com.platform.app.core.model.PushDeviceResponse
 import com.platform.app.core.model.RealtimeConnect
@@ -88,20 +90,75 @@ open class ScriptedApi(base: ServerApi = SampleApi()) : ServerApi by base {
         return edited
     }
 
-    override suspend fun messagesPage(conversationId: String, cursor: String?): MessagesPage {
-        threadReads += cursor
+    override suspend fun messagesPage(conversationId: String, cursor: String?): MessagesPage =
+        messagesPage(conversationId, cursor, null, null)
+
+    /** Every older page asked for, by the cursor it was asked with (exactly as sent). */
+    val olderReads = mutableListOf<OlderCursor>()
+
+    /** Every `limit` a newest or older read carried, in order; null is none. */
+    val pageLimits = mutableListOf<Int?>()
+
+    /**
+     * Ids the server hides from every answer after its limit is applied — a
+     * Telegram menu tap when the Super Admin hides them — so a page can come
+     * back short, or empty while earlier messages exist.
+     */
+    val hidden = HashSet<String>()
+
+    /**
+     * The route's own paging: thread order (created_at, id), the newest
+     * `limit` (1000 without one) or those before `before`, `older` naming
+     * the page's first row with created_at to the microsecond (as Postgres
+     * writes it), the cursor the page's newest `updated_at`.
+     */
+    override suspend fun messagesPage(
+        conversationId: String,
+        cursor: String?,
+        limit: Int?,
+        before: OlderCursor?,
+    ): MessagesPage {
+        if (before == null) threadReads += cursor else olderReads += before
         failThreads?.let { throw it }
         val rows = threads[conversationId] ?: throw ApiError.Server(404, "conversation_not_found")
         val since = cursor?.let { Instant.parse(it).toEpochMilli() }
-        val maxRevision = rows.maxOfOrNull { it.updatedAt!!.toEpochMilli() }
         if (since == null || !deltaSupported) {
-            return MessagesPage(rows.toList(), SyncInfo("full", maxRevision?.let { Instant.ofEpochMilli(it).toString() }))
+            pageLimits += limit
+            val ordered = rows.sortedWith(compareBy<Message>({ it.createdAt }, { it.id }))
+            val window = if (before == null) {
+                ordered
+            } else {
+                val at = DateParsing.parse(before.before)!!
+                ordered.filter { it.createdAt!! < at || (it.createdAt == at && it.id < before.beforeId) }
+            }
+            val page = window.takeLast(limit ?: 1_000)
+            val first = page.firstOrNull()
+            val older = if (first != null && window.size > page.size) OlderCursor(micros(first.createdAt!!), first.id) else null
+            val maxRevision = page.maxOfOrNull { it.updatedAt!!.toEpochMilli() }
+            return MessagesPage(
+                page.filterNot { it.id in hidden },
+                SyncInfo("full", maxRevision?.let { Instant.ofEpochMilli(it).toString() }),
+                older,
+            )
         }
         // The route's own rule: reach back ten seconds, never move the cursor back.
         val changed = rows.filter { it.updatedAt!!.toEpochMilli() > since - 10_000 }
         val next = maxOf(since, changed.maxOfOrNull { it.updatedAt!!.toEpochMilli() } ?: since)
-        return MessagesPage(changed.sortedBy { it.createdAt }, SyncInfo("delta", Instant.ofEpochMilli(next).toString()))
+        return MessagesPage(
+            changed.filterNot { it.id in hidden }.sortedBy { it.createdAt },
+            SyncInfo("delta", Instant.ofEpochMilli(next).toString()),
+        )
     }
+
+    /**
+     * Postgres's text of a timestamp: six fraction digits and `+00:00` —
+     * not the text a phone would write for the same instant, so a test can
+     * tell the raw string came back unchanged.
+     */
+    fun micros(at: Instant): String =
+        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSSxxx")
+            .withZone(java.time.ZoneOffset.UTC)
+            .format(at)
 
     // MARK: - Sending
 

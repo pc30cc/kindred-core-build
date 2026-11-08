@@ -64,6 +64,7 @@ import com.platform.app.core.model.ConversationResponse
 import com.platform.app.core.model.ConversationSlice
 import com.platform.app.core.model.InboxPage
 import com.platform.app.core.model.MessagesPage
+import com.platform.app.core.model.OlderCursor
 import com.platform.app.core.model.PushDeviceRegistration
 import com.platform.app.core.model.PushDeviceResponse
 import com.platform.app.core.model.PushDeviceUnregister
@@ -369,7 +370,7 @@ class ApiClient(
         append(path)
         if (query.isNotEmpty()) {
             append('?')
-            append(query.joinToString("&") { (k, v) -> "$k=${v.urlEncoded()}" })
+            append(queryString(query))
         }
     }
 
@@ -621,6 +622,18 @@ class ApiClient(
             HttpMethod.Get,
             "/api/conversations/${conversationId.urlPath()}/messages",
             cursor?.takeIf { it.isNotBlank() }?.let { listOf("since" to it) }.orEmpty(),
+        ).decode()
+
+    override suspend fun messagesPage(
+        conversationId: String,
+        cursor: String?,
+        limit: Int?,
+        before: OlderCursor?,
+    ): MessagesPage =
+        build(
+            HttpMethod.Get,
+            "/api/conversations/${conversationId.urlPath()}/messages",
+            messagesPageQuery(cursor, limit, before),
         ).decode()
 
     @Serializable
@@ -1753,6 +1766,33 @@ class ApiClient(
 
 
 private fun String.urlEncoded(): String = java.net.URLEncoder.encode(this, "UTF-8")
+
+/**
+ * A query string, every value percent-encoded: `+` in a timestamp's offset
+ * (`…+00:00`, as `older.before` comes from the server) goes as `%2B`, never
+ * as a `+` a server reads as a space.
+ */
+internal fun queryString(query: List<Pair<String, String>>): String =
+    query.joinToString("&") { (k, v) -> "$k=${v.urlEncoded()}" }
+
+/**
+ * The thread read's query: a delta (`since`) alone, or a page (`limit`,
+ * and `before`/`before_id` exactly as the server wrote them in `older`).
+ */
+internal fun messagesPageQuery(cursor: String?, limit: Int?, before: OlderCursor?): List<Pair<String, String>> {
+    val since = cursor?.takeIf { it.isNotBlank() }
+    return buildList {
+        if (since != null) {
+            add("since" to since)
+        } else {
+            limit?.let { add("limit" to it.toString()) }
+            before?.let {
+                add("before" to it.before)
+                add("before_id" to it.beforeId)
+            }
+        }
+    }
+}
 
 /** Path segments are ids, so only the characters that would break a path. */
 private fun String.urlPath(): String = urlEncoded().replace("+", "%20")

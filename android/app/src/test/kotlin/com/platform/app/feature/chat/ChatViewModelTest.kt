@@ -185,4 +185,33 @@ class ChatViewModelTest {
             )
         }
     }
+
+    // MARK: - Pages (docs/operations/THREAD_PAGING_APPS.md)
+
+    @Test
+    fun `a long thread opens on its newest page and loads earlier pages on request`() = runTest(dispatcher) {
+        val api = com.platform.app.testing.ScriptedApi()
+        val rows = api.seed("c-1", 250)
+        val chat = ChatViewModel(api) { Language.FA }
+        chat.open("c-1", "ws-1")
+        testScheduler.advanceUntilIdle()
+        assertEquals(rows.takeLast(100).map { it.id }, (chat.chat.value as ChatState.Loaded).messages.map { it.id })
+        assertTrue(chat.canLoadEarlier.value)
+
+        chat.loadEarlier()
+        testScheduler.advanceUntilIdle()
+        assertEquals(200, (chat.chat.value as ChatState.Loaded).messages.size)
+        assertTrue(chat.canLoadEarlier.value)
+        assertEquals(false, chat.loadingEarlier.value)
+
+        chat.loadEarlier()
+        testScheduler.advanceUntilIdle()
+        assertEquals(rows.map { it.id }, (chat.chat.value as ChatState.Loaded).messages.map { it.id })
+        assertEquals(false, chat.canLoadEarlier.value)
+        // At the start, asking again asks the server nothing.
+        val asked = api.olderReads.size
+        chat.loadEarlier()
+        testScheduler.advanceUntilIdle()
+        assertEquals(asked, api.olderReads.size)
+    }
 }

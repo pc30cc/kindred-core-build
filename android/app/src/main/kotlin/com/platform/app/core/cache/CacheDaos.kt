@@ -131,6 +131,10 @@ data class MessageKeyRow(
     @ColumnInfo(name = "server_id") val serverId: String?,
     @ColumnInfo(name = "send_state") val sendState: Int,
     @ColumnInfo(name = "cached_at") val cachedAt: Long,
+    /** The server's `created_at`, epoch ms: where the row sits in the thread. */
+    @ColumnInfo(name = "created_at") val createdAt: Long? = null,
+    /** The server's `updated_at`; null for a row only realtime has written. */
+    @ColumnInfo(name = "updated_at") val updatedAt: Long? = null,
 )
 
 @Dao
@@ -180,7 +184,7 @@ interface MessageDao {
 
     @Query(
         """
-        SELECT local_id, server_id, send_state, cached_at FROM messages
+        SELECT local_id, server_id, send_state, cached_at, created_at, updated_at FROM messages
         WHERE account_id = :accountId AND workspace_id = :workspaceId AND conversation_id = :conversationId
         """
     )

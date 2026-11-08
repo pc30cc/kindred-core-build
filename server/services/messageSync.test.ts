@@ -60,3 +60,23 @@ describe('inThreadOrder', () => {
     expect(rows[0].id).toBe('b');
   });
 });
+
+describe('delta order (2026-11-08)', () => {
+  it('reads database timestamps to the microsecond, whatever their fraction', async () => {
+    const { timestampMicros } = await import('./messageSync.js');
+    expect(timestampMicros('2026-11-08T10:00:00.1+00:00')).toBe(Date.UTC(2026, 10, 8, 10) * 1000 + 100_000);
+    expect(timestampMicros('2026-11-08T10:00:00.123456+00:00')).toBe(Date.UTC(2026, 10, 8, 10) * 1000 + 123_456);
+    expect(timestampMicros('2026-11-08 13:30:00.000001+03:30')).toBe(Date.UTC(2026, 10, 8, 10) * 1000 + 1);
+    expect(timestampMicros('2026-11-08T10:00:00Z')).toBe(Date.UTC(2026, 10, 8, 10) * 1000);
+    expect(timestampMicros('nope')).toBeNaN();
+  });
+
+  it('orders by (updated_at, id), the fraction compared as a number, not as text', async () => {
+    const { isChangedAfter } = await import('./messageSync.js');
+    const at = '2026-11-08T10:00:00.1+00:00';
+    expect(isChangedAfter({ updated_at: '2026-11-08T10:00:00.123+00:00', id: 'a' }, at, 'z')).toBe(true);
+    expect(isChangedAfter({ updated_at: '2026-11-08T10:00:00.09+00:00', id: 'z' }, at, 'a')).toBe(false);
+    expect(isChangedAfter({ updated_at: at, id: 'b' }, at, 'a')).toBe(true);
+    expect(isChangedAfter({ updated_at: at, id: 'a' }, at, 'a')).toBe(false);
+  });
+});

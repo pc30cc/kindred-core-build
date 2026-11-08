@@ -105,6 +105,7 @@ import { wakeVisitorWidget } from '../services/widget/visitorWake.js';
 import {
   changedAfter,
   deltaLowerBound,
+  isChangedAfter,
   inThreadOrder,
   nextSyncCursor,
   parseSyncCursor,
@@ -2388,7 +2389,11 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
           .order('id', { ascending: true })
           .limit(Math.min(ROWS_PAGE, SYNC_DELTA_MAX + 1 - changed.length));
         if (error) { deltaError = error; break; }
-        const page = (data || []) as MessageRow[];
+        // Strictly after the last row read (the filter says so; this holds
+        // even where a data layer reads it looser), so a page always moves on.
+        const prev = after;
+        const page = ((data || []) as MessageRow[])
+          .filter((r) => !prev || typeof prev.updated_at !== 'string' || isChangedAfter(r, prev.updated_at, prev.id));
         if (page.length === 0) break;
         changed.push(...page);
         if (changed.length > SYNC_DELTA_MAX) { overflow = true; break; }

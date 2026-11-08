@@ -66,6 +66,30 @@ export function changedAfter(updatedAt: string, id: string): string {
   return `updated_at.gt."${updatedAt}",and(updated_at.eq."${updatedAt}",id.gt.${id})`;
 }
 
+/**
+ * Microseconds since the epoch of a timestamp as the database writes it
+ * (`2026-11-08T10:00:00.123456+00:00`; the fraction has as many digits as it
+ * needs), NaN when unreadable. Exact to the microsecond, which Date is not.
+ */
+export function timestampMicros(value: string | null | undefined): number {
+  const m = typeof value === 'string'
+    ? /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}(?::?\d{2})?)?$/.exec(value.trim())
+    : null;
+  if (!m) return Number.NaN;
+  const zone = m[3] ?? 'Z';
+  const ms = Date.parse(`${m[1].replace(' ', 'T')}${zone === 'Z' ? 'Z' : zone.length === 3 ? `${zone}:00` : zone.includes(':') ? zone : `${zone.slice(0, 3)}:${zone.slice(3)}`}`);
+  if (!Number.isFinite(ms)) return Number.NaN;
+  return ms * 1000 + Number(((m[2] ?? '') + '000000').slice(0, 6));
+}
+
+/** Whether a row comes after (updatedAt, id) in delta order. */
+export function isChangedAfter(row: { updated_at?: string | null; id?: string | null }, updatedAt: string, id: string): boolean {
+  const a = timestampMicros(row.updated_at);
+  const b = timestampMicros(updatedAt);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return a > b || (a === b && String(row.id ?? '') > id);
+}
+
 interface SyncRow {
   updated_at?: string | null;
 }

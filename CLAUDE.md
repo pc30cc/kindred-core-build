@@ -641,6 +641,17 @@ over unchanged. A full disk stops Postgres too.
     function and the row type `_cls_turn_at` and writes no data. A schema
     dump, the run's log and the checks: `/root/webyar-migrate-303/`. RESPOK by
     its migrator on push.
+    Then `304_conversation_messages_thread_order_idx.sql` (the thread-order
+    index `(conversation_id, created_at DESC, id DESC)` that every thread
+    page reads; PR #421), applied by hand before its merge, 2026-11-09
+    14:34:53 UTC, its index built CONCURRENTLY first (14:34:45, valid),
+    after a dry run inside `BEGIN … ROLLBACK` on both databases (the index
+    valid, a second run a no-op, nothing left after the rollback). The file
+    applied is the merged one (sha256 `a5e641d1…`). It writes no data and
+    drops no index (none became redundant). A schema dump of
+    `conversation_messages`, the plans before and after, the dry run and the
+    run's logs: `/root/webyar-migrate-304/`. RESPOK by its migrator on push
+    (27 rows).
   - Since 269, deleted payments and ledger rows are copied to the append-only
     `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
     include them). Never drop, empty or untrigger them; a CI rule forbids it.

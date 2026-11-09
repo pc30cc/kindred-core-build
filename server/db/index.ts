@@ -75,6 +75,16 @@ export function directDataClient(): SupabaseClient {
   return getDirect().client;
 }
 
+/**
+ * Loads the schema cache now (postgres driver only), so the first request
+ * does not wait for the catalog read. A failure is left to the first
+ * request, which loads it again.
+ */
+export async function warmSchemaCache(): Promise<void> {
+  if (dataDriver() !== 'postgres') return;
+  await getDirect().cache.get();
+}
+
 /** The raw pool (postgres driver only) — for health checks and tooling. */
 export function directPool(): DatabasePool {
   return getDirect().pool;

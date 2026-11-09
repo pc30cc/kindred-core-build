@@ -1,0 +1,34 @@
+-- 304 — the thread-order index of conversation_messages (2026-11-08).
+--
+-- APPLIED BY HAND on WebYar's database (host.respok.app), BEFORE the merge of
+-- the code that reads by it, per CLAUDE.md "Migrations": a dry run inside
+-- BEGIN … ROLLBACK first. RESPOK's migrator applies it on push. It writes no
+-- data; a second run changes nothing.
+--
+-- The index is built CONCURRENTLY beforehand, outside any transaction (the
+-- statement below then finds it and does nothing):
+--
+--   SET lock_timeout = '5s';
+--   CREATE INDEX CONCURRENTLY IF NOT EXISTS conversation_messages_thread_order_idx
+--     ON public.conversation_messages (conversation_id, created_at DESC, id DESC);
+--
+-- A failed CONCURRENTLY build leaves an INVALID index of that name: drop it
+-- (DROP INDEX CONCURRENTLY) and build again before running this file, which
+-- would otherwise find the name and skip it.
+--
+-- Why: every thread read is in thread order, (created_at, id), newest first
+-- (GET /api/conversations/:id/messages: the newest page, `limit`, the older
+-- page by `before`/`before_id` and its `older` probe; the widget's reactions
+-- window, services/messageReactions.ts readWidgetThreadReactions). No index
+-- served that order (2026-11-07, both brands: only (conversation_id,
+-- updated_at), (conversation_id, sender_type, created_at DESC) and the
+-- partial unseen index lead with the conversation), so every page, a
+-- 100-row one too, read and sorted every message of the conversation. With
+-- this index a page is a range scan of `limit` rows, and an older page
+-- starts at its `created_at <= before` bound.
+--
+-- No existing index becomes redundant: (conversation_id, updated_at) serves
+-- the `?since` delta, (conversation_id, sender_type, created_at DESC) the
+-- per-sender reads, and the partial unseen index the unread counts.
+CREATE INDEX IF NOT EXISTS conversation_messages_thread_order_idx
+  ON public.conversation_messages (conversation_id, created_at DESC, id DESC);

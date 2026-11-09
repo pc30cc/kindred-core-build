@@ -22,6 +22,18 @@
 /** How far behind the client's cursor a delta reaches, for transactions committed out of order. */
 export const SYNC_OVERLAP_MS = 10_000;
 
+/**
+ * The most rows one delta answers. A delta is read page by page in
+ * (updated_at, id) order, so it always sees every changed row: one read
+ * stops at DATABASE_MAX_ROWS (1000) without a word, and a delta capped there
+ * stalled when 1000 or more rows had changed inside one overlap window (a
+ * visitor's backlog marked seen in one statement, say): every delta returned
+ * the same 1000 rows and its cursor never passed them. Past this bound the
+ * answer is a full read (`sync.mode: 'full'`), which every client already
+ * handles.
+ */
+export const SYNC_DELTA_MAX = 5000;
+
 /** A cursor further ahead than this is treated as a clock problem and ignored (full read). */
 const MAX_FUTURE_SKEW_MS = 5 * 60_000;
 
@@ -44,6 +56,38 @@ export function parseSyncCursor(raw: unknown, now: number = Date.now()): Date | 
 /** The lower bound the delta query uses: the cursor, minus the overlap. */
 export function deltaLowerBound(cursor: Date): string {
   return new Date(cursor.getTime() - SYNC_OVERLAP_MS).toISOString();
+}
+
+/**
+ * The PostgREST `or` filter for the rows after (updated_at, id) in delta
+ * order. `updatedAt` is the text the database gave (microseconds kept).
+ */
+export function changedAfter(updatedAt: string, id: string): string {
+  return `updated_at.gt."${updatedAt}",and(updated_at.eq."${updatedAt}",id.gt.${id})`;
+}
+
+/**
+ * Microseconds since the epoch of a timestamp as the database writes it
+ * (`2026-11-08T10:00:00.123456+00:00`; the fraction has as many digits as it
+ * needs), NaN when unreadable. Exact to the microsecond, which Date is not.
+ */
+export function timestampMicros(value: string | null | undefined): number {
+  const m = typeof value === 'string'
+    ? /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}(?::?\d{2})?)?$/.exec(value.trim())
+    : null;
+  if (!m) return Number.NaN;
+  const zone = m[3] ?? 'Z';
+  const ms = Date.parse(`${m[1].replace(' ', 'T')}${zone === 'Z' ? 'Z' : zone.length === 3 ? `${zone}:00` : zone.includes(':') ? zone : `${zone.slice(0, 3)}:${zone.slice(3)}`}`);
+  if (!Number.isFinite(ms)) return Number.NaN;
+  return ms * 1000 + Number(((m[2] ?? '') + '000000').slice(0, 6));
+}
+
+/** Whether a row comes after (updatedAt, id) in delta order. */
+export function isChangedAfter(row: { updated_at?: string | null; id?: string | null }, updatedAt: string, id: string): boolean {
+  const a = timestampMicros(row.updated_at);
+  const b = timestampMicros(updatedAt);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return a > b || (a === b && String(row.id ?? '') > id);
 }
 
 interface SyncRow {

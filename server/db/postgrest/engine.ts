@@ -142,7 +142,9 @@ export class PostgrestEngine {
         const stale =
           err instanceof SchemaMiss || (isPgServerError(err) && err.code === '42883' && req.path.startsWith('/rpc/'));
         if (stale && attempt === 0) {
-          const next = await this.cache.refreshAfterMiss(snapshot);
+          // A reload that fails answers the request's own error (below), not
+          // the catalog read's (logged by the cache).
+          const next = await this.cache.refreshAfterMiss(snapshot).catch(() => null);
           if (next) {
             snapshot = next;
             continue;

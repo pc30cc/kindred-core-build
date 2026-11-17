@@ -21,6 +21,9 @@
 #  Node endpoints (host):
 #      rt-node-01  ws  ->  ${RT_NODE1_PORT:-8001}
 #      rt-node-02  ws  ->  ${RT_NODE2_PORT:-8002}
+#  Both listen on 127.0.0.1 only (a reverse proxy on the same host reaches
+#  them; the internet does not). Set RT_NODE_BIND=0.0.0.0 to publish them on
+#  every interface, e.g. for a proxy on another machine.
 #
 #  Register both in Super Admin → Providers → Realtime → Deployment
 #  Architecture, using the PUBLIC wss:// URL your reverse proxy maps to
@@ -103,7 +106,7 @@ services:
     <<: *centrifugo-node
     container_name: rt-node-01
     ports:
-      - "${RT_NODE1_PORT:-8001}:8000"
+      - "${RT_NODE_BIND:-127.0.0.1}:${RT_NODE1_PORT:-8001}:8000"
     environment:
       <<: *centrifugo-env
       CENTRIFUGO_NAME: rt-node-01
@@ -112,7 +115,7 @@ services:
     <<: *centrifugo-node
     container_name: rt-node-02
     ports:
-      - "${RT_NODE2_PORT:-8002}:8000"
+      - "${RT_NODE_BIND:-127.0.0.1}:${RT_NODE2_PORT:-8002}:8000"
     environment:
       <<: *centrifugo-env
       CENTRIFUGO_NAME: rt-node-02

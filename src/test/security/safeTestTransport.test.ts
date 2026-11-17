@@ -420,8 +420,32 @@ describe('IPv6 link-local coverage (fe80::/10)', () => {
 
   it('keeps the fe80::/10 boundary exact', () => {
     expect(isBlockedIpAddress('febf::1', 6)).toBe(true);
-    // fec0::1 sits outside fe80::/10 and is not blocked by the link-local rule.
-    expect(isBlockedIpAddress('fec0::1', 6)).toBe(false);
+    // fec0::1 sits outside fe80::/10; it is blocked by its own rule, the
+    // deprecated site-local fec0::/10, which is never a public address.
+    expect(isBlockedIpAddress('fec0::1', 6)).toBe(true);
+    expect(isBlockedIpAddress('ff00::1', 6)).toBe(true);
+  });
+
+  it('blocks every IPv6 form that carries or tunnels to a private IPv4 address', () => {
+    // IPv4-compatible, in the hex form Node writes for [::127.0.0.1]
+    expect(isBlockedIpAddress('::7f00:1', 6)).toBe(true);
+    expect(isBlockedIpAddress('::127.0.0.1', 6)).toBe(true);
+    // IPv4-mapped, every spelling
+    expect(isBlockedIpAddress('::ffff:7f00:1', 6)).toBe(true);
+    expect(isBlockedIpAddress('0:0:0:0:0:ffff:a00:1', 6)).toBe(true);
+    // NAT64 (well-known and local-use), 6to4, Teredo
+    expect(isBlockedIpAddress('64:ff9b::a9fe:a9fe', 6)).toBe(true);
+    expect(isBlockedIpAddress('64:ff9b:1::5', 6)).toBe(true);
+    expect(isBlockedIpAddress('2002:a00:1::1', 6)).toBe(true);
+    expect(isBlockedIpAddress('2001:0:4136:e378::1', 6)).toBe(true);
+    // documentation and discard-only
+    expect(isBlockedIpAddress('2001:db8::1', 6)).toBe(true);
+    expect(isBlockedIpAddress('100::1', 6)).toBe(true);
+    // ...while the same forms around a PUBLIC IPv4 stay open
+    expect(isBlockedIpAddress('64:ff9b::808:808', 6)).toBe(false);
+    expect(isBlockedIpAddress('2002:808:808::1', 6)).toBe(false);
+    expect(isBlockedIpAddress('::ffff:8.8.8.8', 6)).toBe(false);
+    expect(isBlockedIpAddress('2001:4860:4860::8888', 6)).toBe(false);
   });
 
   it('still blocks the other reserved IPv6 ranges', () => {

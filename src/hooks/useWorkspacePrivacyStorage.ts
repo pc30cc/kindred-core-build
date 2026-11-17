@@ -11,8 +11,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/api';
 
+/** What a workspace may choose; `local` (a directory on the server) is not offered. */
 export type PrivacyStorageProvider =
-  | 'local' | 's3' | 'cloudflare_r2' | 'minio' | 'do_spaces' | 'bunny_storage';
+  | 's3' | 'cloudflare_r2' | 'minio' | 'do_spaces' | 'bunny_storage';
 
 export interface WsPrivacyStorageRow {
   id: string;
@@ -31,7 +32,7 @@ async function integrationsFetch<T>(path: string, options?: RequestInit): Promis
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `Request failed: ${res.status}`);
+  if (!res.ok) throw new Error(body.message || body.error || `Request failed: ${res.status}`);
   return body as T;
 }
 

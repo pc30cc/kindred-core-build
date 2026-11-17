@@ -780,32 +780,91 @@ function bruteForceKey(req: Request, email: string): string {
   return `${ipBucket(req)}:${email}`;
 }
 
-export async function checkBruteForce(req: Request, email: string): Promise<{ blocked: boolean; retryAfter?: number; failCount?: number }> {
+export interface BruteForceVerdict {
+  blocked: boolean;
+  retryAfter?: number;
+  failCount?: number;
+  /**
+   * This account has failed ACCOUNT_LOCK_AFTER times in the window, from any
+   * address: its logins are refused for the `accountRetryAfter` seconds left.
+   */
+  accountLocked?: boolean;
+  accountRetryAfter?: number;
+}
+
+export async function checkBruteForce(req: Request, email: string): Promise<BruteForceVerdict> {
   const key = bruteForceKey(req, email);
   const now = Date.now();
+  const account = accountLoginFailures(email);
+  const accountFields = {
+    accountLocked: account.count >= ACCOUNT_LOCK_AFTER,
+    accountRetryAfter: account.retryAfter,
+  };
 
   const tracker = loginAttemptTracker.get(key);
   if (tracker) {
     // Check if locked
     if (tracker.lockedUntil && tracker.lockedUntil > now) {
       const retryAfter = Math.ceil((tracker.lockedUntil - now) / 1000);
-      return { blocked: true, retryAfter, failCount: tracker.count };
+      return { blocked: true, retryAfter, failCount: tracker.count, ...accountFields };
     }
     // Reset if window expired
     if (now - tracker.firstAttempt > BRUTE_FORCE_WINDOW) {
       loginAttemptTracker.delete(key);
-      return { blocked: false };
+      return { blocked: false, ...accountFields };
     }
     if (tracker.count >= MAX_FAILURES) {
       // Progressive lockout: 5min, 10min, 20min...
       const lockMultiplier = Math.pow(2, Math.floor(tracker.count / MAX_FAILURES) - 1);
       const lockDuration = LOCK_DURATION_BASE * lockMultiplier;
       tracker.lockedUntil = now + lockDuration;
-      return { blocked: true, retryAfter: Math.ceil(lockDuration / 1000), failCount: tracker.count };
+      return { blocked: true, retryAfter: Math.ceil(lockDuration / 1000), failCount: tracker.count, ...accountFields };
     }
   }
 
-  return { blocked: false };
+  return { blocked: false, ...accountFields };
+}
+
+// ─── Per-account failures, from every address ───────────────────
+//
+// The tracker above is keyed by (address, email), so a password guesser that
+// spreads its attempts over many addresses was never slowed down on any one
+// account. This one counts an account's failures from everywhere: past
+// ACCOUNT_LOCK_AFTER in the window, the account's logins are refused until
+// the window ends. The ceiling is high on purpose — a person who mistypes
+// never reaches it, and a stranger who knows the address can at most keep
+// password logins of that one account waiting for 15 minutes at a time
+// (no web or native client can answer a captcha today, so a captcha step is
+// not the alternative it would otherwise be). One process: the backend runs
+// as a single instance; a restart forgets the counts.
+const accountFailureTracker = new Map<string, { count: number; windowStart: number }>();
+const ACCOUNT_WINDOW = 15 * 60_000;
+export const ACCOUNT_LOCK_AFTER = 30;
+
+function accountKey(email: string): string {
+  return String(email || '').trim().toLowerCase();
+}
+
+/** Failed logins of this account (from any address) in the current window, and when it ends. */
+export function accountLoginFailures(email: string): { count: number; retryAfter: number } {
+  const entry = accountFailureTracker.get(accountKey(email));
+  const now = Date.now();
+  if (!entry || now - entry.windowStart > ACCOUNT_WINDOW) return { count: 0, retryAfter: 0 };
+  return { count: entry.count, retryAfter: Math.ceil((entry.windowStart + ACCOUNT_WINDOW - now) / 1000) };
+}
+
+function recordAccountFailure(email: string): void {
+  const key = accountKey(email);
+  if (!key) return;
+  const now = Date.now();
+  const entry = accountFailureTracker.get(key);
+  if (entry && now - entry.windowStart <= ACCOUNT_WINDOW) entry.count++;
+  else accountFailureTracker.set(key, { count: 1, windowStart: now });
+}
+
+/** Test seam: forget every per-account failure. */
+export function __resetAccountLoginFailuresForTests(): void {
+  accountFailureTracker.clear();
 }
 
 export function recordLoginAttempt(req: Request, email: string, success: boolean) {
@@ -814,8 +873,10 @@ export function recordLoginAttempt(req: Request, email: string, success: boolean
 
   if (success) {
     loginAttemptTracker.delete(key);
+    accountFailureTracker.delete(accountKey(email));
     return;
   }
+  recordAccountFailure(email);
 
   const tracker = loginAttemptTracker.get(key);
   if (tracker && now - tracker.firstAttempt < BRUTE_FORCE_WINDOW) {
@@ -1027,6 +1088,12 @@ setInterval(() => {
   for (const [key, val] of loginAttemptTracker) {
     if (now - val.firstAttempt > BRUTE_FORCE_WINDOW * 2) {
       loginAttemptTracker.delete(key);
+    }
+  }
+  // Clean per-account login failures
+  for (const [key, val] of accountFailureTracker) {
+    if (now - val.windowStart > ACCOUNT_WINDOW) {
+      accountFailureTracker.delete(key);
     }
   }
   // Clean abuse counters

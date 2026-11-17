@@ -162,7 +162,32 @@ jobs:
             if ($built -ne $source) { throw "Assets/$f is not $env:BRAND's" }
           }
 
+      # Authenticode signing, as soon as a certificate is configured: set
+      # WINDOWS_SIGN_PFX_BASE64 (the .pfx, base64) and WINDOWS_SIGN_PFX_PASSWORD
+      # (Settings → Secrets and variables → Actions). Without them the build is
+      # unsigned as before, with a warning: SmartScreen then warns the people
+      # who install it, and updates are trusted only through the release
+      # repository's token.
+      - name: Prepare code signing
+        env:
+          SIGN_PFX: ${{ secrets.WINDOWS_SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PFX_PASSWORD }}
+        run: |
+          if (-not $env:SIGN_PFX) {
+            Write-Output "::warning::${{ matrix.title }} is built unsigned: set WINDOWS_SIGN_PFX_BASE64 and WINDOWS_SIGN_PFX_PASSWORD to sign it."
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
+          if (-not $signtool) { throw "signtool.exe was not found on the runner" }
+          # Only the paths go to later steps; the password is read from the secret where it is used.
+          "SIGNTOOL=$($signtool.FullName)" >> $env:GITHUB_ENV
+          "SIGN_PFX_PATH=$pfx" >> $env:GITHUB_ENV
+
       - name: Package installer
+        env:
+          SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PFX_PASSWORD }}
         run: |
           $vpkVersion = ([xml](Get-Content src/Webyar.App/Webyar.App.csproj)).Project.ItemGroup.PackageReference | Where-Object { $_.Include -eq 'Velopack' } | ForEach-Object { $_.Version }
           dotnet tool install -g vpk --version $vpkVersion
@@ -170,12 +195,24 @@ jobs:
           # only what changed. The first release (or a failed download) just ships the full package.
           vpk download github --repoUrl "https://github.com/$env:REPO" --outputDir releases
           if ($LASTEXITCODE) { Write-Host "no previous release to make a delta from" }
-          vpk pack --packId $env:PACK_ID --packVersion $env:VERSION --packDir publish --mainExe ${{ matrix.exe }}.exe --packTitle "${{ matrix.title }}" --packAuthors "${{ matrix.title }}" --icon src/Webyar.App/Assets/Brand/$env:BRAND/app.ico --outputDir releases
+          $sign = @()
+          if ($env:SIGN_PFX_PATH) {
+            $sign = @('--signParams', "/f `"$env:SIGN_PFX_PATH`" /p $env:SIGN_PFX_PASSWORD /fd sha256 /tr http://timestamp.digicert.com /td sha256")
+          }
+          vpk pack --packId $env:PACK_ID --packVersion $env:VERSION --packDir publish --mainExe ${{ matrix.exe }}.exe --packTitle "${{ matrix.title }}" --packAuthors "${{ matrix.title }}" --icon src/Webyar.App/Assets/Brand/$env:BRAND/app.ico --outputDir releases @sign
+          if ($LASTEXITCODE) { throw "vpk pack failed" }
 
       # The installer people download: our own window around Velopack's per-user
       # setup (src/Webyar.Setup), which also moves an old Program Files copy over.
       - name: Build installer
-        run: ./build-installer.ps1 -Brand $env:BRAND -Version $env:VERSION
+        env:
+          SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PFX_PASSWORD }}
+        run: |
+          ./build-installer.ps1 -Brand $env:BRAND -Version $env:VERSION
+          if ($env:SIGNTOOL -and $env:SIGN_PFX_PATH) {
+            & $env:SIGNTOOL sign /f $env:SIGN_PFX_PATH /p $env:SIGN_PFX_PASSWORD /fd sha256 /tr http://timestamp.digicert.com /td sha256 "releases/$env:SETUP.exe"
+            if ($LASTEXITCODE) { throw "signing $env:SETUP.exe failed" }
+          }
 
       - uses: actions/upload-artifact@v4
         with:

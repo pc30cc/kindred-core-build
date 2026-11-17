@@ -35,6 +35,65 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import type { StorageConfig } from '../storage/index.js';
+import { checkOutboundUrl } from '../../../shared/net/hostGuard.js';
+
+/**
+ * The providers a workspace may name for its OWN privacy-export storage
+ * (PUT /api/workspace-integrations/:id/privacy-storage). `local` is not one
+ * of them: it would let a workspace pick a directory on the server's disk.
+ */
+export const WORKSPACE_PRIVACY_STORAGE_PROVIDERS = ['s3', 'cloudflare_r2', 'minio', 'do_spaces', 'bunny_storage'] as const;
+
+const S3_FAMILY = new Set<string>(['s3', 'cloudflare_r2', 'minio', 'do_spaces']);
+/** A bucket name as S3 and its look-alikes allow it: no `/`, `?`, `#`, `@`, `:` or `%`. */
+const BUCKET_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/;
+/** An S3 region goes into the default host name (`s3.<region>.amazonaws.com`). */
+const S3_REGION_RE = /^[a-z0-9-]{1,32}$/i;
+/** Bunny's region and zone go into its host name and path. */
+const BUNNY_REGION_RE = /^[a-z0-9]{1,10}$/i;
+const BUNNY_ZONE_RE = /^[a-z0-9_-]{1,64}$/i;
+
+/**
+ * Why a workspace's own privacy-export storage may not be used, or null.
+ *
+ * The server itself talks to that storage — it uploads the export, and on
+ * download reads it back and hands the body to the caller — so the address is
+ * the workspace's to choose only within what cannot reach inside our own
+ * network: a public https host (checkOutboundUrl, DNS included), a plain
+ * bucket and region that cannot rewrite the URL, Bunny's fixed host. Checked
+ * when the override is saved AND every time it is resolved, so a row saved
+ * before this check (or a DNS record changed since) is refused too.
+ */
+export async function workspacePrivacyStorageRefusal(provider: string, config: StorageConfig): Promise<string | null> {
+  if (!(WORKSPACE_PRIVACY_STORAGE_PROVIDERS as readonly string[]).includes(provider)) return 'unsupported_provider';
+  if (provider === 'bunny_storage') {
+    if (config.region && !BUNNY_REGION_RE.test(config.region)) return 'invalid_region';
+    if (config.storageZone && !BUNNY_ZONE_RE.test(config.storageZone)) return 'invalid_storage_zone';
+    return null;
+  }
+  if (!S3_FAMILY.has(provider)) return 'unsupported_provider';
+  if (config.bucket && !BUCKET_RE.test(config.bucket)) return 'invalid_bucket';
+  if (config.s3Region && !S3_REGION_RE.test(config.s3Region)) return 'invalid_region';
+  if (config.endpoint) {
+    let url: URL;
+    try {
+      url = new URL(config.endpoint);
+    } catch {
+      return 'invalid_endpoint';
+    }
+    // A query or fragment would swallow the bucket and key the driver
+    // appends, turning the endpoint into any URL on that host.
+    if (url.search || url.hash || config.endpoint.includes('?') || config.endpoint.includes('#')) return 'invalid_endpoint';
+    const check = await checkOutboundUrl(config.endpoint);
+    if (!check.ok) return 'endpoint_not_public';
+  }
+  return null;
+}
+
+/** The same check, for the raw `config` object a workspace sends. */
+export async function workspacePrivacyStorageRefusalForRaw(provider: string, raw: Record<string, unknown>): Promise<string | null> {
+  return workspacePrivacyStorageRefusal(provider, mapDBConfigToStorage(provider, raw));
+}
 
 export interface PrivacyStoragePolicy {
   /** Provider name (e.g. "local", "s3", "bunny_storage"). */
@@ -107,9 +166,19 @@ export async function resolvePrivacyStoragePolicy(
       .limit(1)
       .maybeSingle();
     if (wsConfig?.config) {
+      const overrideConfig = mapDBConfigToStorage(wsConfig.provider_name, wsConfig.config as Record<string, unknown>);
+      // Fail closed: an override the workspace may not use is never quietly
+      // swapped for the platform's storage (its exports would land somewhere
+      // it did not choose); the job or download fails with this error.
+      const refusal = await workspacePrivacyStorageRefusal(wsConfig.provider_name, overrideConfig);
+      if (refusal) {
+        console.warn('[privacy-storage] workspace override refused', { workspaceId, provider: wsConfig.provider_name, refusal });
+        throw new PrivacyStorageNotConfigured(`Workspace privacy-export storage override refused (${refusal})`);
+      }
       return {
         provider: wsConfig.provider_name,
-        config: mapDBConfigToStorage(wsConfig.provider_name, wsConfig.config as Record<string, unknown>),
+        // The endpoint is the workspace's: its requests never follow a redirect.
+        config: { ...overrideConfig, untrustedEndpoint: true },
         source: 'workspace_override',
         allowAttachmentFallback: false,
       };

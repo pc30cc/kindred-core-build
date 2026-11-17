@@ -7,6 +7,7 @@
  * Pure logic only (plus DNS resolution) — no provider hostnames, no secrets.
  */
 import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 
 /**
  * SSRF guard for operator-supplied provider base URLs.
@@ -42,7 +43,6 @@ function isPrivateIpv4(host: string): boolean {
   return false;
 }
 
-/** Extracts a dotted IPv4 from an IPv4-mapped IPv6 literal, hex or dotted form. */
 /**
  * Reads the first 16-bit group of an IPv6 address, supporting the compressed
  * `::` form. Returns null for malformed input (callers must fail closed).
@@ -67,16 +67,33 @@ export function isIpv6LinkLocal(addr: string): boolean {
   return (first & 0xffc0) === 0xfe80;
 }
 
-function mappedIpv4(host: string): string | null {
-  const dotted = host.match(/^::(?:ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
-  if (dotted) return dotted[1];
-  const hex = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
-  if (hex) {
-    const hi = parseInt(hex[1], 16);
-    const lo = parseInt(hex[2], 16);
-    return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+/**
+ * The eight 16-bit groups of an IPv6 literal, in any spelling (`::`
+ * compression, a dotted IPv4 tail, a zone id), or null when it is not one.
+ * Every IPv6 rule below reads these groups, so `::7f00:1`, `::127.0.0.1` and
+ * `0:0:0:0:0:0:7f00:1` are the same address to the guard.
+ */
+function ipv6Groups(addr: string): number[] | null {
+  const ip = addr.toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+  if (isIP(ip) !== 6) return null;
+  let text = ip;
+  const dotted = text.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) {
+    const o = dotted[2].split('.').map(Number);
+    text = `${dotted[1]}${((o[0] << 8) | o[1]).toString(16)}:${((o[2] << 8) | o[3]).toString(16)}`;
   }
-  return null;
+  const [head, tail] = text.split('::');
+  const part = (x: string | undefined) => (x ? x.split(':').filter(Boolean).map((h) => parseInt(h, 16)) : []);
+  const a = part(head);
+  const b = tail === undefined ? [] : part(tail);
+  const fill = 8 - a.length - b.length;
+  if (fill < 0 || (tail === undefined && fill !== 0)) return null;
+  return [...a, ...new Array<number>(fill).fill(0), ...b];
+}
+
+/** The dotted IPv4 carried in two IPv6 groups. */
+function ipv4Of(hi: number, lo: number): string {
+  return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
 }
 
 export function isSafeOutboundUrl(raw: string): boolean {
@@ -93,12 +110,10 @@ export function isSafeOutboundUrl(raw: string): boolean {
   if (!host) return false;
   if (isBlockedHostname(host)) return false;
   if (isPrivateIpv4(host)) return false;
-  // IPv4-mapped / IPv4-compatible IPv6 literals (e.g. ::ffff:127.0.0.1)
-  const mapped = mappedIpv4(host);
-  if (mapped && isPrivateIpv4(mapped)) return false;
-  // IPv6 loopback / unique-local / link-local
-  if (host === '::1' || host === '::' || /^f[cd][0-9a-f]{2}:/i.test(host) || isIpv6LinkLocal(host)) return false;
-  if (/^ff[0-9a-f]{2}:/i.test(host)) return false; // IPv6 multicast
+  // An IPv6 literal, by its groups: loopback, unique-local, link-local,
+  // multicast, and every form that carries an IPv4 address (mapped,
+  // compatible, NAT64, 6to4) or tunnels to one (Teredo).
+  if (host.includes(':')) return !isBlockedIpv6(host);
   return true;
 }
 
@@ -113,13 +128,35 @@ function isBlockedIpv4(host: string): boolean {
 }
 
 function isBlockedIpv6(addr: string): boolean {
-  const host = addr.toLowerCase().replace(/%.*$/, '');
-  if (host === '::1' || host === '::') return true;
-  if (/^f[cd][0-9a-f]{2}:/.test(host)) return true; // unique-local
-  if (isIpv6LinkLocal(host)) return true; // fe80::/10
-  if (/^ff[0-9a-f]{2}:/.test(host)) return true; // multicast
-  const mapped = mappedIpv4(host);
-  if (mapped) return isBlockedIpv4(mapped);
+  const g = ipv6Groups(addr);
+  // Not a parseable IPv6 address: fail closed.
+  if (!g) return true;
+  // ::/96 — the unspecified address, loopback and the IPv4-compatible
+  // block (::a.b.c.d, which Node writes as ::7f00:1).
+  if (g.slice(0, 6).every((x) => x === 0)) {
+    if (g[6] === 0) return true; // :: and ::1 (and ::0.0.x.x)
+    return isBlockedIpv4(ipv4Of(g[6], g[7]));
+  }
+  // ::ffff:0:0/96 — IPv4-mapped
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return isBlockedIpv4(ipv4Of(g[6], g[7]));
+  // 64:ff9b::/96 — the NAT64 well-known prefix carries an IPv4 address;
+  // 64:ff9b:1::/48 — local-use NAT64, a network's own translator.
+  if (g[0] === 0x64 && g[1] === 0xff9b) {
+    if (g.slice(2, 6).every((x) => x === 0)) return isBlockedIpv4(ipv4Of(g[6], g[7]));
+    if (g[2] === 1) return true;
+  }
+  // 2002::/16 — 6to4, the IPv4 address in groups 1-2
+  if (g[0] === 0x2002) return isBlockedIpv4(ipv4Of(g[1], g[2]));
+  // 2001::/32 — Teredo, a tunnel to any IPv4 address
+  if (g[0] === 0x2001 && g[1] === 0) return true;
+  // 2001:db8::/32 — documentation
+  if (g[0] === 0x2001 && g[1] === 0x0db8) return true;
+  // 100::/64 — discard-only
+  if (g[0] === 0x0100 && g[1] === 0 && g[2] === 0 && g[3] === 0) return true;
+  if ((g[0] & 0xfe00) === 0xfc00) return true; // fc00::/7 unique-local
+  if ((g[0] & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+  if ((g[0] & 0xffc0) === 0xfec0) return true; // fec0::/10 site-local (deprecated)
+  if ((g[0] & 0xff00) === 0xff00) return true; // ff00::/8 multicast
   return false;
 }
 

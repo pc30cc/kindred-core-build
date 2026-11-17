@@ -114,10 +114,10 @@ authSecurityRouter.post('/check-brute-force', authRateLimiter, async (req, res) 
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email required' });
 
-  const result = await checkBruteForce(req, email);
+  const result = await checkBruteForce(req, String(email).trim().toLowerCase());
   return res.json({
-    blocked: result.blocked,
-    retryAfter: result.retryAfter || 0,
+    blocked: result.blocked || !!result.accountLocked,
+    retryAfter: Math.max(result.retryAfter || 0, result.accountLocked ? result.accountRetryAfter || 0 : 0),
     failCount: result.failCount || 0,
     requiresCaptcha: (result.failCount || 0) >= 3,
   });
@@ -146,6 +146,16 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
       return res.status(429).json({
         error: 'Account temporarily locked due to too many failed attempts.',
         retryAfter: bruteCheck.retryAfter,
+      });
+    }
+    // The same account guessed from many addresses (middleware/security.ts,
+    // ACCOUNT_LOCK_AFTER): refused before a password is checked, and not
+    // counted again, so the wait never grows past the window.
+    if (bruteCheck.accountLocked) {
+      await logSecurityEvent(req, 'brute_force', 'error', { email: normalizedEmail, scope: 'account' });
+      return res.status(429).json({
+        error: 'Account temporarily locked due to too many failed attempts.',
+        retryAfter: bruteCheck.accountRetryAfter,
       });
     }
 
@@ -185,11 +195,16 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     const identity = await findIdentityByEmail(config, normalizedEmail);
     if (!identity) return genericInvalid();
 
-    if (identity.status === 'disabled') {
+    // A disabled account says so only to someone who knows its password
+    // (checked below); before the password it is the same "invalid" as any
+    // other failure. An account with no password at all cannot be checked,
+    // so it answers here, as it always has.
+    const disabledAnswer = async () => {
       recordLoginAttempt(req, normalizedEmail, false);
       await logSecurityEvent(req, 'login_failed', 'warn', { email: normalizedEmail, userId: identity.id, reason: 'disabled' });
       return res.status(403).json({ error: 'This account has been disabled.' });
-    }
+    };
+    if (identity.status === 'disabled' && !identity.passwordHash) return disabledAnswer();
 
     if (!identity.passwordHash) {
       // Migrated (pre-first-party) user, or a brand-new profile row with no
@@ -206,6 +221,7 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
 
     const validPassword = await verifyPassword(identity.passwordHash, password);
     if (!validPassword) return genericInvalid();
+    if (identity.status === 'disabled') return disabledAnswer();
 
     // POLICY DECISION — email verification is NOT required to log in.
     // GoTrue-off closure pass: `029_backfill_legacy_email_verification.sql`

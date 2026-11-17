@@ -24,16 +24,37 @@ type ReqOptions = {
 
 type Hop = { status: number; headers?: Record<string, string>; body?: string; timeout?: boolean };
 
+/** What the transport passes to `https.request`, as far as these tests read it. */
+type FakeOptions = ReqOptions & {
+  path: string;
+  method: string;
+  headers: Record<string, string>;
+  timeout: number;
+};
+
+type FakeRequest = EventEmitter & {
+  write?: (chunk: string) => void;
+  destroy?: () => void;
+  end?: () => void;
+};
+
+type FakeResponse = EventEmitter & {
+  statusCode?: number;
+  statusMessage?: string;
+  headers?: Record<string, string>;
+  destroy?: () => void;
+};
+
 /** Records every connection attempt and replays scripted hops. */
 function fakeRequest(hops: Hop[]) {
   const seen: Array<{ host: string; servername: string; address: string; path: string; method: string; headers: Record<string, string>; body?: string; timeout: number }> = [];
   const rawOptions: ReqOptions[] = [];
   let i = 0;
-  const impl: any = (options: any, cb: (res: any) => void) => {
+  const impl = (options: FakeOptions, cb: (res: FakeResponse) => void) => {
     const hop = hops[Math.min(i, hops.length - 1)];
     i++;
-    rawOptions.push(options as ReqOptions);
-    const req: any = new EventEmitter();
+    rawOptions.push(options);
+    const req: FakeRequest = new EventEmitter();
     let written: string | undefined;
     // Resolve the pinned address by invoking the transport's lookup function.
     let address = '';
@@ -60,7 +81,7 @@ function fakeRequest(hops: Hop[]) {
           req.emit('timeout');
           return;
         }
-        const res: any = new EventEmitter();
+        const res: FakeResponse = new EventEmitter();
         res.statusCode = hop.status;
         res.statusMessage = 'OK';
         res.headers = hop.headers || {};
@@ -83,7 +104,7 @@ function make(hops: Hop[], overrides: Record<string, unknown> = {}) {
   const { impl, seen, rawOptions } = fakeRequest(hops);
   const fetchImpl = createSafeTestFetch({
     lookupImpl: publicDns as never,
-    requestImpl: impl,
+    requestImpl: impl as never,
     ...overrides,
   });
   return { fetchImpl, seen, rawOptions };

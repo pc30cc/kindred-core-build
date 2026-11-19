@@ -3997,6 +3997,8 @@
       var action = btn.getAttribute('data-ci-action');
       var invitationId = btn.getAttribute('data-ci-id');
       if (!action || !invitationId) return;
+      // Where the card lives (the widget's shadow root), for a failure's line.
+      var ciRoot = btn.getRootNode ? btn.getRootNode() : null;
 
       btn.disabled = true;
       var prevText = btn.textContent;
@@ -4076,12 +4078,12 @@
           // Surface a visible message under the card so the visitor isn't
           // left wondering. Reuses the existing card so we don't introduce
           // a new toast surface.
-          showCallInvitationError(invitationId, msg);
+          showCallInvitationError(invitationId, msg, ciRoot);
         });
     }
 
     /**
-     * Resolve when window.__gs_call.incoming is callable. Strategy:
+     * Resolve when the call engine (window.__gs_call.engine) is in. Strategy:
      *   1. If already present → immediate.
      *   2. Else await loader's readiness promise (set when loader injects
      *      runtime-call.js).
@@ -4089,8 +4091,14 @@
      *      asset base hint loader exposed via window.__gs_call_url.
      *   4. Bound by a hard timeout so the visitor never hangs forever.
      */
+    // The call module is in once its headless engine is (runtime-call.js,
+    // `window.__gs_call.engine`); it has had no `incoming` since Pass 2.
+    function callEngineReady() {
+      var c = window.__gs_call;
+      return !!(c && c.engine && typeof c.engine.connect === 'function');
+    }
     function ensureCallRuntimeReady(timeoutMs) {
-      if (window.__gs_call && typeof window.__gs_call.incoming === 'function') {
+      if (callEngineReady()) {
         return Promise.resolve();
       }
       var ready = window.__gs_call_ready;
@@ -4125,7 +4133,7 @@
             // Already injected; just poll.
             var t0 = Date.now();
             var iv = setInterval(function () {
-              if (window.__gs_call && typeof window.__gs_call.incoming === 'function') {
+              if (callEngineReady()) {
                 clearInterval(iv); resolve();
               } else if (Date.now() - t0 > (timeoutMs || 8000)) {
                 clearInterval(iv); reject(new Error('call_runtime_timeout'));
@@ -4138,7 +4146,7 @@
           s.async = true;
           s.setAttribute('data-gs-runtime-call', 'true');
           s.onload = function () {
-            if (window.__gs_call && typeof window.__gs_call.incoming === 'function') resolve();
+            if (callEngineReady()) resolve();
             else reject(new Error('call_runtime_loaded_but_missing_api'));
           };
           s.onerror = function () { reject(new Error('call_runtime_load_failed')); };
@@ -4167,9 +4175,17 @@
      * visitor sees a real failure reason instead of a silently re-enabled
      * button. Idempotent — replaces previous error for the same card.
      */
-    function showCallInvitationError(invitationId, message) {
+    function showCallInvitationError(invitationId, message, root) {
       try {
-        var card = document.querySelector('[data-ci-card="' + invitationId + '"]');
+        // The card is in the widget's shadow root (the clicked button's
+        // root, taken at the click: a repaint since may have replaced the
+        // button), never in the host page's document.
+        var scope = root && typeof root.querySelectorAll === 'function' ? root : document;
+        var card = null;
+        Array.prototype.some.call(scope.querySelectorAll('[data-ci-card]'), function (el) {
+          if (el.getAttribute('data-ci-card') === String(invitationId)) { card = el; return true; }
+          return false;
+        });
         if (!card) return;
         var prev = card.querySelector('.ci-err');
         if (prev) prev.remove();
@@ -7009,11 +7025,12 @@
       try {
         var s = callSurfaceStore.get();
         if (s && s.phase !== 'idle') {
-          // Just trigger a subscriber notification by re-setting same
-          // values — no-op store changes would be dropped, so update a
-          // dedicated tick counter via the body refresh hook instead.
-          var b = (typeof body !== 'undefined') ? body : null;
-          var surf = b && b.querySelector && b.querySelector('[data-call-surface]');
+          // Only the live bits move (updateCallSurfaceLive). The surface is
+          // in the panel-level call host, a sibling of `.body` (renderCallHost),
+          // so it is looked up there: looked up in `.body`, it was never found
+          // and the timer stood still between store changes.
+          var h = callHost();
+          var surf = h && h.querySelector && h.querySelector('[data-call-surface]');
           if (surf) updateCallSurfaceLive(surf, s, surf.querySelector('[data-call-status]') ? surf.querySelector('[data-call-status]').textContent : '');
         }
       } catch (_) {}

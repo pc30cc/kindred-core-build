@@ -172,6 +172,7 @@ import { smartRuleOpening } from '../services/widget/smartOpening.js';
 import { trackedPage, trackedReferrer, trackingAllowed, trackingPrivacyOf } from '../services/widget/trackingPrivacy.js';
 import { readPrechatRow, recordPrivacyConsent } from '../services/widget/prechatEffective.js';
 import { prechatPrivacyOf } from '../../shared/prechatPolicy.js';
+import { stripSensitiveUrlParts } from '../../shared/pageUrlPrivacy.js';
 import {
   answeredBy,
   csatEnabledFor,
@@ -762,14 +763,11 @@ const nudgeEvaluateSchema = z.object({
   online: z.boolean().default(true),
 });
 
-/** Strips sensitive query params and truncates — same deny-list as page_context elsewhere in this file. */
+/** Strips sensitive query params and truncates — the same rule as page_context (shared/pageUrlPrivacy.ts). */
 function sanitizeNudgePath(raw: string | null | undefined): string {
   if (!raw) return '/';
   try {
-    const u = new URL(raw, 'https://placeholder.invalid');
-    for (const k of ['token', 'access_token', 'refresh_token', 'code', 'password', 'session', 'auth', 'key', 'secret', 'api_key', 'sig', 'signature']) {
-      u.searchParams.delete(k);
-    }
+    const u = stripSensitiveUrlParts(new URL(raw, 'https://placeholder.invalid'));
     return (u.pathname + (u.search || '')).slice(0, 500) || '/';
   } catch {
     return String(raw).split('?')[0].slice(0, 500) || '/';
@@ -2138,11 +2136,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           // A page is an http(s) one: a javascript:, data: or file: "page"
           // would reach the Inbox as a link (audit frontend-3).
           if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-          u.hash = '';
-          // Credentials, and the contact details a link may carry (P-01).
-          for (const k of ['token','access_token','refresh_token','id_token','code','otp','password','session','auth','key','secret','api_key','sig','signature','email','phone','mobile']) {
-            u.searchParams.delete(k);
-          }
+          // Credentials, and the contact details a link may carry (P-01),
+          // whatever their case (shared/pageUrlPrivacy.ts); no fragment.
+          stripSensitiveUrlParts(u);
           const s = u.toString();
           return s.slice(0, 1000);
         } catch { return null; }

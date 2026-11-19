@@ -20,6 +20,8 @@ import en from '@/i18n/locales/en';
 
 const ORIGIN = 'https://shop.example';
 const LEGIT = 'https://shop.example/checkout?step=2#pay';
+/** A call's LEGIT as the panel links it: the rule it is checked with keeps no fragment (shared/pageUrlPrivacy.ts). */
+const LINKED = 'https://shop.example/checkout?step=2';
 /** What a visitor can send as the page; none of it may become a link of a call. */
 const HOSTILE = [
   '/\\evil.example',
@@ -125,7 +127,8 @@ describe.each(['calls', 'queue'] as const)('a call\'s page link (%s)', (which) =
   it('links the page the visitor was on, on the call\'s own site', async () => {
     state.call = call(LEGIT);
     const a = await pageLink(which);
-    expect(a?.getAttribute('href')).toBe(LEGIT);
+    // A row stored before the server stripped it is linked without its fragment too.
+    expect(a?.getAttribute('href')).toBe(LINKED);
     expect(a?.getAttribute('target')).toBe('_blank');
     // The link reads its real host; the visitor's title is shown as text.
     expect(a?.textContent).toBe('shop.example');

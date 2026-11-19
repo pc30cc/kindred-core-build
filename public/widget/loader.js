@@ -406,6 +406,32 @@
   }
   // Credentials of the bootstrap, kept for the LAZY store identity below.
   var _commerceSession = null;
+  /**
+   * POST with the session token the page holds NOW (the bus; `token`, the
+   * bootstrap's, is the fallback): the bootstrap's own lives 15 min, and the
+   * lazy store identity and its logout unlink run only when the visitor
+   * opens the chat, often later. A 401 or 403 recovers the session once
+   * (bus.recover: refresh, else a re-bootstrap with the same visitor) and
+   * sends again with the new token. The store identity and the AI nudge's
+   * events.
+   */
+  function recoverPost(url, payload, token, signal) {
+    var bus = window.__gs_token;
+    function send(t) {
+      return fetch(url, {
+        method: "POST",
+        signal: signal,
+        credentials: "include",
+        headers: vh({ "Content-Type": "application/json", "X-Widget-Token": t }),
+        body: JSON.stringify(payload),
+      });
+    }
+    return send(bus.get() || token).then(function (r) {
+      return r.status == 401 || r.status == 403
+        ? bus.recover().then(function (t) { return t ? send(t) : r; })
+        : r;
+    });
+  }
   function bindCommerceIdentity(apiBase, workspaceId, token, lazyAssertion) {
     if (!lazyAssertion) _commerceSession = { apiBase: apiBase, workspaceId: workspaceId, token: token };
     if (_commerceBound) return;   // defence in depth; bootstrap() is not re-entered today
@@ -444,13 +470,7 @@
         else _commerceBound = false;
       }
       try {
-        return fetch(apiBase + "/api/widget/commerce/identity", {
-          method: "POST",
-          signal: abort ? abort.signal : undefined,
-          credentials: "include",
-          headers: vh({ "Content-Type": "application/json", "X-Widget-Token": token }),
-          body: JSON.stringify(body),
-        }).then(function (r) {
+        return recoverPost(apiBase + "/api/widget/commerce/identity", body, token, abort ? abort.signal : undefined).then(function (r) {
           clearTimeout(deadline);
           if (r.ok) {
             rememberBinding(workspaceId, binding);
@@ -500,13 +520,14 @@
           var wasLinked = false;
           try { wasLinked = window.sessionStorage.getItem(storageKey) === "1"; } catch (_) {}
           if (ctx.signed_in === false && wasLinked) {
-            try { window.sessionStorage.removeItem(storageKey); } catch (_) {}
-            fetch(_commerceSession.apiBase + "/api/widget/commerce/identity/unlink", {
-              method: "POST",
-              credentials: "include",
-              headers: vh({ "Content-Type": "application/json", "X-Widget-Token": _commerceSession.token }),
-              body: JSON.stringify({ workspaceId: ws }),
-            }).catch(function () {});
+            // The mark goes only once the link is ended: a failed unlink is
+            // asked again on the next page, never forgotten.
+            recoverPost(_commerceSession.apiBase + "/api/widget/commerce/identity/unlink", { workspaceId: ws }, _commerceSession.token)
+              .then(function (r) {
+                // A storage that throws ends in the catch below.
+                if (r.ok) window.sessionStorage.removeItem(storageKey);
+              })
+              .catch(function () {});
           }
         })
         .catch(function () { /* offline or blocked — stay anonymous */ });
@@ -2403,7 +2424,7 @@
         var callJs = configData.callRuntimeUrl || window.__gs_call_url || runtimeJs.replace(/runtime(?:[.-][A-Za-z0-9]+)?\.js(?:\?[^#]*)?(?:#.*)?$/, "runtime-call.js");
         if (callJs && callJs !== runtimeJs && !document.querySelector('script[data-gs-runtime-call]')) {
           // Phase 9 fix — expose readiness so the chat join handler can
-          // await the call module BEFORE invoking window.__gs_call.incoming.
+          // await the call module BEFORE driving window.__gs_call.engine.
           // Without this the visitor could click "Join" before this script
           // executed and would hit `call_runtime_unavailable`.
           window.__gs_call_url = callJs;
@@ -2423,7 +2444,7 @@
           cs.onload = function () {
             // The script defines window.__gs_call synchronously inside its
             // IIFE — by the time onload fires the global is present.
-            if (window.__gs_call && typeof window.__gs_call.incoming === 'function') {
+            if ((window.__gs_call || {}).engine) {
               try { window.__gs_call_resolveReady && window.__gs_call_resolveReady(window.__gs_call); } catch (_) {}
             } else {
               try { window.__gs_call_rejectReady && window.__gs_call_rejectReady(new Error('call_module_loaded_but_api_missing')); } catch (_) {}
@@ -2850,33 +2871,15 @@
     // stay best-effort and never throw, so a reporting failure can never
     // break the visitor widget.
     function reportAiEvent(nudgeId, type) {
-      function send(tok, isRetry) {
-        return fetch(apiBase + "/api/widget/smart/event", {
-          method: "POST",
-          credentials: "include",
-          headers: vh({ "Content-Type": "application/json", "X-Widget-Token": tok }),
-          body: JSON.stringify({
-            workspace_id: WORKSPACE_ID,
-            source: "ai_proactive",
-            ai_nudge_id: nudgeId,
-            event_type: type,
-            page_path: (window.location.pathname || "/").slice(0, 500),
-            idempotency_key: (currentSessionId() + ":" + nudgeId + ":" + type).slice(0, 160),
-          }),
-        })
-          .then(function (r) {
-            if (r.ok || isRetry) return;
-            if (r.status !== 401 && r.status !== 403) return;
-            if (!window.__gs_token || typeof window.__gs_token.recover !== "function") return;
-            return window.__gs_token.recover().then(function (freshTok) {
-              if (freshTok) return send(freshTok, true);
-            });
-          })
-          .catch(function () {});
-      }
       try {
-        var token = (window.__gs_token && window.__gs_token.get()) || sessionToken;
-        send(token, false);
+        recoverPost(apiBase + "/api/widget/smart/event", {
+          workspace_id: WORKSPACE_ID,
+          source: "ai_proactive",
+          ai_nudge_id: nudgeId,
+          event_type: type,
+          page_path: (window.location.pathname || "/").slice(0, 500),
+          idempotency_key: (currentSessionId() + ":" + nudgeId + ":" + type).slice(0, 160),
+        }, sessionToken).catch(function () {});
       } catch (_) {}
     }
 
@@ -3881,7 +3884,9 @@
           fetch(apiBase + "/api/widget/event", {
             method: "POST",
             credentials: "include",
-            headers: { "Content-Type": "application/json", "X-Widget-Token": tokenNow() },
+            // The visitor credential too (vh), as every other widget call: a
+            // browser that drops the dvsid cookie is still this visitor.
+            headers: vh({ "Content-Type": "application/json", "X-Widget-Token": tokenNow() }),
             body: JSON.stringify({
               workspace_id: workspaceId,
               session_id: window.__gs_session_id || null,

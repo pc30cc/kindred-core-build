@@ -181,6 +181,26 @@
     return text;
   }
 
+  // The page sent with a call or a callback: no fragment and no credential
+  // or contact detail in its query, the same rule as the server's
+  // (shared/pageUrlPrivacy.ts; src/test/widget/pageUrlPrivacy.test.ts keeps
+  // the lists equal). The server strips them again before storing.
+  var SENSITIVE_QS = ['token','access_token','refresh_token','id_token','code','otp','password','session','auth','key','secret','api_key','apikey','sig','signature','jwt','email','phone','mobile'];
+  var SENSITIVE_QS_TAIL = /(^|[_-])(token|secret|password|passwd|pwd|apikey|jwt)$/;
+  function cleanPageUrl() {
+    try {
+      var u = new URL(String(location.href));
+      u.hash = '';
+      var drop = [];
+      u.searchParams.forEach(function (_v, k) {
+        var n = String(k).toLowerCase();
+        if ((SENSITIVE_QS.indexOf(n) !== -1 || SENSITIVE_QS_TAIL.test(n)) && drop.indexOf(k) === -1) drop.push(k);
+      });
+      for (var i = 0; i < drop.length; i++) u.searchParams.delete(drop[i]);
+      return u.toString();
+    } catch (_) { return null; }
+  }
+
   function noop() {}
 
   /**
@@ -979,7 +999,7 @@
         visitor_email: this.formData.email || null,
         visitor_phone: this.formData.phone || null,
         subject: this.formData.subject || null,
-        page_url: location.href,
+        page_url: cleanPageUrl(),
         page_title: this.pageTitle,
         consent_recording: !!this.formData.consent,
         recording_consent: !!this.formData.consent,
@@ -1602,6 +1622,9 @@
     var self = this;
     this.lkRoom.localParticipant.setMicrophoneEnabled(next).then(function () {
       self.micOn = next; self.render();
+    }, function () {
+      // Refused (permission, device gone): the button keeps its state.
+      self.render();
     });
   };
   CallCenterWidgetCtor.prototype.toggleCam = function () {
@@ -1623,6 +1646,10 @@
         } catch (_) {}
         self._localVideoEl = null; self._localVideoTrack = null;
       }
+      self.render();
+    }, function () {
+      // E7: turning the camera on was refused; the call goes on without it.
+      if (next) { self.cameraDenied = true; self.error = self.t('camera_denied'); }
       self.render();
     });
   };
@@ -1893,7 +1920,7 @@
       channel: this.formData.callback_channel || 'audio',
       urgency: this.formData.callback_urgency || 'normal',
       scheduled_for: scheduledIso,
-      page_url: location.href,
+      page_url: cleanPageUrl(),
       department_id: this.formData.department_id || null,
       hp_company: this.formData.hp_company || '',
       form_opened_at: this.callbackOpenedAt || null,
@@ -1929,6 +1956,10 @@
       }
       self.state = STATES.ENDED;
       self.render();
+    }, function () {
+      // A network error or an answer that is not JSON (a 503 page): the
+      // widget's own sentence, and the form stays for another try.
+      fail('err_try_again');
     });
   };
 

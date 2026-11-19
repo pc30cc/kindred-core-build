@@ -1,3 +1,5 @@
+import { stripSensitiveUrlParts } from '../pageUrlPrivacy.js';
+
 /**
  * The page a call-widget visitor was on (`page_url` of a call or a callback),
  * as an address the Call Center may link to.
@@ -36,12 +38,16 @@ export function httpPageUrl(raw: unknown): URL | null {
   }
 }
 
-/** `raw` as an http(s) URL on the site `origin` (same scheme and host), or null. */
+/**
+ * `raw` as an http(s) URL on the site `origin` (same scheme and host), or
+ * null. What is stored: no fragment and no credential or contact detail in
+ * its query (shared/pageUrlPrivacy.ts), as a chat's page context keeps it.
+ */
 export function visitorPageUrl(raw: unknown, origin: unknown): URL | null {
   const url = httpPageUrl(raw);
   const site = httpPageUrl(origin);
   if (!url || !site) return null;
-  return url.protocol === site.protocol && url.host === site.host ? url : null;
+  return url.protocol === site.protocol && url.host === site.host ? stripSensitiveUrlParts(url) : null;
 }
 
 /** What a page link reads: where it really goes (its host), never the visitor's title. */

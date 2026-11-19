@@ -71,8 +71,10 @@ var __gs_smart_engine_module = (() => {
         return expected === "" || actual.indexOf(expected) === -1;
       case "starts_with":
         return actual.indexOf(expected) === 0;
+      // The length check first: a value one character shorter than the
+      // suffix, and without it, has lastIndexOf -1 === length - expected.length.
       case "ends_with":
-        return expected !== "" && actual.lastIndexOf(expected) === actual.length - expected.length;
+        return expected !== "" && actual.length >= expected.length && actual.lastIndexOf(expected) === actual.length - expected.length;
       default:
         return false;
     }

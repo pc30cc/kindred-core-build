@@ -27,14 +27,24 @@
 
   // Strip sensitive query params from a URL string. Returns sanitized string.
   // Used for the visitor's current page URL so we never leak tokens upstream.
-  var SENSITIVE_QS = ['token','access_token','refresh_token','code','password','session','auth','key','secret','api_key','sig','signature'];
+  // The same rule as the server's (shared/pageUrlPrivacy.ts, kept equal by
+  // src/test/widget/pageUrlPrivacy.test.ts): names match whatever their case,
+  // and a name ending in a credential word (`reset_token`) counts too.
+  var SENSITIVE_QS = ['token','access_token','refresh_token','id_token','code','otp','password','session','auth','key','secret','api_key','apikey','sig','signature','jwt','email','phone','mobile'];
+  var SENSITIVE_QS_TAIL = /(^|[_-])(token|secret|password|passwd|pwd|apikey|jwt)$/;
+  function sensitiveParam(name) {
+    var k = String(name).toLowerCase();
+    return SENSITIVE_QS.indexOf(k) !== -1 || SENSITIVE_QS_TAIL.test(k);
+  }
   function sanitizeUrl(raw) {
     if (!raw || typeof raw !== 'string') return null;
     try {
       var u = new URL(raw);
       u.hash = '';
       var sp = u.searchParams;
-      for (var i = 0; i < SENSITIVE_QS.length; i++) sp.delete(SENSITIVE_QS[i]);
+      var drop = [];
+      sp.forEach(function (_v, k) { if (sensitiveParam(k) && drop.indexOf(k) === -1) drop.push(k); });
+      for (var i = 0; i < drop.length; i++) sp.delete(drop[i]);
       var s = u.toString();
       if (s.length > 1000) s = s.slice(0, 1000);
       return s;

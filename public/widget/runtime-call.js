@@ -905,38 +905,42 @@
   });
 
   // ───── Public API ─────
-  window.__gs_call = {
-    engine: {
-      connect: connect,
-      disconnect: disconnect,
-      toggleMic: toggleMic,
-      toggleCamera: toggleCamera,
-      switchCamera: switchCamera,
-      setVideoQuality: setVideoQuality,
-      listCameras: listCameras,
-      on: emitter.on,
-      getState: function () {
-        return {
-          state: state,
-          remote: lastRemote,
-          localVideo: lastLocalVideo,
-          micEnabled: micEnabled,
-          cameraEnabled: cameraEnabled,
-          connectedAt: connectedAt,
-          cameras: availableCameras.slice(),
-          canSwitchCamera: canSwitchCamera,
-          currentCameraDeviceId: currentCameraDeviceId,
-          currentCameraFacing: currentCameraFacing,
-          videoQuality: 'auto',
-        };
-      },
+  // Added to the object already there, never in its place: runtime.js puts
+  // its own handlers on it (`ended`, the server's call:ended that the
+  // realtime drivers dispatch), and this file usually runs after it (the
+  // loader asks for it once runtime.js has loaded).
+  var api = (window.__gs_call && typeof window.__gs_call === 'object') ? window.__gs_call : {};
+  window.__gs_call = api;
+  api.engine = {
+    connect: connect,
+    disconnect: disconnect,
+    toggleMic: toggleMic,
+    toggleCamera: toggleCamera,
+    switchCamera: switchCamera,
+    setVideoQuality: setVideoQuality,
+    listCameras: listCameras,
+    on: emitter.on,
+    getState: function () {
+      return {
+        state: state,
+        remote: lastRemote,
+        localVideo: lastLocalVideo,
+        micEnabled: micEnabled,
+        cameraEnabled: cameraEnabled,
+        connectedAt: connectedAt,
+        cameras: availableCameras.slice(),
+        canSwitchCamera: canSwitchCamera,
+        currentCameraDeviceId: currentCameraDeviceId,
+        currentCameraFacing: currentCameraFacing,
+        videoQuality: 'auto',
+      };
     },
-    /** Convenience: load + warm the SDK before the visitor clicks Join. */
-    preload: function () {
-      return loadSdk().then(function () { return true; }, function () { return false; });
-    },
-    isActive: function () { return !!room; },
   };
+  /** Convenience: load + warm the SDK before the visitor clicks Join. */
+  api.preload = function () {
+    return loadSdk().then(function () { return true; }, function () { return false; });
+  };
+  api.isActive = function () { return !!room; };
 
   try {
     if (typeof window.__gs_call_resolveReady === 'function') {

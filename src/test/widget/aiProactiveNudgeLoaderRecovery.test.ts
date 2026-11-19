@@ -19,6 +19,8 @@
  *   2. reportAiEvent always reads the CURRENT shared token before sending.
  *   3. reportAiEvent retries via window.__gs_token.recover() on 401/403,
  *      gated so it can fire at most once (no infinite retry loop).
+ *   (2 and 3 live in recoverPost, the POST reportAiEvent sends with, which
+ *   the store identity calls share.)
  *   4. reportAiEvent never throws — every fetch has a .catch, and the whole
  *      function body is wrapped defensively.
  *   5. dismissed/cta_clicked events flow through the SAME reportAiEvent
@@ -70,21 +72,23 @@ describe('loader.js — AI nudge lifecycle reporting is session-recovery aware (
     expect(trackingBody).not.toContain('function bootstrapSession()');
   });
 
-  it('reportAiEvent always reads the CURRENT shared widget token before sending', () => {
+  it('reportAiEvent sends through recoverPost, which reads the CURRENT shared widget token before sending', () => {
     const body = extractFunctionBody(loader, 'function reportAiEvent(nudgeId, type) {');
-    expect(body).toContain('window.__gs_token && window.__gs_token.get()');
+    expect(body).toContain('recoverPost(apiBase + "/api/widget/smart/event"');
+    const post = extractFunctionBody(loader, 'function recoverPost(url, payload, token, signal) {');
+    expect(post).toContain('var bus = window.__gs_token;');
+    expect(post).toContain('send(bus.get() || token)');
   });
 
   it('reportAiEvent retries the SAME event exactly once via window.__gs_token.recover() on 401/403, never more', () => {
-    const body = extractFunctionBody(loader, 'function reportAiEvent(nudgeId, type) {');
-    expect(body).toContain('window.__gs_token.recover()');
-    expect(body).toContain('r.status !== 401 && r.status !== 403');
-    // The recursive retry call passes isRetry:true, so a second 401/403
-    // short-circuits via "if (r.ok || isRetry) return;" instead of looping.
-    expect(body).toContain('send(freshTok, true)');
-    expect(body).toContain('if (r.ok || isRetry) return;');
-    // No unbounded retry construct (setInterval/while) inside this function.
-    expect(body).not.toMatch(/setInterval|while\s*\(/);
+    const post = extractFunctionBody(loader, 'function recoverPost(url, payload, token, signal) {');
+    expect(post).toContain('r.status == 401 || r.status == 403');
+    // The retry's answer is returned as it is: a second 401/403 is not
+    // looked at again, so there is no loop.
+    expect(post).toContain('bus.recover().then(function (t) { return t ? send(t) : r; })');
+    // No unbounded retry construct (setInterval/while) inside either function.
+    expect(post).not.toMatch(/setInterval|while\s*\(/);
+    expect(extractFunctionBody(loader, 'function reportAiEvent(nudgeId, type) {')).not.toMatch(/setInterval|while\s*\(/);
   });
 
   it('reportAiEvent never throws — every fetch has a .catch and the send is wrapped in try/catch', () => {
@@ -111,6 +115,9 @@ describe('loader.js — AI nudge lifecycle reporting is session-recovery aware (
     expect(reportAiEventBody).not.toContain('/api/widget/session/refresh');
     expect(reportAiEventBody).not.toContain('/api/widget/boot');
     expect(reportAiEventBody).not.toContain('bootstrapPath(');
+    const recoverPostBody = extractFunctionBody(loader, 'function recoverPost(url, payload, token, signal) {');
+    expect(recoverPostBody).not.toContain('/api/widget/session/refresh');
+    expect(recoverPostBody).not.toContain('/api/widget/boot');
   });
 
   it('dismissed and cta_clicked nudge events are reported through the SAME session-recovery-aware reportAiEvent', () => {

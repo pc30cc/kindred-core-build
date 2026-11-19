@@ -4,7 +4,9 @@
  * writes, and the Call Center links to it. The server keeps it only as an
  * http(s) address on the request's Origin, the site the widget runs on (same
  * scheme and host, shared/callCenter/visitorPageUrl.ts); anything else is
- * stored as null, and the call or callback goes ahead.
+ * stored as null, and the call or callback goes ahead. What is stored has no
+ * fragment and no credential or contact detail in its query
+ * (shared/pageUrlPrivacy.ts).
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { db, fakeClient } from './fakeDb';
@@ -48,6 +50,8 @@ vi.mock('../../../server/services/callCenter/routing.js', () => ({ routeIncoming
 const WS = '22222222-2222-4222-8222-222222222222';
 const ORIGIN = 'https://shop.example';
 const LEGIT = 'https://shop.example/checkout?step=2#pay';
+/** LEGIT as it is stored: without its fragment. */
+const KEPT = 'https://shop.example/checkout?step=2';
 /** What a visitor can send as the page; none of it may be stored. */
 const HOSTILE = [
   '/\\evil.example',
@@ -65,7 +69,7 @@ const HOSTILE = [
 
 describe('visitorPageUrl (the rule)', () => {
   it('keeps an http(s) address on the same scheme and host', () => {
-    expect(visitorPageUrl(LEGIT, ORIGIN)?.href).toBe(LEGIT);
+    expect(visitorPageUrl(LEGIT, ORIGIN)?.href).toBe(KEPT);
     expect(visitorPageUrl('https://shop.example/', ORIGIN)?.href).toBe('https://shop.example/');
     expect(visitorPageUrl('http://localhost:5173/p', 'http://localhost:5173')?.href).toBe('http://localhost:5173/p');
     // Normalized as a browser would: the address that was checked is the one stored.
@@ -73,6 +77,15 @@ describe('visitorPageUrl (the rule)', () => {
     // No user name or password is kept: `shop.example@` must not read as the shop.
     expect(visitorPageUrl('https://user:pw@shop.example/a', ORIGIN)?.href).toBe('https://shop.example/a');
     expect(visitorPageUrl('https://shop.example@evil.example/x', 'https://evil.example')?.href).toBe('https://evil.example/x');
+  });
+
+  it('keeps no fragment and no credential or contact detail in the query, whatever its case', () => {
+    expect(visitorPageUrl('https://shop.example/reset?Token=abc&step=2&reset_token=x#access_token=y', ORIGIN)?.href)
+      .toBe('https://shop.example/reset?step=2');
+    expect(visitorPageUrl('https://shop.example/p?EMAIL=a%40b.c&phone=0912&q=shoes', ORIGIN)?.href)
+      .toBe('https://shop.example/p?q=shoes');
+    // Nothing to drop: the query is kept as it was written.
+    expect(visitorPageUrl('https://shop.example/s?q=a+b&tags=x%2Cy', ORIGIN)?.href).toBe('https://shop.example/s?q=a+b&tags=x%2Cy');
   });
 
   it('pageLinkLabel reads the real host, whatever the address says before it', () => {
@@ -163,7 +176,7 @@ async function requestCallback(pageUrl: string) {
 
 describe('POST /calls/request', () => {
   it('stores the page the widget sends, with the call\'s origin', async () => {
-    expect(await requestCall(LEGIT)).toEqual({ stored: LEGIT, logged: LEGIT, origin: ORIGIN });
+    expect(await requestCall(LEGIT)).toEqual({ stored: KEPT, logged: KEPT, origin: ORIGIN });
   });
 
   it.each(HOSTILE)('stores no page for %j, and the call still starts', async (pageUrl) => {
@@ -173,7 +186,7 @@ describe('POST /calls/request', () => {
 
 describe('POST /callbacks/request', () => {
   it('stores the page the widget sends', async () => {
-    expect(await requestCallback(LEGIT)).toBe(LEGIT);
+    expect(await requestCallback(LEGIT)).toBe(KEPT);
   });
 
   it.each(HOSTILE)('stores no page for %j, and the callback is still taken', async (pageUrl) => {

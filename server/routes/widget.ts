@@ -1745,9 +1745,15 @@ widgetRouter.get('/help-articles', widgetRateLimit('default'), async (req: Reque
   if (!workspaceId) return res.json({ articles: [] });
 
   const supabase = getServiceClient(config);
-  const search = (req.query.search as string) || '';
+  // The search goes into a PostgREST `or=(…)` filter: `,`, `(`, `)` and `"`
+  // are its syntax, so they are dropped; `%`, `_` and `\` typed by the
+  // visitor are literal characters, not wildcards (as in adminPlatformSupport).
+  const search = typeof req.query.search === 'string'
+    ? req.query.search.replace(/[,()"]/g, ' ').trim().slice(0, 120).replace(/[\\%_]/g, (c) => `\\${c}`)
+    : '';
   const locale = (req.query.locale as string) || '';
-  const limit = Math.min(parseInt(req.query.limit as string || '20'), 50);
+  const requestedLimit = Number.parseInt(typeof req.query.limit === 'string' ? req.query.limit : '', 10);
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 50) : 20;
 
   try {
     // Articles over the plan's max_kb_articles are hidden (phase 4). The

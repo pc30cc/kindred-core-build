@@ -23,6 +23,10 @@ import { readRows } from '../lib/pagedRows.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { checkWorkspaceProviderBaseUrl } from '../../shared/ai/endpointPolicy.js';
+import {
+  WORKSPACE_PRIVACY_STORAGE_PROVIDERS,
+  workspacePrivacyStorageRefusalForRaw,
+} from '../services/privacy/storageResolver.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 import { redactEmailLogRows } from '../services/email/redactLogMetadata.js';
 
@@ -341,8 +345,10 @@ workspaceIntegrationsRouter.get('/:workspaceId/privacy-storage', async (req, res
   return res.json({ storage: data });
 });
 
+// `local` is not offered to a workspace: it named a directory on the
+// server's own disk (storageResolver.ts, WORKSPACE_PRIVACY_STORAGE_PROVIDERS).
 const upsertPrivacyStorageSchema = z.object({
-  provider_name: z.enum(['local', 's3', 'cloudflare_r2', 'minio', 'do_spaces', 'bunny_storage']),
+  provider_name: z.enum(WORKSPACE_PRIVACY_STORAGE_PROVIDERS),
   config: z.record(z.string(), z.unknown()),
 });
 
@@ -351,6 +357,17 @@ workspaceIntegrationsRouter.put('/:workspaceId/privacy-storage', async (req, res
   const parsed = upsertPrivacyStorageSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   if (!(await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true }))) return;
+  // The server uploads to and downloads from this storage itself, so its
+  // address must be a public https host with a plain bucket and region
+  // (SSRF): refused here, and again whenever the override is used.
+  const refusal = await workspacePrivacyStorageRefusalForRaw(parsed.data.provider_name, parsed.data.config);
+  if (refusal) {
+    return res.status(400).json({
+      error: 'invalid_storage_config',
+      reason: refusal,
+      message: 'The endpoint must be an https address on a public host, with a plain bucket name and region.',
+    });
+  }
   const sb = getServiceClient(config);
 
   // Deactivate previous overrides, then insert a fresh active row —

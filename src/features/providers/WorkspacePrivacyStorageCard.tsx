@@ -37,10 +37,9 @@ import {
 
 interface FieldDef { key: string; label: string; placeholder?: string; secret?: boolean; }
 
+// No "local disk": a workspace cannot pick a directory on the server
+// (server/services/privacy/storageResolver.ts). Endpoints must be public https.
 const PROVIDER_FIELDS: Record<PrivacyStorageProvider, FieldDef[]> = {
-  local: [
-    { key: 'local_path', label: 'Persistent directory', placeholder: '/var/lib/privacy-exports' },
-  ],
   s3: [
     { key: 'bucket', label: 'Bucket' },
     { key: 'region', label: 'Region', placeholder: 'us-east-1' },
@@ -80,7 +79,7 @@ export function WorkspacePrivacyStorageCard({ workspaceId }: { workspaceId: stri
   const upsert = useUpsertWorkspacePrivacyStorage(workspaceId);
   const clear = useClearWorkspacePrivacyStorage(workspaceId);
 
-  const [provider, setProvider] = useState<PrivacyStorageProvider>('local');
+  const [provider, setProvider] = useState<PrivacyStorageProvider>('s3');
   const [config, setConfig] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -106,7 +105,7 @@ export function WorkspacePrivacyStorageCard({ workspaceId }: { workspaceId: stri
     clear.mutate(undefined, {
       onSuccess: () => {
         toast.success('Workspace override removed — using platform default');
-        setProvider('local');
+        setProvider('s3');
         setConfig({});
       },
       onError: (e) => toast.error('Remove failed: ' + (e as Error).message),
@@ -152,7 +151,6 @@ export function WorkspacePrivacyStorageCard({ workspaceId }: { workspaceId: stri
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="local">Local persistent disk</SelectItem>
                   <SelectItem value="s3">Amazon S3</SelectItem>
                   <SelectItem value="cloudflare_r2">Cloudflare R2</SelectItem>
                   <SelectItem value="minio">MinIO (self-hosted)</SelectItem>

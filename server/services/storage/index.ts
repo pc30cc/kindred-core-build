@@ -45,6 +45,14 @@ export interface StorageConfig {
   publicUrl?: string;
   // Limits
   maxFileSizeMB?: number;
+  /**
+   * Set when the endpoint came from a workspace (its privacy-export storage
+   * override, services/privacy/storageResolver.ts) and not from the
+   * platform. Its S3 requests never follow a redirect: an https endpoint that
+   * answers 3xx could otherwise send the server to an address inside its own
+   * network and hand the body back to the caller.
+   */
+  untrustedEndpoint?: boolean;
 }
 
 /** The bytes a provider handler actually needs — never carries ownership context. */
@@ -468,6 +476,16 @@ function s3BucketBase(config: StorageConfig): string {
 }
 
 /**
+ * The redirect rule of every S3 request: a workspace's own endpoint
+ * (`untrustedEndpoint`) is never followed to another address — a 3xx answer
+ * fails the request like any other non-2xx — while the platform's own
+ * storage keeps fetch's default.
+ */
+function s3RedirectPolicy(config: StorageConfig): Pick<RequestInit, 'redirect'> {
+  return config.untrustedEndpoint ? { redirect: 'manual' } : {};
+}
+
+/**
  * A CDN/public base an operator typed without a scheme (`cdn.example.com`)
  * is not a URL — anything rendering it would treat it as a relative path.
  */
@@ -582,6 +600,7 @@ async function s3Upload(config: StorageConfig, req: ProviderUploadRequest): Prom
 
   const res = await fetchWithTimeout(url, {
     method: 'PUT',
+    ...s3RedirectPolicy(config),
     headers: { ...headers, 'Content-Type': req.contentType },
     // Same as bunnyUpload: an `ArrayBuffer` holding the identical bytes that
     // were just signed above, purely to satisfy `BodyInit` typing.
@@ -604,7 +623,7 @@ async function s3Delete(config: StorageConfig, fileKey: string): Promise<Storage
   const url = `${s3BucketBase(config)}/${fileKey}`;
   const headers = signS3Request('DELETE', url, config);
 
-  const res = await fetch(url, { method: 'DELETE', headers });
+  const res = await fetch(url, { method: 'DELETE', headers, ...s3RedirectPolicy(config) });
   return { success: res.ok, error: res.ok ? undefined : `Delete failed: ${res.statusText}`, httpStatus: res.ok ? undefined : res.status };
 }
 
@@ -628,7 +647,7 @@ async function s3List(config: StorageConfig, prefix: string, cursor?: string): P
   const url = `${s3BucketBase(config)}?${s3QueryString(params)}`;
   const headers = signS3Request('GET', url, config);
 
-  const res = await fetch(url, { method: 'GET', headers });
+  const res = await fetch(url, { method: 'GET', headers, ...s3RedirectPolicy(config) });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     return { success: false, error: `S3 list failed: ${res.status} ${text.slice(0, 200)}`, httpStatus: res.status };
@@ -785,7 +804,7 @@ async function s3DownloadRange(
   const baseHeaders = signS3Request('GET', url, config);
   const headers: Record<string, string> = { ...baseHeaders };
   if (rangeHeader) headers['Range'] = rangeHeader;
-  const res = await fetch(url, { method: 'GET', headers });
+  const res = await fetch(url, { method: 'GET', headers, ...s3RedirectPolicy(config) });
   if (!res.ok && res.status !== 206) {
     return { success: false, status: res.status, error: `S3 download failed: ${res.status}` };
   }
@@ -904,7 +923,7 @@ async function bunnyDownload(config: StorageConfig, fileKey: string): Promise<Do
 async function s3Download(config: StorageConfig, fileKey: string): Promise<DownloadResult> {
   const url = `${s3BucketBase(config)}/${fileKey}`;
   const headers = signS3Request('GET', url, config);
-  const res = await fetch(url, { method: 'GET', headers });
+  const res = await fetch(url, { method: 'GET', headers, ...s3RedirectPolicy(config) });
   if (!res.ok) return { success: false, error: `S3 download failed: ${res.status}` };
   const buf = Buffer.from(await res.arrayBuffer());
   return { success: true, data: buf };

@@ -463,6 +463,39 @@ describe('workspace privacy-export storage override — manage:true', () => {
     expect(res.status).toBe(400);
   });
 
+  it('refuses the local disk: a workspace cannot pick a directory on the server', async () => {
+    const res = await call('PUT', `/api/workspace-integrations/${WS_A}/privacy-storage`, 'owner-a-token', {
+      provider_name: 'local', config: { local_path: '/app' },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('refuses an endpoint inside the network, over http, or one that rewrites the URL (SSRF)', async () => {
+    const before = (db.provider_configs || []).length;
+    for (const cfg of [
+      { endpoint: 'http://172.17.0.1:8000', bucket: 'b' },
+      { endpoint: 'https://10.0.0.5', bucket: 'b' },
+      { endpoint: 'https://127.0.0.1:9000', bucket: 'b' },
+      { endpoint: 'https://93.184.216.34?x=', bucket: 'b' },
+      { endpoint: 'https://93.184.216.34', bucket: 'x?y' },
+      { region: 'x.evil.example/' },
+    ]) {
+      const res = await call('PUT', `/api/workspace-integrations/${WS_A}/privacy-storage`, 'owner-a-token', {
+        provider_name: 'minio', config: cfg,
+      });
+      expect(res.status, JSON.stringify(cfg)).toBe(400);
+      expect(res.json.error).toBe('invalid_storage_config');
+    }
+    expect((db.provider_configs || []).length).toBe(before);
+  });
+
+  it('accepts a public https endpoint', async () => {
+    const res = await call('PUT', `/api/workspace-integrations/${WS_A}/privacy-storage`, 'owner-a-token', {
+      provider_name: 'minio', config: { endpoint: 'https://93.184.216.34', bucket: 'exports' },
+    });
+    expect(res.status).toBe(200);
+  });
+
   it('owner can clear the override', async () => {
     await call('PUT', `/api/workspace-integrations/${WS_A}/privacy-storage`, 'owner-a-token', { provider_name: 's3', config: {} });
     const del = await call('DELETE', `/api/workspace-integrations/${WS_A}/privacy-storage`, 'owner-a-token');

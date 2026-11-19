@@ -20,7 +20,6 @@ public sealed partial class LoginPage : Page
         if (SavedLogin.Read() is { } saved)
         {
             Email.Text = saved.Email;
-            Password.Password = saved.Password;
             Remember.IsChecked = true;
         }
         Password.KeyDown += (_, e) =>
@@ -64,7 +63,7 @@ public sealed partial class LoginPage : Page
         try
         {
             Host.User = await Host.Client.LoginAsync(email, Password.Password);
-            if (Remember.IsChecked == true) SavedLogin.Write(email, Password.Password);
+            if (Remember.IsChecked == true) SavedLogin.Write(email);
             else SavedLogin.Forget();
             Password.Password = string.Empty;
             await App.Current.Window!.EnterAsync();

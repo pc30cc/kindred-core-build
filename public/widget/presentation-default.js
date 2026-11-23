@@ -141,7 +141,8 @@
       // only when written in the widget's language (Persian script for fa,
       // non-Persian otherwise), else the widget's own translation is.
       var label = (pb && pb.text && textFitsLocale(pb.text)) ? pb.text : tf('poweredBy', 'Powered by');
-      var url = (pb && pb.url) || '';
+      // An http(s) address only, as t1 and t2 (the platform's setting).
+      var url = pb && /^https?:\/\//i.test(String(pb.url || '')) ? String(pb.url) : '';
       // No URL => a genuinely non-interactive element: no href, no data hook,
       // no link semantics. Appearance is identical (same class).
       // With a URL => a native anchor (no JS navigation): `nofollow` keeps this

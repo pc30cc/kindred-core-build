@@ -33,6 +33,10 @@ describe('the bundle and the loader', () => {
       expect(LOADER, gone).not.toContain(gone);
     }
     expect(LOADER).toContain('window.__gs_smart_start(host, config)');
+    // The bubble's look came along: the loader's shell sheet has none of it.
+    expect(LOADER).not.toContain('.smart-nudge{position:absolute');
+    expect(LOADER).not.toContain('@keyframes gs-smart-in');
+    expect(CLIENT).toContain('.smart-nudge{position:absolute');
     expect(LOADER).toContain('engineScript.setAttribute("data-gs-smart", "true");');
   });
 
@@ -132,6 +136,41 @@ describe('the visitor side, started with a host', () => {
     const on = page({ engine: { evaluateSmartRule: () => ({ outcome: 'not_matched', reasons: [] }) } });
     on.start();
     expect(JSON.parse(on.win.sessionStorage.getItem(KEY)!)).toMatchObject({ pages: 1 });
+  });
+
+  it('the bubble\'s sheet goes right after the loader\'s, before any template\'s, once', () => {
+    const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://shop.example/', runScripts: 'outside-only' });
+    doms.push(dom);
+    const win = dom.window as unknown as SmartWin;
+    win.eval(BUNDLE);
+    win.__gs_smart_engine = { evaluateSmartRule: () => ({ outcome: 'not_matched', reasons: [] }) };
+    const el = win.document.createElement('gs-widget');
+    win.document.body.appendChild(el);
+    const root = el.attachShadow({ mode: 'open' });
+    const shellSheet = win.document.createElement('style');
+    shellSheet.textContent = '.shell{}';
+    root.appendChild(shellSheet);
+    const shell = win.document.createElement('div');
+    root.appendChild(shell);
+    const template = win.document.createElement('link');
+    template.rel = 'stylesheet';
+    root.appendChild(template);
+    const host: Dict = {
+      startedAt: Date.now(), configData: { _apiBase: 'https://api.test' }, workspaceId: 'ws-1',
+      isOpen: () => false, runtimeLoaded: () => false, sessionToken: () => 't', shellContentEl: () => shell,
+      visitorIsNew: () => null, online: () => true, warn: () => {}, log: () => {}, tracks: () => true, vh: (h: Dict) => h,
+      recoverPost: () => Promise.resolve({ ok: true }), lt: (k: string) => k, widgetLang: () => 'en', detectBrowser: () => 'Chrome',
+      detectOS: () => 'macOS', injectPresentationFonts: () => {}, onOpenIntent: () => {}, isPhoneViewport: () => false,
+      preloadRuntimeForSmart: () => {}, triggerOpen: () => {}, onHistoryChange: () => {},
+    };
+    const config = { smart: { rules: [{ id: 'r1', version: 1, presentation_config: { mode: 'launcher_nudge' } }] } };
+    win.__gs_smart_start(host, config);
+    win.__gs_smart_start(host, config);
+    const kids = Array.from(root.children);
+    expect(kids.map((k) => k.tagName)).toEqual(['STYLE', 'STYLE', 'DIV', 'LINK']);
+    expect(kids[1].hasAttribute('data-gs-smart')).toBe(true);
+    expect(kids[1].textContent).toContain('.smart-nudge{position:absolute');
+    expect(kids[1].textContent).toContain('@media(prefers-reduced-motion:reduce){');
   });
 
   it('without an engine on the page it says so and runs nothing', () => {

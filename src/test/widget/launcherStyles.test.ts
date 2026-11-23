@@ -24,6 +24,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import vm from 'node:vm';
 import {
   FAB_ICON_IDS, FAB_SHAPES, LAUNCHER_AVATAR, LAUNCHER_GLYPHS, STYLED_FAB_ICONS, launcherInitial, resolveLauncherStyle,
 } from '../../../shared/launcherStyles';
@@ -49,6 +50,15 @@ async function startingSnapshot(key: string, config: Record<string, unknown>): P
 }
 afterAll(() => { if (UPDATE_FIXTURE) writeFileSync(FIXTURE, `${JSON.stringify(fixture, null, 1)}\n`); });
 const FAB_CSS = read('public/widget/runtime-fab.css');
+/**
+ * The Smart Engagement bubble's rules, which left the loader's shell sheet
+ * for the bubble's own (src/lib/widget/smartClient.js, SMART_CSS): the main
+ * block, and the three that sat in the shell's reduced-motion group.
+ */
+const SMART_CSS = (vm.runInNewContext(/var SMART_CSS = (\[[\s\S]*?\])\.join\(""\);/.exec(read('src/lib/widget/smartClient.js'))![1]) as string[]).join('');
+const SMART_REDUCED = /@media\(prefers-reduced-motion:reduce\)\{([\s\S]*)\}$/.exec(SMART_CSS)![1];
+const SMART_MAIN = SMART_CSS.slice(0, SMART_CSS.indexOf('@media(prefers-reduced-motion:reduce){'));
+const withoutSmart = (css: string | null) => (css == null ? css : css.replace(SMART_MAIN, '').replace(SMART_REDUCED, ''));
 /** The phone shell's rules, behind `max-width: 640px` in the starting commit. */
 const PHONE_SHELL = '.shell.gs-mobile-open{top:0;left:0;right:0;bottom:auto;width:100vw;height:var(--gs-vvh,100dvh);}'
   + '.shell.gs-mobile-open .launcher,.shell.gs-mobile-open .fab-label,.shell.gs-mobile-open .smart-nudge{display:none!important;}';
@@ -174,9 +184,11 @@ describe('without a style, the launcher is the starting commit\'s, byte for byte
     // landscape keeps the full-screen panel, mobileRotation.test.ts): the
     // launcher's own rules are untouched; and a bubble beside it gives way
     // to the open panel (V-27), a rule about the bubble, not the launcher.
+    // And the bubble's own rules are no longer the loader's: they come with
+    // Smart Engagement (smartClient.js), on a page that has active rules.
     expect(after.styles.map((s) => s!.replace('.launcher.lk-kit.square{border-radius:18px;}', '')
       .replace('.launcher.open~.smart-nudge{display:none!important;}', '')
-      .replace(PHONE_SHELL, `@media(max-width:640px){${PHONE_SHELL}}`))).toEqual(before.styles);
+      .replace(PHONE_SHELL, `@media(max-width:640px){${PHONE_SHELL}}`))).toEqual(before.styles.map(withoutSmart));
     expect(after.links).toBe(0);
   }, 20_000);
 

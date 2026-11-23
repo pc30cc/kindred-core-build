@@ -2671,7 +2671,12 @@
       onOpenIntent: onOpenIntent, isPhoneViewport: isPhoneViewport, preloadRuntimeForSmart: preloadRuntimeForSmart,
       triggerOpen: triggerOpen, onHistoryChange: onHistoryChange,
     };
+    // Once: a second `load` of the bundle never starts a second loop beside
+    // the first (each start keeps its own state).
+    var going = false;
     function go() {
+      if (going) return;
+      going = true;
       if (typeof window.__gs_smart_start === "function") window.__gs_smart_start(host, config);
       else warn("smart: engine bundle did not register");
     }

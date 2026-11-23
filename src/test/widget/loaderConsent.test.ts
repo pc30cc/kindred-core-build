@@ -20,6 +20,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const LOADER_SRC = readFileSync(resolve(process.cwd(), 'public/widget/loader.js'), 'utf8');
+/** Smart Engagement's visitor side, which smart-engine.js carries after the engine (scripts/build-smart-engine.mjs). */
+const SMART_CLIENT = readFileSync(resolve(process.cwd(), 'src/lib/widget/smartClient.js'), 'utf8');
 type Win = Record<string, unknown>;
 const win = () => window as unknown as Win;
 const SMART_KEY = 'gs:smart:v1:ws-test:session';
@@ -37,7 +39,10 @@ function response(payload: unknown, status = 200) {
 function patchAppendChild(target: HTMLElement) {
   const real = target.appendChild.bind(target);
   return vi.spyOn(target, 'appendChild').mockImplementation(<T extends Node>(node: T): T => {
-    const el = node as unknown as { tagName?: string; onload?: () => void };
+    const el = node as unknown as { tagName?: string; src?: string; onload?: () => void };
+    // The engine bundle carries Smart Engagement's visitor side, which
+    // stores its session state; no engine registers here, so no rule runs.
+    if (el.tagName === 'SCRIPT' && /smart-engine/.test(el.src || '')) new Function(SMART_CLIENT).call(window);
     if (el.tagName === 'SCRIPT' || el.tagName === 'LINK') setTimeout(() => { if (typeof el.onload === 'function') el.onload(); }, 0);
     return real(node) as T;
   });

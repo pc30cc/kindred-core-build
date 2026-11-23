@@ -23,6 +23,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const LOADER = readFileSync(resolve(process.cwd(), 'public/widget/loader.js'), 'utf8');
+/** Smart Engagement's visitor side, which smart-engine.js carries after the engine (scripts/build-smart-engine.mjs). */
+const SMART_CLIENT = readFileSync(resolve(process.cwd(), 'src/lib/widget/smartClient.js'), 'utf8');
 const WS = '7b0e9d8c-1f2a-4b3c-9d4e-5f6a7b8c9d0e';
 const RULE = '0c6b1c2e-1d2a-4e3b-9c4d-5e6f7a8b9c0d';
 const tick = async (n = 10) => { for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0)); };
@@ -78,6 +80,7 @@ describe('the loader on a page where the widget is closed', () => {
           renderSmartTemplate: (s: string) => s,
           isSafeSmartUrl: () => true,
         };
+        new Function(SMART_CLIENT).call(window);
       }
       if ((el.tagName === 'SCRIPT' || el.tagName === 'LINK') && el.rel !== 'preconnect') {
         setTimeout(() => {

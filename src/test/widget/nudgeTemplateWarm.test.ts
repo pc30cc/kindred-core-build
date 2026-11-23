@@ -15,6 +15,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const LOADER = readFileSync(resolve(process.cwd(), 'public/widget/loader.js'), 'utf8');
+/** Smart Engagement's visitor side, which smart-engine.js carries after the engine (scripts/build-smart-engine.mjs). */
+const SMART_CLIENT = readFileSync(resolve(process.cwd(), 'src/lib/widget/smartClient.js'), 'utf8');
 const WS = '7b0e9d8c-1f2a-4b3c-9d4e-5f6a7b8c9d0e';
 const tick = async (n = 10) => { for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0)); };
 
@@ -61,6 +63,7 @@ describe('a launcher nudge and the template files', () => {
           resolveSmartContent: () => ({ title: '', body: 'سلام! سؤالی دارید؟', cta_label: '' }),
           renderSmartTemplate: (s: string) => s,
         };
+        new Function(SMART_CLIENT).call(window);
       }
       if ((node.tagName === 'SCRIPT' || node.tagName === 'LINK') && node.rel !== 'preconnect') {
         setTimeout(() => {

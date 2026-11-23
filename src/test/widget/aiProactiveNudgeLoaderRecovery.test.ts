@@ -1,6 +1,11 @@
 /**
  * AI Proactive Nudge — widget loader.js session-recovery contract (blocker 3).
  *
+ * The nudge's code is Smart Engagement's visitor side,
+ * src/lib/widget/smartClient.js (smart-engine.js carries it after the
+ * engine); the session manager and recoverPost stay in loader.js, which
+ * hands recoverPost to it (startSmart's `host`).
+ *
  * public/widget/loader.js is a single monolithic IIFE (bound to window/
  * document) with no existing vm-execution test harness in this repo — every
  * loader.js test here (openCloseLifecycle.test.ts, designContract.test.ts,
@@ -31,6 +36,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const loader = fs.readFileSync(path.resolve(process.cwd(), 'public/widget/loader.js'), 'utf8');
+const client = fs.readFileSync(path.resolve(process.cwd(), 'src/lib/widget/smartClient.js'), 'utf8');
 
 function extractFunctionBody(src: string, signature: string): string {
   const start = src.indexOf(signature);
@@ -73,8 +79,11 @@ describe('loader.js — AI nudge lifecycle reporting is session-recovery aware (
   });
 
   it('reportAiEvent sends through recoverPost, which reads the CURRENT shared widget token before sending', () => {
-    const body = extractFunctionBody(loader, 'function reportAiEvent(nudgeId, type) {');
+    const body = extractFunctionBody(client, 'function reportAiEvent(nudgeId, type) {');
     expect(body).toContain('recoverPost(apiBase + "/api/widget/smart/event"');
+    // The loader's own recoverPost, handed over by startSmart.
+    expect(client).toContain('recoverPost = host.recoverPost');
+    expect(extractFunctionBody(loader, 'function startSmart(config) {')).toContain('recoverPost: recoverPost');
     const post = extractFunctionBody(loader, 'function recoverPost(url, payload, token, signal) {');
     expect(post).toContain('var bus = window.__gs_token;');
     expect(post).toContain('send(bus.get() || token)');
@@ -88,11 +97,11 @@ describe('loader.js — AI nudge lifecycle reporting is session-recovery aware (
     expect(post).toContain('bus.recover().then(function (t) { return t ? send(t) : r; })');
     // No unbounded retry construct (setInterval/while) inside either function.
     expect(post).not.toMatch(/setInterval|while\s*\(/);
-    expect(extractFunctionBody(loader, 'function reportAiEvent(nudgeId, type) {')).not.toMatch(/setInterval|while\s*\(/);
+    expect(extractFunctionBody(client, 'function reportAiEvent(nudgeId, type) {')).not.toMatch(/setInterval|while\s*\(/);
   });
 
   it('reportAiEvent never throws — every fetch has a .catch and the send is wrapped in try/catch', () => {
-    const body = extractFunctionBody(loader, 'function reportAiEvent(nudgeId, type) {');
+    const body = extractFunctionBody(client, 'function reportAiEvent(nudgeId, type) {');
     expect(body).toContain('.catch(function () {});');
     expect(body).toContain('try {');
     expect(body).toContain('} catch (_) {}');
@@ -110,8 +119,10 @@ describe('loader.js — AI nudge lifecycle reporting is session-recovery aware (
     const bootstrapFetchSites = loader.split("fetch(cfg.apiBase + bootstrapPath(").length - 1;
     expect(bootstrapFetchSites).toBe(1);
     expect(loader).toContain("function bootstrapPath(json) { return json ? '/api/widget/bootstrap' : '/api/widget/boot'; }");
-    // reportAiEvent itself never calls fetch against these two endpoints.
-    const reportAiEventBody = extractFunctionBody(loader, 'function reportAiEvent(nudgeId, type) {');
+    // Smart Engagement's visitor side never calls these two endpoints itself.
+    expect(client).not.toContain('/api/widget/session/refresh');
+    expect(client).not.toContain('/api/widget/boot');
+    const reportAiEventBody = extractFunctionBody(client, 'function reportAiEvent(nudgeId, type) {');
     expect(reportAiEventBody).not.toContain('/api/widget/session/refresh');
     expect(reportAiEventBody).not.toContain('/api/widget/boot');
     expect(reportAiEventBody).not.toContain('bootstrapPath(');
@@ -121,9 +132,9 @@ describe('loader.js — AI nudge lifecycle reporting is session-recovery aware (
   });
 
   it('dismissed and cta_clicked nudge events are reported through the SAME session-recovery-aware reportAiEvent', () => {
-    const shownSite = loader.indexOf('reportAiEvent(data.nudgeId, "shown")');
-    const dismissedSite = loader.indexOf('reportAiEvent(data.nudgeId, "dismissed")');
-    const ctaSite = loader.indexOf('reportAiEvent(data.nudgeId, "cta_clicked")');
+    const shownSite = client.indexOf('reportAiEvent(data.nudgeId, "shown")');
+    const dismissedSite = client.indexOf('reportAiEvent(data.nudgeId, "dismissed")');
+    const ctaSite = client.indexOf('reportAiEvent(data.nudgeId, "cta_clicked")');
     expect(shownSite).toBeGreaterThan(-1);
     expect(dismissedSite).toBeGreaterThan(-1);
     expect(ctaSite).toBeGreaterThan(-1);

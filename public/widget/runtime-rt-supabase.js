@@ -43,16 +43,26 @@
   // If none of those resolve, the driver fails fast and the runtime falls
   // back to polling rather than pulling code from an unaudited third-party
   // origin (esm.sh / unpkg / jsDelivr).
+  // An absolute https address (http only on this machine), as the browser
+  // reads it: the module script below imports it, so nothing else (a
+  // quote, a `javascript:` or relative address) may reach its source.
+  function moduleUrl(raw) {
+    try {
+      var u = new URL(String(raw));
+      if (u.protocol === 'https:' || (u.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(u.hostname))) return u.href;
+    } catch (_) {}
+    return null;
+  }
   function resolveSupabaseJsUrl() {
     if (typeof window.__gs_supabase_js_url === 'string' && window.__gs_supabase_js_url) {
-      return window.__gs_supabase_js_url;
+      return moduleUrl(window.__gs_supabase_js_url);
     }
     var scripts = document.getElementsByTagName('script');
     for (var i = 0; i < scripts.length; i++) {
       var s = scripts[i];
       if (!s || !s.getAttribute) continue;
       var attr = s.getAttribute('data-supabase-js-url');
-      if (attr) return attr;
+      if (attr) return moduleUrl(attr);
     }
     return null;
   }
@@ -75,7 +85,7 @@
       var s = document.createElement('script');
       s.type = 'module';
       s.textContent =
-        "import { createClient } from '" + supabaseJsUrl + "';" +
+        'import { createClient } from ' + JSON.stringify(supabaseJsUrl) + ';' +
         'window.__gs_supabase_client_factory = createClient;' +
         "window.dispatchEvent(new Event('__gs_supabase_lib_ready'));";
       var done = false;
@@ -155,8 +165,10 @@
      * Ask the backend for the concrete (unguessable) topic of this
      * conversation. Resolves with the topic string, or null when the server
      * refuses (not this visitor's conversation, no secret configured, …).
+     * A refused session (401/403: the token expired while the page slept)
+     * is recovered once (the shared session manager), then asked again.
      */
-    function fetchTopic(cid) {
+    function fetchTopic(cid, isRetry) {
       if (typeof fetch !== 'function' || !ctx.apiBase) return Promise.resolve(null);
       var expectedPrefix = buildChannel(cid) + ':';
       var h = { 'Content-Type': 'application/json', 'X-Widget-Token': currentToken() };
@@ -168,12 +180,19 @@
         headers: h,
         body: JSON.stringify({ workspace_id: ctx.workspaceId, conversation_id: cid, transport: 'supabase' }),
       })
-        .then(function (r) { return r && r.ok ? r.json() : null; })
-        .then(function (data) {
-          if (!data || data.vendor !== 'supabase' || typeof data.topic !== 'string') return null;
-          // Only ever join a topic the server derived for THIS conversation.
-          if (data.topic.indexOf(expectedPrefix) !== 0) return null;
-          return data.topic;
+        .then(function (r) {
+          if (r && (r.status === 401 || r.status === 403) && !isRetry) {
+            var recovered = null;
+            try { recovered = ctx.recoverSession ? ctx.recoverSession() : window.__gs_token.recover(); } catch (_) { recovered = null; }
+            return Promise.resolve(recovered).then(function (t) { return t ? fetchTopic(cid, true) : null; }, function () { return null; });
+          }
+          if (!r || !r.ok) return null;
+          return r.json().then(function (data) {
+            if (!data || data.vendor !== 'supabase' || typeof data.topic !== 'string') return null;
+            // Only ever join a topic the server derived for THIS conversation.
+            if (data.topic.indexOf(expectedPrefix) !== 0) return null;
+            return data.topic;
+          });
         })
         .catch(function () { return null; });
     }

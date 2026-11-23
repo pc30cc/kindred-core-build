@@ -176,7 +176,9 @@
     Object.keys(vars).forEach(function (k) {
       var v = String(vars[k]);
       if (fa && typeof vars[k] === 'number') v = v.replace(/\d/g, function (d) { return String.fromCharCode(1776 + +d); });
-      text = text.replace(new RegExp('\\{' + k + '\\}', 'g'), v);
+      // A function, so a `$&` or `$1` in the value (a name, a workspace's
+      // text) is written as it is, never read as a replacement pattern.
+      text = text.replace(new RegExp('\\{' + k + '\\}', 'g'), function () { return v; });
     });
     return text;
   }
@@ -610,6 +612,7 @@
     this.endedCallId = null;
     this.endedDuration = 0;
     this.ratingSubmitted = false;
+    this.ratingSending = false;
     this.ratingValue = 0;
     this.ratingComment = '';
     this.formData = {
@@ -1134,16 +1137,20 @@
 
   CallCenterWidgetCtor.prototype.submitRating = function () {
     var self = this;
-    if (!self.endedCallId || !self.ratingValue) return;
+    // Once per call: a second tap while it is on its way sends nothing.
+    if (!self.endedCallId || !self.ratingValue || self.ratingSending || self.ratingSubmitted) return;
     var id = self.endedCallId;
+    self.ratingSending = true;
     self.api('/api/call-widget/calls/' + id + '/rate', {
       method: 'POST',
       body: { rating: self.ratingValue, comment: self.ratingComment || null },
     }).then(function () {
+      self.ratingSending = false;
       self.ratingSubmitted = true;
       self.render();
     }).catch(function () {
       // Even on failure, treat as submitted so the visitor isn't stuck.
+      self.ratingSending = false;
       self.ratingSubmitted = true;
       self.render();
     });
@@ -1859,6 +1866,7 @@
     this.callbackId = null;
     this.checkBooking();
     this.ratingSubmitted = false;
+    this.ratingSending = false;
     this.ratingValue = 0;
     this.ratingComment = '';
     this._lastAgentId = null;

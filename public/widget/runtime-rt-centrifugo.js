@@ -165,17 +165,25 @@
       try { if (window.__gs_token.vc) h['X-Widget-Visitor'] = window.__gs_token.vc; } catch (_) {}
       return h;
     }
-    function fetchSubToken(cid) {
+    // A refused session (401/403: the token expired while the page slept)
+    // is recovered once, then asked again with the fresh token; it used to
+    // leave the conversation without live messages until the next refresh.
+    function fetchSubToken(cid, isRetry) {
       return fetch(ctx.apiBase + '/api/realtime/subscribe', {
         method: 'POST',
         credentials: 'include',
         headers: authHeaders(),
         body: JSON.stringify({ workspace_id: ctx.workspaceId, conversation_id: cid }),
       })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (!data || data.vendor !== 'centrifugo' || !data.token) return null;
-          return { channel: data.channel || buildChannel(cid), token: data.token };
+        .then(function (r) {
+          if ((r.status === 401 || r.status === 403) && !isRetry && !authStopped) {
+            return recoverWidgetSession().then(function (t) { return t ? fetchSubToken(cid, true) : null; });
+          }
+          if (!r.ok) return null;
+          return r.json().then(function (data) {
+            if (!data || data.vendor !== 'centrifugo' || !data.token) return null;
+            return { channel: data.channel || buildChannel(cid), token: data.token };
+          });
         })
         .catch(function () { return null; });
     }

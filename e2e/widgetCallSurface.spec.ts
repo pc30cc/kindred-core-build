@@ -357,3 +357,21 @@ test.describe('minimizing lets the visitor chat through the call', () => {
     expect(host).toEqual({ hidden: false, isMini: false });
   });
 });
+
+test.describe('the call clock', () => {
+  // The 1 Hz ticker looks for the surface where it is drawn, the panel's
+  // call host (a sibling of `.body`); looked for in `.body`, it was never
+  // found and the clock stood still between store changes.
+  for (const channel of ['audio', 'video'] as const) {
+    test(`a connected ${channel} call's clock moves every second, with nothing else changing`, async ({ page }) => {
+      await openCall(page, { phase: 'connected', channel, connectedAt: Date.now() - 5_000, micEnabled: true });
+      const clock = () => page.evaluate(() => (document.querySelector('[data-call-host] [data-call-timer]') as HTMLElement | null)?.textContent ?? null);
+      const first = await clock();
+      expect(first).toMatch(/^00:0[5-6]$/);
+      await page.waitForTimeout(2_300);
+      const later = await clock();
+      expect(later).toMatch(/^00:0[7-9]$/);
+      expect(later).not.toBe(first);
+    });
+  }
+});

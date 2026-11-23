@@ -108,6 +108,8 @@ describe('the shipped files', () => {
       expect(registry.resolve(['web', 'yar'].join('-')).id).toBe('default');
       expect(typeof win[registry.resolve('intl').globalKey]).toBe('object');
       expect(win.__gs_smart_engine).toBeTruthy();
+      // Smart Engagement's visitor side, which the bundle carries after the engine.
+      expect(typeof win.__gs_smart_start).toBe('function');
       expect(win.CallWidgetPresentations).toBeTruthy();
       // The late pack: each renderer's extras (handshake intact) and Core's late module.
       for (const [id, v] of [['t1', 4], ['t2', 3]] as const) {

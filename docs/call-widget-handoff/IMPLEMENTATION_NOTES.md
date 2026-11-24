@@ -538,11 +538,19 @@ Defects and wishes found while building, outside the scope the owner set (D29):
 
 ## Visual QA and behaviour specs
 
-Since 2026-11-24 CI's job "Call widget browser specs" (`.github/workflows/ci.yml`, `call-widget-e2e`) runs on
-every push and pull request, with Playwright's own Chromium: `callWidgetBehaviour.spec.ts` and
-`callWidgetPlacement.spec.ts` in full, and from `callWidgetScreens.spec.ts` the real loader in source, shipped and
-built modes ("boots through the real loader"). Tier A (the pixel comparison, about 15 minutes, sensitive to the
-fonts and the Chromium build) and the matrix stay local gates.
+Since 2026-11-24 they run in CI (`.github/workflows/ci.yml`), on every push and pull request, with Playwright's
+own Chromium:
+- "Call widget browser specs" (`call-widget-e2e`): `callWidgetBehaviour.spec.ts` and `callWidgetPlacement.spec.ts`
+  in full, and from `callWidgetScreens.spec.ts` the real loader in source, shipped and built modes ("boots through
+  the real loader").
+- "Call widget pixel gate (Tier A)" (`call-widget-pixels`): the rest of `callWidgetScreens.spec.ts` but the matrix
+  and "reproduces". Tier A needs the system fonts it was tuned with: `fonts-inter` and the two fontconfig files in
+  `e2e/harness/fontconfig/` (its README). Without them every state with text is about 1% off.
+- The matrix: weekly and by hand (`.github/workflows/call-widget-matrix.yml`).
+- "reproduces" needs the owner's full handoff package and stays local.
+
+Its first CI run found one real drift: the Persian badge's two dots (`.badge .chn b`) carried a margin of .01875em
+each, so the badge was 0.88px wider than the design's (box probe ±0.5px); without it, 0.00%.
 
 All three specs need Chromium (`PLAYWRIGHT_CHROMIUM_PATH`, `/opt/pw-browsers`, else Playwright's own) and run one worker:
 

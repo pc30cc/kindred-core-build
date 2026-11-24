@@ -183,12 +183,16 @@ test.describe('admin verification page — authenticated (E2E_FULL_STACK=1)', ()
     // 4. A stale expectedRevision is rejected as a visible revision conflict.
     await page.getByRole('row', { name: /Change email/ }).getByRole('button', { name: 'Edit' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
+    // The form is drawn once the purpose's settings (and their revision) are
+    // in: wait for it, or the bump below can land before that read, which
+    // then returns the new revision and saves without a conflict.
+    const changeEmailCooldown = page.getByLabel('Resend cooldown (seconds)');
+    await expect(changeEmailCooldown).toBeVisible({ timeout: 10_000 });
+    const currentChangeEmailCooldown = await changeEmailCooldown.inputValue();
     // Out-of-band mutation via a raw DB bump of `revision` while the dialog
     // is open, simulating a second admin's concurrent change — the open
     // dialog still holds the now-stale revision it loaded with.
     await db.query(`UPDATE public.verification_purpose_settings SET revision = revision + 1 WHERE purpose = 'change_email'`);
-    const changeEmailCooldown = page.getByLabel('Resend cooldown (seconds)');
-    const currentChangeEmailCooldown = await changeEmailCooldown.inputValue();
     await changeEmailCooldown.fill(String(Number(currentChangeEmailCooldown) + 5));
     await page.getByRole('button', { name: 'Save changes' }).click();
     await expect(page.getByText('Someone else changed these settings. Reload and try again.')).toBeVisible({ timeout: 10_000 });

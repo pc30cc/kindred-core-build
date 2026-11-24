@@ -3,14 +3,35 @@ name: Call widget pixel matrix
 # Tier A's matrix (e2e/callWidgetScreens.spec.ts, CALL_SCREENS_MATRIX=1):
 # every P/M/C state of both brands again for every other preset accent, the
 # light accent (Ink on it) and radius sm/lg, each against the reference
-# re-rendered the same way. Too long for every push (Tier A itself runs in
-# ci.yml); weekly and by hand. The handoff package's own PNGs ("reproduces")
-# need the owner's package and stay local.
+# re-rendered the same way (14 runs, about 13 minutes). Tier A itself runs in
+# ci.yml on every push; the matrix on a change that can move a pixel of the
+# call widget, weekly, and by hand. The handoff package's own PNGs
+# ("reproduces") need the owner's package and stay local.
 
 on:
   pull_request:
     paths:
       - '.github/workflows/call-widget-matrix.yml'
+      - 'public/call-widget/**'
+      - 'public/widget/presentation-default-fonts.css'
+      - 'public/widget/fonts/**'
+      - 'docs/call-widget-handoff/**'
+      - 'e2e/callWidgetScreens.spec.ts'
+      - 'e2e/harness/call*'
+      - 'e2e/harness/pngDiff.ts'
+      - 'e2e/harness/fontconfig/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/call-widget-matrix.yml'
+      - 'public/call-widget/**'
+      - 'public/widget/presentation-default-fonts.css'
+      - 'public/widget/fonts/**'
+      - 'docs/call-widget-handoff/**'
+      - 'e2e/callWidgetScreens.spec.ts'
+      - 'e2e/harness/call*'
+      - 'e2e/harness/pngDiff.ts'
+      - 'e2e/harness/fontconfig/**'
   schedule:
     - cron: '17 3 * * 1'
   workflow_dispatch:

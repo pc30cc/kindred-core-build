@@ -546,7 +546,8 @@ own Chromium:
 - "Call widget pixel gate (Tier A)" (`call-widget-pixels`): the rest of `callWidgetScreens.spec.ts` but the matrix
   and "reproduces". Tier A needs the system fonts it was tuned with: `fonts-inter` and the two fontconfig files in
   `e2e/harness/fontconfig/` (its README). Without them every state with text is about 1% off.
-- The matrix: weekly and by hand (`.github/workflows/call-widget-matrix.yml`).
+- The matrix (14 runs, about 13 minutes): on every change that can move a pixel of the call widget (its files, the
+  fonts, the handoff, the harness), weekly and by hand (`.github/workflows/call-widget-matrix.yml`).
 - "reproduces" needs the owner's full handoff package and stays local.
 
 Its first CI run found one real drift: the Persian badge's two dots (`.badge .chn b`) carried a margin of .01875em

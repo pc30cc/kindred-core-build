@@ -187,7 +187,8 @@ jobs:
   # panel), the placements by geometry and board 12's tokens
   # (docs/call-widget-handoff/IMPLEMENTATION_NOTES.md, "Visual QA"), with the
   # system fonts it was tuned with. The loader test of the same file runs in
-  # call-widget-e2e above, the matrix weekly (call-widget-matrix.yml); the
+  # call-widget-e2e above, the matrix on a change to the call widget and
+  # weekly (call-widget-matrix.yml); the
   # handoff package's own PNGs need the owner's package and stay local.
   call-widget-pixels:
     name: Call widget pixel gate (Tier A)

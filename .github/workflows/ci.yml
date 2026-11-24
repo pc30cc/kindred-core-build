@@ -136,6 +136,53 @@ jobs:
       - name: Widget browser specs
         run: npx playwright test 'e2e/widget[^/]*\.spec\.ts$'
 
+  # The call widget's browser specs: hermetic as above (public/call-widget,
+  # served from the checkout or a scratch build of it, an in-memory call
+  # server and a fake LiveKit room). Behaviour and placement in full, and the
+  # real loader in source, shipped and built modes (the hashed names, the
+  # engine's core and its one language). Tier A, the pixel comparison against
+  # the handoff's boards (about 15 minutes, sensitive to the fonts and the
+  # Chromium build), stays a local gate: docs/call-widget-handoff/IMPLEMENTATION_NOTES.md.
+  call-widget-e2e:
+    name: Call widget browser specs (Chromium, hermetic)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.3'
+
+      - name: Cache Bun install cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Install Chromium (with its system libraries)
+        run: bunx playwright install --with-deps chromium
+
+      - name: The loader in source, shipped and built modes
+        run: npx playwright test e2e/callWidgetScreens.spec.ts -g "boots through the real loader"
+
+      - name: Behaviour and placement
+        if: ${{ !cancelled() }}
+        run: npx playwright test e2e/callWidgetBehaviour.spec.ts e2e/callWidgetPlacement.spec.ts
+
   # pgvector/pgvector:pg16 is PostgreSQL 16 with pgvector: the database-only
   # acceptance suite (postgresOnlyAcceptance.pg.test.ts) retrieves AI knowledge
   # over real embeddings, which needs the extension on the server.

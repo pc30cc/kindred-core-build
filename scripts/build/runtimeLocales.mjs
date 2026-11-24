@@ -1,5 +1,10 @@
 /**
- * The chat widget's runtime in one language.
+ * The widgets' runtimes cut by language: the chat widget's runtime.js in one
+ * language (runtimeForLocale), and the call widget's engine without its
+ * languages plus each language on its own (runtimeWithoutLocales,
+ * localePackScript; scripts/call-widget-hash.js).
+ *
+ * The chat widget's runtime in one language:
  *
  * public/widget/runtime.js carries its dictionary in every language the
  * widget speaks (I18n `dict`), each block opened by a `// @locale <id>` line
@@ -70,4 +75,54 @@ export function runtimeForLocale(source, locale) {
   }
   out.push(...lines.slice(at));
   return out.join('\n');
+}
+
+/**
+ * `source` without any language block, markers included: the call widget's
+ * runtime-core.js, whose strings come from its runtime-i18n-<id>.js files.
+ */
+export function runtimeWithoutLocales(source) {
+  const { lines, blocks } = localeBlocks(source);
+  const first = blocks[0].start;
+  const last = blocks[blocks.length - 1].end;
+  return [...lines.slice(0, first), ...lines.slice(last + 1)].join('\n');
+}
+
+/**
+ * One language block of `source` as a script of its own that adds it to the
+ * object `window[globalName]` (made when missing), whether it runs before or
+ * after the runtime that reads that object: the call widget's
+ * runtime-i18n-<id>.js. The block is copied as written, so the pack is
+ * exactly the language the full file carries.
+ */
+export function localePackScript(source, locale, globalName) {
+  if (!/^[A-Za-z_$][\w$]*$/.test(globalName)) throw new Error(`runtime locales: not a global name: ${globalName}`);
+  const { lines, blocks } = localeBlocks(source);
+  const block = blocks.find((b) => b.id === locale);
+  if (!block) throw new Error(`runtime locales: no @locale ${locale}`);
+  return [
+    '(function () {',
+    `  var packs = window.${globalName} || (window.${globalName} = {});`,
+    '  var add = {',
+    ...lines.slice(block.start + 1, block.end),
+    '  };',
+    '  for (var id in add) packs[id] = add[id];',
+    '})();',
+    '',
+  ].join('\n');
+}
+
+/** The object the call widget's language files fill (runtime.js reads it as its I18N). */
+export const CALL_I18N_GLOBAL = '__ccw_i18n';
+
+/**
+ * The call widget's engine files the build makes from runtime.js, in the
+ * build's order, as `[name, source]`: runtime-core.js, then one
+ * runtime-i18n-<id>.js per language block.
+ */
+export function callRuntimeFiles(source) {
+  return [
+    ['runtime-core.js', runtimeWithoutLocales(source)],
+    ...runtimeLocales(source).map((id) => [`runtime-i18n-${id}.js`, localePackScript(source, id, CALL_I18N_GLOBAL)]),
+  ];
 }

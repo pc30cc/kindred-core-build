@@ -3,11 +3,18 @@
  * (scripts/call-widget-hash.js), the raw l.js the API image serves, and the
  * presentation's createHost.
  *
- *  - A built l.js starts the registry, the presentation and the runtime by
- *    this build's hashed names, as ordered (`async = false`) head scripts, in
- *    parallel with the bootstrap; it mounts when both are done. Never inside
- *    the host page's load: on a page still loading they start at its load
- *    event or when the bootstrap answers, whichever is first.
+ *  - A built l.js starts the registry, the presentation and the engine's
+ *    core (runtime-core.js) by this build's hashed names, as ordered
+ *    (`async = false`) head scripts, in parallel with the bootstrap; it
+ *    mounts when both are done. Never inside the host page's load: on a page
+ *    still loading they start at its load event or when the bootstrap
+ *    answers, whichever is first.
+ *  - The core carries no strings: the language the widget starts in comes as
+ *    runtime-i18n-<id>.js, started with the others when the visitor's pick
+ *    or the bootstrap's default names it, else asked for by the engine
+ *    (`missingLocale`) before the mount; a language the visitor switches to
+ *    comes through the mount's `loadLocale`. A missing language file sends
+ *    the loader to the fixed names (runtime.js, every language in it).
  *  - No stylesheet goes into the page's head: the two stylesheets are linked
  *    in the shadow root only (hashed names), the host hidden until they load.
  *  - A hashed file that is not there (a stale l.js, a rolling deploy) sends
@@ -122,7 +129,7 @@ describe('the built l.js', () => {
     expect(s.map((el) => el.src)).toEqual([
       hashed('presentation-registry.js'),
       hashed('presentation-default.js'),
-      hashed('runtime.js'),
+      hashed('runtime-core.js'),
     ]);
     for (const el of s) expect(el.async).toBe(false);
     expect(p.stylesheets()).toEqual([]);
@@ -138,7 +145,7 @@ describe('the built l.js', () => {
     expect(p.scripts().map((el) => el.src)).toEqual([
       hashed('presentation-registry.js'),
       hashed('presentation-default.js'),
-      hashed('runtime.js'),
+      hashed('runtime-core.js'),
     ]);
     const mount = p.runtime();
     for (const el of p.scripts()) el.onload!();
@@ -261,7 +268,7 @@ describe('the built l.js', () => {
     expect(s.map((el) => el.src)).toEqual([
       hashed('presentation-registry.js'),
       hashed('presentation-default.js'),
-      hashed('runtime.js'),
+      hashed('runtime-core.js'),
     ]);
     for (const el of s) el.onload!();
     expect(mount).toHaveBeenCalledTimes(1);
@@ -435,7 +442,7 @@ describe('the panel module (l.js ensurePanel, the presentation\'s `loadPanel`)',
     expect(p.scripts().map((el) => el.src)).toEqual([
       hashed('presentation-registry.js'),
       hashed('presentation-default.js'),
-      hashed('runtime.js'),
+      hashed('runtime-core.js'),
       hashed('presentation-default-panel.js'),
     ]);
     const mount = p.runtime();
@@ -453,7 +460,7 @@ describe('the panel module (l.js ensurePanel, the presentation\'s `loadPanel`)',
     expect(p.scripts().map((el) => el.src)).toEqual([
       hashed('presentation-registry.js'),
       hashed('presentation-default.js'),
-      hashed('runtime.js'),
+      hashed('runtime-core.js'),
       hashed('presentation-default-panel.js'),
     ]);
     // The bootstrap's answer shares the module already on its way.
@@ -473,7 +480,7 @@ describe('the panel module (l.js ensurePanel, the presentation\'s `loadPanel`)',
     expect(p.scripts().map((el) => el.src)).toEqual([
       hashed('presentation-registry.js'),
       hashed('presentation-default.js'),
-      hashed('runtime.js'),
+      hashed('runtime-core.js'),
       hashed('presentation-default-panel.js'),
     ]);
     p.fireLoad();
@@ -497,6 +504,168 @@ describe('the panel module (l.js ensurePanel, the presentation\'s `loadPanel`)',
     for (const el of p.scripts()) el.onload!();
     mount.mock.calls[0][0].loadPanel(() => {});
     expect(p.scripts().map((el) => el.src)).toContain(`${ASSETS}/call-widget/presentation-other-panel.js?v=abc123def456`);
+  });
+});
+
+describe('the engine\'s language (runtime-core.js and runtime-i18n-<id>.js)', () => {
+  let build: CallWidgetBuild;
+  beforeAll(() => { build = buildCallWidget(null); }, 60_000);
+  afterAll(() => build?.cleanup());
+  const hashed = (name: string) => `${ASSETS}/call-widget/${build.manifest.files[name]}`;
+  const lang = (id: string) => hashed(`runtime-i18n-${id}.js`);
+  const PAGE_LOAD = () => [hashed('presentation-registry.js'), hashed('presentation-default.js'), hashed('runtime-core.js')];
+  const i18n = (def: string, available: string[]) => bootstrap({ i18n: { default_locale: def, available_locales: available } });
+  /** The core's global: `missing` is what missingLocale answers until `have()`. */
+  function engine(p: ReturnType<typeof page>, missing: string | null) {
+    let answer = missing;
+    const mount = vi.fn();
+    const missingLocale = vi.fn(() => answer);
+    (p.win as unknown as { CallCenterWidget: unknown }).CallCenterWidget = { mount, missingLocale };
+    return { mount, missingLocale, have: () => { answer = null; } };
+  }
+
+  it('the build has a language file for each of the engine\'s languages, and l.js names them', () => {
+    for (const id of ['en', 'fa', 'tr']) {
+      expect(build.manifest.files[`runtime-i18n-${id}.js`]).toMatch(new RegExp(`^runtime-i18n-${id}\\.[a-f0-9]{12}\\.js$`));
+      expect(build.loader).toContain(build.manifest.files[`runtime-i18n-${id}.js`]);
+    }
+    expect(build.manifest.files['runtime-core.js']).toMatch(/^runtime-core\.[a-f0-9]{12}\.js$/);
+  });
+
+  it('a bootstrap that answers before the page\'s load starts its default language with the others', async () => {
+    const p = page({ loading: true });
+    p.run(build.loader);
+    const { mount } = engine(p, null);
+    await p.respond(200, i18n('fa', ['fa', 'en']));
+    expect(p.scripts().map((el) => el.src)).toEqual([...PAGE_LOAD(), lang('fa')]);
+    for (const el of p.scripts()) expect(el.async).toBe(false);
+    for (const el of p.scripts().slice(0, 3)) el.onload!();
+    expect(mount).not.toHaveBeenCalled(); // the language has not run yet
+    p.scripts()[3].onload!();
+    expect(mount).toHaveBeenCalledTimes(1);
+    p.fireLoad();
+    expect(p.scripts()).toHaveLength(4);
+  });
+
+  it('the visitor\'s pick (`ccw_locale`) starts before the bootstrap answers; one the bootstrap does not offer gives way to its default', async () => {
+    const p = page();
+    p.win.localStorage.setItem('ccw_locale', 'tr');
+    p.run(build.loader);
+    expect(p.scripts().map((el) => el.src)).toEqual([...PAGE_LOAD(), lang('tr')]);
+    engine(p, null);
+    await p.respond(200, i18n('fa', ['fa', 'tr']));
+    expect(p.scripts()).toHaveLength(4); // still the pick's: nothing twice
+
+    const q = page();
+    q.win.localStorage.setItem('ccw_locale', 'tr');
+    q.run(build.loader);
+    engine(q, null);
+    await q.respond(200, i18n('fa', ['fa', 'en']));
+    expect(q.scripts().map((el) => el.src)).toEqual([...PAGE_LOAD(), lang('tr'), lang('fa')]);
+  });
+
+  it('the language the engine asks for is loaded before the mount, once; a file that does not define it mounts anyway', async () => {
+    const p = page();
+    p.run(build.loader);
+    const e = engine(p, 'en');
+    for (const el of p.scripts()) el.onload!();
+    await p.respond(200, bootstrap());
+    expect(e.missingLocale).toHaveBeenCalledWith(expect.objectContaining({ session: 'sess' }));
+    expect(e.mount).not.toHaveBeenCalled();
+    expect(p.scripts().map((el) => el.src)).toEqual([...PAGE_LOAD(), lang('en')]);
+    expect(p.scripts()[3].async).toBe(false);
+    e.have();
+    p.scripts()[3].onload!();
+    expect(e.mount).toHaveBeenCalledTimes(1);
+
+    const q = page();
+    q.run(build.loader);
+    const f = engine(q, 'en');
+    for (const el of q.scripts()) el.onload!();
+    await q.respond(200, bootstrap());
+    q.scripts()[3].onload!(); // ran, but still no English
+    expect(f.mount).toHaveBeenCalledTimes(1);
+    expect(q.scripts()).toHaveLength(4);
+  });
+
+  it('a language file that is not there sends the loader to the fixed names: runtime.js, with every language', async () => {
+    const p = page();
+    p.run(build.loader);
+    const e = engine(p, 'fa');
+    for (const el of p.scripts()) el.onload!();
+    await p.respond(200, bootstrap());
+    p.scripts()[3].onerror!(); // a stale l.js meeting a newer deploy
+    expect(e.mount).not.toHaveBeenCalled();
+    const retry = p.scripts().slice(4);
+    expect(retry.map((el) => el.src.replace(/&t=\d+$/, '&t=N'))).toEqual([
+      `${ASSETS}/call-widget/presentation-registry.js?v=abc123def456&t=N`,
+      `${ASSETS}/call-widget/presentation-default.js?v=abc123def456&t=N`,
+      `${ASSETS}/call-widget/runtime.js?v=abc123def456&t=N`,
+    ]);
+    // runtime.js has every language: its engine asks for none.
+    const full = engine(p, null);
+    for (const el of retry) el.onload!();
+    expect(full.mount).toHaveBeenCalledTimes(1);
+    expect(full.mount.mock.calls[0][0].loadLocale).toEqual(expect.any(Function));
+  });
+
+  it('a pick that names no file of this build starts nothing more', () => {
+    for (const junk of ['xx', '../../evil', 'fa.js?', '']) {
+      const p = page();
+      p.win.localStorage.setItem('ccw_locale', junk);
+      p.run(build.loader);
+      expect(p.scripts().map((el) => el.src), JSON.stringify(junk)).toEqual(PAGE_LOAD());
+    }
+  });
+
+  it('loadLocale (a language the visitor switches to): this build\'s copy, then once the fixed name; the callback either way', async () => {
+    const p = page();
+    p.run(build.loader);
+    const { mount } = engine(p, null);
+    for (const el of p.scripts()) el.onload!();
+    await p.respond(200, bootstrap());
+    const { loadLocale } = mount.mock.calls[0][0] as { loadLocale: (id: string, cb: () => void) => void };
+    const later = () => p.scripts().slice(3);
+
+    const tr = vi.fn();
+    loadLocale('tr', tr);
+    expect(later().map((el) => el.src)).toEqual([lang('tr')]);
+    expect(later()[0].async).toBe(true);
+    later()[0].onerror!();
+    expect(tr).not.toHaveBeenCalled();
+    expect(later().map((el) => el.src)).toEqual([`${ASSETS}/call-widget/runtime-i18n-tr.js?v=abc123def456`]);
+    later()[0].onerror!();
+    expect(tr).toHaveBeenCalledTimes(1);
+
+    const en = vi.fn();
+    loadLocale('en', en);
+    expect(later().map((el) => el.src)).toEqual([lang('en')]);
+    later()[0].onload!();
+    expect(en).toHaveBeenCalledTimes(1);
+
+    const xx = vi.fn();
+    loadLocale('xx', xx); // no such file: answered at once, nothing requested
+    expect(xx).toHaveBeenCalledTimes(1);
+    expect(later()).toHaveLength(1);
+  });
+
+  it('the raw loader runs runtime.js (every language) and never asks for a language file', async () => {
+    const p = page();
+    p.win.localStorage.setItem('ccw_locale', 'fa');
+    p.run(RAW_LOADER);
+    const e = engine(p, 'fa');
+    await p.respond(200, i18n('fa', ['fa']));
+    expect(p.scripts().map((el) => el.src)).toEqual([
+      `${ASSETS}/call-widget/presentation-registry.js?v=abc123def456`,
+      `${ASSETS}/call-widget/presentation-default.js?v=abc123def456`,
+      `${ASSETS}/call-widget/runtime.js?v=abc123def456`,
+    ]);
+    for (const el of p.scripts()) el.onload!();
+    expect(e.mount).toHaveBeenCalledTimes(1);
+    const cb = vi.fn();
+    e.mount.mock.calls[0][0].loadLocale('tr', cb);
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(p.scripts()).toHaveLength(3);
   });
 });
 

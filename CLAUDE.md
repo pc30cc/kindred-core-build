@@ -57,7 +57,8 @@ lazy modules, and a renderer only draws `view.csat`.
 The call center widget (`public/call-widget`) wears the 2026-10 handoff
 designs: template `default` is WebYar's (skin `presentation-default.css`),
 `intl` is RESPOK's (`presentation-intl.css`, over the same renderer). A page
-load is the loader, the registry, the engine, the core
+load is the loader, the registry, the engine (built: `runtime-core.js` and
+the widget's one language, `runtime-i18n-<id>.js`; rules doc §5), the core
 (`presentation-default.js`, which draws the launcher), `runtime.css`, the skin
 and the fonts stylesheet; the panel (`presentation-default-panel.js` and
 `.css`) loads on the visitor's first intent (rules doc, "Call widget panel").

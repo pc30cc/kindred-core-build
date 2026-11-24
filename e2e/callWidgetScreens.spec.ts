@@ -154,12 +154,15 @@ for (const brand of BRANDS) {
         const files = shot.requests.map((r) => r.split('?')[0]);
         expect(files, tag).toContain('/call-widget/l.js');
         expect(files).toContain('/api/call-widget/bootstrap');
-        for (const name of ['presentation-registry', 'presentation-default', 'runtime']) {
+        // Built: the engine's core and the widget's one language; otherwise runtime.js (every language).
+        const engine = mode === 'built' ? ['runtime-core', `runtime-i18n-${BRAND_INFO[brand].locale}`] : ['runtime'];
+        for (const name of ['presentation-registry', 'presentation-default', ...engine]) {
           const hashed = new RegExp(`^/call-widget/${name}\\.[0-9a-f]{12}\\.js$`);
           const fixed = `/call-widget/${name}.js`;
           if (mode === 'built') expect(files.some((f) => hashed.test(f)), `${tag}: ${name} by its hashed name`).toBe(true);
           else expect(files, tag).toContain(fixed);
         }
+        if (mode === 'built') expect(files.some((f) => /^\/call-widget\/runtime\.[0-9a-f]{12}\.js$/.test(f)), `${tag}: not the whole runtime.js`).toBe(false);
         expect(files.some((f) => f.startsWith('/widget/presentation-default-fonts')), `${tag}: the shared fonts stylesheet`).toBe(true);
       }
     } finally {

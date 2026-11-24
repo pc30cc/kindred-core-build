@@ -125,13 +125,45 @@
   function pathOr(value, fallback) {
     return (typeof value === 'string' && CALL_PATH.test(value)) ? value : fallback;
   }
+  // The engine: this build's runtime-core.js (no strings) with one
+  // language's runtime-i18n-<id>.js; runtime.js (all of them) without a
+  // build or once a hashed file failed. The language started at once is the
+  // visitor's pick (the engine's `ccw_locale`), else the bootstrap's default
+  // when it has answered; tryMount adds the one the engine asks for.
+  var CORE = '/call-widget/runtime-core.js';
+  /** A language's file of this build (null: none, or the fixed names are in use). */
+  function localePath(locale) {
+    var path = '/call-widget/runtime-i18n-' + locale + '.js';
+    return hashedName(path) ? path : null;
+  }
+  function guessedLocale() {
+    var i = (bootstrap && bootstrap.i18n) || {};
+    var l = null;
+    try { l = window.localStorage.getItem('ccw_locale'); } catch (_) {}
+    return l && (!i.available_locales || i.available_locales.indexOf(l) >= 0) ? l : i.default_locale;
+  }
   function scriptPaths() {
     var a = presentationAssets();
-    return [
+    var core = hashedName(CORE);
+    var paths = [
       pathOr(a.presentation_registry_url, '/call-widget/presentation-registry.js'),
       pathOr(a.presentation_script_url, '/call-widget/presentation-default.js'),
-      '/call-widget/runtime.js',
+      core ? CORE : '/call-widget/runtime.js',
     ];
+    var lang = core && localePath(guessedLocale());
+    if (lang) paths.push(lang);
+    return paths;
+  }
+
+  /** One script, async; its fallback URL once if it fails; `done` either way. */
+  function inject(src, fallback, done, sdk) {
+    var sc = document.createElement('script');
+    sc.async = true;
+    if (sdk) sc.setAttribute('data-cc-livekit-sdk', '1');
+    sc.src = src;
+    sc.onload = done;
+    sc.onerror = function () { sc.remove(); if (fallback) inject(fallback, null, done, sdk); else done(); };
+    head.appendChild(sc);
   }
 
   // Media is only needed after a visitor enters a call. Keep the 159 KiB
@@ -149,18 +181,9 @@
       liveKitWaiters = null;
       for (var i = 0; i < waiting.length; i++) waiting[i](ready);
     }
-    function load(src, fallback) {
-      var lk = document.createElement('script');
-      lk.async = true;
-      lk.setAttribute('data-cc-livekit-sdk', '1');
-      lk.src = src;
-      lk.onload = done;
-      lk.onerror = function () { lk.remove(); if (fallback) load(fallback, null); else done(); };
-      head.appendChild(lk);
-    }
     var fixed = origin + '/call-widget/vendor/livekit-client.umd.min.js';
-    if (BUILD && BUILD.livekit && !stale) load(origin + BUILD.livekit, fixed);
-    else load(fixed, null);
+    if (BUILD && BUILD.livekit && !stale) inject(origin + BUILD.livekit, fixed, done, 1);
+    else inject(fixed, null, done, 1);
   }
 
   // The panel module (presentation-default-panel.js) is not a page-load
@@ -178,27 +201,31 @@
       panelWaiters = null;
       for (var i = 0; i < waiting.length; i++) waiting[i](!!window.__ccw_panel);
     }
-    function load(src, fallback) {
-      var sc = document.createElement('script');
-      sc.async = true;
-      sc.src = src;
-      sc.onload = done;
-      sc.onerror = function () { sc.remove(); if (fallback) load(fallback, null); else done(); };
-      head.appendChild(sc);
-    }
     var path = pathOr(presentationAssets().presentation_panel_script_url, '/call-widget/presentation-default-panel.js');
     var fixed = origin + path + (stale ? fallbackSuffix : '?v=' + versionToken());
     var hashed = hashedName(path);
-    if (hashed) load(origin + '/call-widget/' + hashed, fixed);
-    else load(fixed, null);
+    if (hashed) inject(origin + '/call-widget/' + hashed, fixed, done);
+    else inject(fixed, null, done);
+  }
+  // A language the visitor switches to that the core was not run with (the
+  // engine's `loadLocale`): this build's copy, then once the fixed name.
+  function ensureLocale(locale, cb) {
+    var path = localePath(locale);
+    if (path) inject(origin + '/call-widget/' + hashedName(path), origin + path + '?v=' + versionToken(), cb);
+    else cb();
   }
   function noop() {}
 
   function tryMount() {
     if (mounted || !bootstrap || pending > 0) return;
-    if (!window.CallCenterWidget || typeof window.CallCenterWidget.mount !== 'function') return;
+    var w = window.CallCenterWidget;
+    if (!w || typeof w.mount !== 'function') return;
+    // The core's language for this bootstrap, before it mounts (once: a
+    // file that ran without it mounts anyway, as the full engine would).
+    var lang = w.missingLocale && localePath(w.missingLocale(bootstrap));
+    if (lang && !requested[lang]) { loadScripts([lang]); return; }
     mounted = true;
-    window.CallCenterWidget.mount({
+    w.mount({
       apiBase: apiBase,
       origin: origin,
       assetsVersion: versionToken(),
@@ -211,6 +238,7 @@
       bootstrap: bootstrap,
       loadLiveKitSdk: ensureLiveKitSdk,
       loadPanel: ensurePanel,
+      loadLocale: ensureLocale,
     });
   }
 

@@ -26,12 +26,24 @@
   };
 
   var SUPPORTED_LOCALES = ['en', 'fa', 'tr'];
+  /** The visitor's pick of language (localStorage); l.js reads it too, to start that language early. */
+  var LOCALE_KEY = 'ccw_locale';
   var LOCALE_META = {
     en: { label: 'English', short: 'EN', dir: 'ltr' },
     fa: { label: 'فارسی', short: 'فا', dir: 'rtl' },
     tr: { label: 'Türkçe', short: 'TR', dir: 'ltr' },
   };
-  var I18N = {
+  // Every language's strings, each a block opened by a `// @locale <id>`
+  // line, the last closed by `// @locale-end`. The build
+  // (scripts/call-widget-hash.js, scripts/build/runtimeLocales.mjs) also
+  // ships runtime-core.js, this file without the blocks, and each block as
+  // runtime-i18n-<id>.js, which adds its language to window.__ccw_i18n: a
+  // built l.js runs the core with the visitor's language only (missingLocale,
+  // and loadLocale when the visitor switches). This file (the operator
+  // preview, the unhashed fallback, the raw l.js) keeps them all.
+  var I18N = window.__ccw_i18n || (window.__ccw_i18n = {});
+  var BUILT_IN_I18N = {
+    // @locale en
     en: {
       talk_now: 'Talk now', callback: 'Callback', live_support: 'Live support', leave_details: 'Leave details', support: 'Support', required: 'Required',
       operators_available: 'Operators available', callback_desk: 'Callback desk', loading: 'Loading…', offline: 'Offline',
@@ -68,6 +80,7 @@
       summary_phone: 'Phone', summary_video: 'Video', no_operator_now: 'No operator available right now', copied: 'Copied',
       powered_by: 'Powered by {brand}'
     },
+    // @locale fa
     fa: {
       talk_now: 'همین حالا تماس بگیرید', callback: 'درخواست تماس', live_support: 'پشتیبانی آنلاین', leave_details: 'ثبت اطلاعات', support: 'پشتیبانی', required: 'الزامی',
       operators_available: 'اپراتورها آماده‌اند', callback_desk: 'میز درخواست تماس', loading: 'در حال بارگذاری…', offline: 'آفلاین',
@@ -104,6 +117,7 @@
       summary_phone: 'تماس تلفنی', summary_video: 'تماس تصویری', no_operator_now: 'فعلاً اپراتوری در دسترس نیست', copied: 'کپی شد',
       powered_by: 'قدرت گرفته از {brand}'
     },
+    // @locale tr
     tr: {
       talk_now: 'Şimdi konuş', callback: 'Geri arama', live_support: 'Canlı destek', leave_details: 'Bilgilerini bırak', support: 'Destek', required: 'Zorunlu',
       operators_available: 'Operatörler müsait', callback_desk: 'Geri arama masası', loading: 'Yükleniyor…', offline: 'Çevrimdışı',
@@ -140,7 +154,14 @@
       summary_phone: 'Telefon', summary_video: 'Görüntülü', no_operator_now: 'Şu anda müsait operatör yok', copied: 'Kopyalandı',
       powered_by: '{brand} tarafından desteklenmektedir'
     },
+    // @locale-end
   };
+  for (var builtIn in BUILT_IN_I18N) I18N[builtIn] = BUILT_IN_I18N[builtIn];
+  /** A string in `locale`, else in English, else its key (a core whose language did not load). */
+  function i18nText(locale, key) {
+    var pack = I18N[locale];
+    return (pack && pack[key]) || (I18N.en && I18N.en[key]) || key;
+  }
 
 
   /**
@@ -636,7 +657,7 @@
     this.callbackBooking = null;
     this.locale = 'en';
     this.availableLocales = ['en'];
-    this.localeStorageKey = 'ccw_locale';
+    this.localeStorageKey = LOCALE_KEY;
   }
 
   CallCenterWidgetCtor.prototype.t = function (key, vars) {
@@ -648,13 +669,12 @@
       var ov = ct && ct[this.locale] && ct[this.locale][key];
       if (ov && typeof ov === 'string' && ov.trim()) return formatText(ov, vars, fa);
     } catch (_) {}
-    var pack = I18N[this.locale] || I18N.en;
     if (key === 'powered_by') {
       var brand = this.poweredByBrand();
       if (!brand) return '';
       vars = Object.assign({}, vars || {}, { brand: brand });
     }
-    return formatText(pack[key] || I18N.en[key] || key, vars, fa);
+    return formatText(i18nText(this.locale, key), vars, fa);
   };
 
   /**
@@ -701,8 +721,7 @@
     } catch (_) { return null; }
     var brand = this.poweredByBrand();
     if (!brand) return null;
-    var pack = I18N[this.locale] || I18N.en;
-    var full = formatText(pack.powered_by || I18N.en.powered_by, { brand: '\u0001' });
+    var full = formatText(i18nText(this.locale, 'powered_by'), { brand: '\u0001' });
     var at = full.indexOf('\u0001');
     if (at < 0) return null;
     var custom = iranKit ? b.powered_by_logo_custom === true : b.powered_by.custom === true;
@@ -720,24 +739,52 @@
   CallCenterWidgetCtor.prototype.setLocale = function (locale) {
     locale = normalizeLocale(locale) || this.locale || 'en';
     if (this.availableLocales.indexOf(locale) < 0) return;
+    var self = this;
+    this.wantedLocale = locale;
+    // The core (runtime-core.js) has the languages the loader ran with it:
+    // another one is fetched first (l.js loadLocale); the last pick wins,
+    // and one that does not load leaves the widget as it was.
+    if (!I18N[locale] && this.loadLocale) {
+      this.loadLocale(locale, function () {
+        if (I18N[locale] && self.wantedLocale === locale) self.setLocale(locale);
+      });
+      return;
+    }
     this.locale = locale;
     if (!this.preview) try { window.localStorage.setItem(this.localeStorageKey, locale); } catch (_) {}
     if (this.root) this.render();
   };
 
-  CallCenterWidgetCtor.prototype.initLocale = function () {
-    var i18n = (this.bootstrap && this.bootstrap.i18n) || {};
+  /** The widget's languages and the one it starts in, for this bootstrap (`preview`: never a stored pick). */
+  function pickLocale(bootstrap, preview) {
+    var i18n = (bootstrap && bootstrap.i18n) || {};
     var available = (i18n.available_locales || []).map(normalizeLocale).filter(Boolean);
-    this.availableLocales = available.length ? available : ['en'];
+    if (!available.length) available = ['en'];
     var stored = null;
     // The dashboard's preview shows the language it is given, never a stored one.
-    if (!this.preview) try { stored = normalizeLocale(window.localStorage.getItem(this.localeStorageKey)); } catch (_) {}
+    if (!preview) try { stored = normalizeLocale(window.localStorage.getItem(LOCALE_KEY)); } catch (_) {}
     var nav = normalizeLocale((navigator.languages && navigator.languages[0]) || navigator.language);
     var def = normalizeLocale(i18n.default_locale) || 'en';
-    this.locale = this.availableLocales.indexOf(stored) >= 0 ? stored
-      : this.availableLocales.indexOf(def) >= 0 ? def
-      : this.availableLocales.indexOf(nav) >= 0 ? nav
-      : this.availableLocales[0];
+    var locale = available.indexOf(stored) >= 0 ? stored
+      : available.indexOf(def) >= 0 ? def
+      : available.indexOf(nav) >= 0 ? nav
+      : available[0];
+    return { available: available, locale: locale };
+  }
+
+  CallCenterWidgetCtor.prototype.initLocale = function () {
+    var pick = pickLocale(this.bootstrap, this.preview);
+    this.availableLocales = pick.available;
+    this.locale = pick.locale;
+  };
+
+  /**
+   * For l.js before it mounts: the language this bootstrap starts the widget
+   * in when its strings are not here yet (the core ships none), else null.
+   */
+  CallCenterWidgetCtor.prototype.missingLocale = function (bootstrap) {
+    var locale = pickLocale(bootstrap, false).locale;
+    return I18N[locale] ? null : locale;
   };
 
   CallCenterWidgetCtor.prototype.mount = function (opts) {
@@ -758,6 +805,8 @@
     // The loader's hook for the panel module (l.js ensurePanel): the
     // presentation asks for it on the visitor's first intent.
     this.loadPanel = typeof opts.loadPanel === 'function' ? opts.loadPanel : null;
+    // And for a language the core was not run with (l.js ensureLocale).
+    this.loadLocale = typeof opts.loadLocale === 'function' ? opts.loadLocale : null;
     this.preview = opts.preview === true;
     this.pageTitle = opts.pageTitle || '';
     this.session = opts.bootstrap && opts.bootstrap.session;

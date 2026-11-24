@@ -446,10 +446,8 @@ describe('the logo direction: the catalog → templateOptions → the loader, th
 describe('the runtime /config names: the build\'s, in the widget\'s language', () => {
   /** The languages whose dictionary a shipped runtime holds, by each one's word for the help center (in it once). */
   const HELP = { en: 'Help Center', fa: 'مرکز راهنما', tr: 'Yardım Merkezi' } as const;
-  const dictLocales = (file: string) => {
-    const code = readFileSync(file, 'utf8');
-    return (Object.keys(HELP) as Array<keyof typeof HELP>).filter((l) => code.includes(HELP[l]));
-  };
+  const dictLocales = (code: string) =>
+    (Object.keys(HELP) as Array<keyof typeof HELP>).filter((l) => code.includes(HELP[l]));
 
   it('the build writes runtime-<locale>.js for each language, hashed and under its plain name', () => {
     for (const brand of BRANDS) {
@@ -458,13 +456,15 @@ describe('the runtime /config names: the build\'s, in the widget\'s language', (
         expect(name, `${brand} ${locale}`).toMatch(new RegExp(`^runtime-${locale}\\.[a-f0-9]{8}\\.js$`));
         expect(existsSync(join(builds[brand].dist, name)), `${brand} ${name}`).toBe(true);
         expect(existsSync(join(builds[brand].dist, `${name}.gz`)), `${brand} ${name}.gz`).toBe(true);
-        expect(readFileSync(join(builds[brand].dist, `runtime-${locale}.js`))).toEqual(readFileSync(join(builds[brand].dist, name)));
-        expect(dictLocales(join(builds[brand].dist, name)), `${brand} ${locale}`).toEqual([locale]);
+        // Buffer.equals, not toEqual: a deep compare of ~190 KB byte by byte took the Validate runner past 5 s.
+        const hashed = readFileSync(join(builds[brand].dist, name));
+        expect(readFileSync(join(builds[brand].dist, `runtime-${locale}.js`)).equals(hashed), `${brand} runtime-${locale}.js`).toBe(true);
+        expect(dictLocales(hashed.toString('utf8')), `${brand} ${locale}`).toEqual([locale]);
       }
       // runtime.js stays the full one (the dashboard's preview, an older backend).
-      expect(dictLocales(join(builds[brand].dist, builds[brand].manifest['runtime.js'])), brand).toEqual(['en', 'fa', 'tr']);
+      expect(dictLocales(readFileSync(join(builds[brand].dist, builds[brand].manifest['runtime.js']), 'utf8')), brand).toEqual(['en', 'fa', 'tr']);
     }
-  });
+  }, 20_000);
 
   for (const { brand, edition, locale } of CASES) {
     it(`${brand} (${edition}): a widget speaking ${locale} is given runtime-${locale}`, async () => {

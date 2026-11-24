@@ -61,7 +61,7 @@ import {
   resolveWidgetApiBase,
   resolveWidgetAssetBase,
 } from './public.js';
-import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, widgetAssetUrl } from './manifest.js';
+import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, getRuntimeAssetName, runtimeDictLocale, widgetAssetUrl } from './manifest.js';
 import { resolveEditionWidgetTemplateId, resolveWidgetTemplateId, widgetTemplateAssetKeys } from './presentationAssets.js';
 import { readChatTemplateRows } from './templateCatalog.js';
 import { EDITION_CHAT_WIDGET_TEMPLATES, chatWidgetTemplate, widgetDateHints, type ChatWidgetTemplate } from '../../../shared/widgetTemplates.js';
@@ -1144,7 +1144,6 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     loaderAssetBase: getLoaderAssetBase(req),
   });
 
-  const runtimeJsName = getWidgetAssetName('runtime.js');
   const runtimeCssName = getWidgetAssetName('runtime.css');
   const callRuntimeJsName = getWidgetAssetName('runtime-call.js');
   // Presentation layer — registry + active template assets. Widget Core
@@ -1433,7 +1432,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
 
     teamMembers,
     onlineOperators: 0, // Resolved client-side from realtime presence when supported.
-    runtimeUrl: assetUrl(runtimeJsName),
+    // The runtime in the language the widget speaks (the build's
+    // runtime-<locale>.js, from the same `widgetLanguage` and `locale` this
+    // body gives it), else the full runtime.js (manifest.ts).
+    runtimeUrl: assetUrl(getRuntimeAssetName(runtimeDictLocale(effectiveWidgetLanguage, effectiveLocale))),
     styleUrl: assetUrl(runtimeCssName),
     callRuntimeUrl: assetUrl(callRuntimeJsName),
     templateId,

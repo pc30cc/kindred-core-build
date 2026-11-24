@@ -1043,9 +1043,17 @@
 
   // ════════════════════════════════════════════════════════════════════
   // i18n
+  //
+  // Each language's block starts at its `// @locale <id>` line and the last
+  // ends at `// @locale-end`: the build ships runtime-<id>.js, this file with
+  // that language only (scripts/build/runtimeLocales.mjs), and /config names
+  // the one the widget speaks. English stays the fallback of a key missing
+  // in another language, so every language has every English key
+  // (src/test/widget/runtimeLocales.test.ts).
   // ════════════════════════════════════════════════════════════════════
   var I18n = (function () {
     var dict = {
+      // @locale en
       en: {
         chat: 'Chat', help: 'Help Center',
         closeWidget: 'Close',
@@ -1313,6 +1321,7 @@
         msgOpenLink: 'Open link',
 
       },
+      // @locale fa
       fa: {
         chat: 'گفتگو', help: 'مرکز راهنما',
         closeWidget: 'بستن',
@@ -1561,6 +1570,7 @@
         msgOpenLink: 'باز کردن لینک',
 
       },
+      // @locale tr
       tr: {
         chat: 'Sohbet', help: 'Yardım Merkezi',
         closeWidget: 'Kapat',
@@ -1809,6 +1819,7 @@
         msgOpenLink: 'Bağlantıyı aç',
 
       },
+      // @locale-end
     };
     return {
       t: function (locale, key) {
@@ -4117,7 +4128,7 @@
               var rs = document.querySelector('script[data-gs-runtime]')
                     || document.querySelector('script[src*="/widget/runtime"][src$=".js"]')
                     || document.querySelector('script[src*="/widget/runtime.js"]');
-              if (rs && rs.src) url = rs.src.replace(/runtime(?:[.-][A-Za-z0-9]+)?\.js(?:\?[^#]*)?(?:#.*)?$/, 'runtime-call.js');
+              if (rs && rs.src) url = rs.src.replace(/runtime(?:-[a-z]{2,3})?(?:[.-][A-Za-z0-9]+)?\.js(?:\?[^#]*)?(?:#.*)?$/, 'runtime-call.js');
             } catch (_) { /* noop */ }
           }
           if (!url) {

@@ -22,7 +22,7 @@ import { createHash } from 'crypto';
 import { readFileSync, existsSync } from 'fs';
 import { resolve, join } from 'path';
 
-interface WidgetManifest {
+export interface WidgetManifest {
   'runtime.js'?: string;
   'runtime.css'?: string;
   'runtime-chat.js'?: string;
@@ -41,6 +41,10 @@ interface WidgetManifest {
   'runtime-rt-centrifugo.js'?: string;
   'runtime-rt-supabase.js'?: string;
   'runtime-rt-resolver.js'?: string;
+  // The chat runtime in one language (scripts/build/runtimeLocales.mjs).
+  'runtime-en.js'?: string;
+  'runtime-fa.js'?: string;
+  'runtime-tr.js'?: string;
   // Self-hosted vendor assets (Pass 1: LiveKit JS SDK).
   'vendor/livekit-client.umd.min.js'?: string;
   'loader.js'?: string;
@@ -405,6 +409,46 @@ export function widgetAssetUrl(assetBase: string | null | undefined, name: strin
   if (!assetBase || !name) return null;
   const url = `${assetBase}/widget/${name}`;
   return isContentHashedAssetName(name) ? url : `${url}?v=${encodeURIComponent(version)}`;
+}
+
+/**
+ * The languages runtime.js has a dictionary block for (`// @locale <id>`);
+ * the build ships runtime-<id>.js for each (scripts/build/runtimeLocales.mjs).
+ * src/test/widget/runtimeLocales.test.ts keeps the two lists equal.
+ */
+export const RUNTIME_LOCALES = ['en', 'fa', 'tr'] as const;
+export type RuntimeLocale = (typeof RUNTIME_LOCALES)[number];
+
+/**
+ * The dictionary a widget speaks, as runtime.js picks it from the /config
+ * body it gets: `widgetLanguage` unless 'auto', else `locale`, else 'en'
+ * (init's resolvedLocale); then that language, its base ('fa' of 'fa-IR'),
+ * or English (I18n.t). The runtime never changes it afterwards.
+ */
+export function runtimeDictLocale(widgetLanguage: unknown, locale: unknown): RuntimeLocale {
+  const wl = typeof widgetLanguage === 'string' && widgetLanguage && widgetLanguage !== 'auto' ? widgetLanguage : '';
+  const raw = wl || (typeof locale === 'string' && locale ? locale : '') || 'en';
+  const has = (l: string): l is RuntimeLocale => (RUNTIME_LOCALES as readonly string[]).includes(l);
+  if (has(raw)) return raw;
+  const base = raw.toLowerCase().split('-')[0];
+  return has(base) ? base : 'en';
+}
+
+/**
+ * The runtime file for a widget speaking `locale`, in `manifest`: the
+ * build's runtime-<locale>.js when the manifest names a content-hashed one
+ * (a build from before has none, and its static host has no such file),
+ * else runtime.js, the full one, exactly as before.
+ */
+export function runtimeAssetNameFor(manifest: WidgetManifest, locale: RuntimeLocale): string {
+  const inLocale = manifest[`runtime-${locale}.js`];
+  if (inLocale && isContentHashedAssetName(inLocale)) return inLocale;
+  return manifest['runtime.js'] || 'runtime.js';
+}
+
+/** runtimeAssetNameFor over the manifest this backend serves. */
+export function getRuntimeAssetName(locale: RuntimeLocale): string {
+  return runtimeAssetNameFor(syncLoadManifest(), locale);
 }
 
 export function invalidateManifestCache(): void {

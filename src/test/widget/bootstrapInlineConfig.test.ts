@@ -21,6 +21,7 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { STATUS_CODES } from 'node:http';
 import { createFakeDb, allowAllRpc, widgetScenarioTables, WS, SHOP_ORIGIN, type FakeDb } from './widgetConfigFakeDb';
+import { runtimeDictLocale } from '../../../server/services/widget/manifest.js';
 
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key-inline-config';
 const holder = vi.hoisted(() => ({ db: null as unknown as FakeDb }));
@@ -38,6 +39,8 @@ vi.mock('../../../server/services/widget/manifest.js', async (orig) => {
   return {
     ...real,
     getWidgetAssetName: (n: string) => hashed(n),
+    // The runtime in the widget's language, as the build names it.
+    getRuntimeAssetName: (locale: string) => hashed(`runtime-${locale}.js`),
     getOptionalWidgetAssetName: (n: string) => (n.includes('fonts') || n.includes('intl') ? hashed(n) : null),
     getLoaderVersion: () => 'lv123456789a',
   };
@@ -165,7 +168,8 @@ describe('include_config: the GET /config body inline', () => {
     expect(cfg.body.smart.enabled).toBe(opts.smart);
     expect(cfg.body.aiAgent.disabledByPlatform).toBe(!opts.ai);
     // Hashed assets carry no ?v=; the realtime modules are named.
-    expect(cfg.body.runtimeUrl).toBe('https://app.test/widget/runtime.abcdef12.js');
+    // The runtime in the language the body makes the widget speak.
+    expect(cfg.body.runtimeUrl).toBe(`https://app.test/widget/runtime-${runtimeDictLocale(cfg.body.widgetLanguage, cfg.body.locale)}.abcdef12.js`);
     expect(cfg.body.modules.rt_centrifugo).toBe('https://app.test/widget/runtime-rt-centrifugo.abcdef12.js');
   });
 

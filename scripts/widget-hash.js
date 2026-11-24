@@ -16,6 +16,7 @@ import { resolveBuildBrand } from './build/brand.mjs';
 import { isWidgetSource, transformWidgetAsset } from './build/widgetBrand.mjs';
 import { rewriteWidgetFontUrls } from './build/widgetFonts.mjs';
 import { precompressFiles } from './build/precompress.mjs';
+import { runtimeForLocale, runtimeLocales } from './build/runtimeLocales.mjs';
 
 // NOTE: Do NOT use `import.meta.dirname` — it was only added in Node 20.11.
 // Some `node:20-alpine` images shipped with older 20.x patch versions
@@ -207,6 +208,26 @@ for (const file of HASHED_FILES) {
   hashedOutputs.push(join(OUT_DIR, hashedName));
   manifest[file] = hashedName;
   console.log(`[widget-hash] ${file} → ${hashedName}`);
+}
+
+// The chat runtime in each of its languages (scripts/build/runtimeLocales.mjs):
+// runtime-<id>.js, this build's runtime.js with that language's dictionary
+// only, content-hashed like it (manifest `runtime-<id>.js`) and, for the
+// loader's unhashed retry, under its plain name too. /config names the one
+// the widget speaks; runtime.js itself stays the full file.
+{
+  const source = readFileSync(join(SRC_DIR, 'runtime.js'), 'utf8');
+  for (const locale of runtimeLocales(source)) {
+    const out = transformWidgetAsset('runtime.js', Buffer.from(runtimeForLocale(source, locale), 'utf8'), BRAND);
+    const buf = typeof out === 'string' ? Buffer.from(out, 'utf8') : out;
+    const logical = `runtime-${locale}.js`;
+    const hashedName = `runtime-${locale}.${contentHash(buf)}.js`;
+    writeFileSync(join(OUT_DIR, hashedName), buf);
+    writeFileSync(join(OUT_DIR, logical), buf);
+    hashedOutputs.push(join(OUT_DIR, hashedName));
+    manifest[logical] = hashedName;
+    console.log(`[widget-hash] runtime.js (${locale}) → ${hashedName} (${(buf.length / 1024).toFixed(1)} KB)`);
+  }
 }
 
 for (const [name, rel] of hashedFonts) manifest[`fonts/${name}`] = rel;

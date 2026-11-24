@@ -437,3 +437,51 @@ describe('the logo direction: the catalog → templateOptions → the loader, th
     expect(launcher.className).toContain('lk-kit');
   });
 });
+
+// ─── The runtime in the widget's language (scripts/build/runtimeLocales.mjs) ───
+// The same builds and the same /config: the body names the build's
+// runtime-<locale>.js for the language it makes the widget speak, a file
+// that holds that language's dictionary and no other.
+
+describe('the runtime /config names: the build\'s, in the widget\'s language', () => {
+  /** The languages whose dictionary a shipped runtime holds, by each one's word for the help center (in it once). */
+  const HELP = { en: 'Help Center', fa: 'مرکز راهنما', tr: 'Yardım Merkezi' } as const;
+  const dictLocales = (file: string) => {
+    const code = readFileSync(file, 'utf8');
+    return (Object.keys(HELP) as Array<keyof typeof HELP>).filter((l) => code.includes(HELP[l]));
+  };
+
+  it('the build writes runtime-<locale>.js for each language, hashed and under its plain name', () => {
+    for (const brand of BRANDS) {
+      for (const locale of ['en', 'fa', 'tr']) {
+        const name = builds[brand].manifest[`runtime-${locale}.js`];
+        expect(name, `${brand} ${locale}`).toMatch(new RegExp(`^runtime-${locale}\\.[a-f0-9]{8}\\.js$`));
+        expect(existsSync(join(builds[brand].dist, name)), `${brand} ${name}`).toBe(true);
+        expect(existsSync(join(builds[brand].dist, `${name}.gz`)), `${brand} ${name}.gz`).toBe(true);
+        expect(readFileSync(join(builds[brand].dist, `runtime-${locale}.js`))).toEqual(readFileSync(join(builds[brand].dist, name)));
+        expect(dictLocales(join(builds[brand].dist, name)), `${brand} ${locale}`).toEqual([locale]);
+      }
+      // runtime.js stays the full one (the dashboard's preview, an older backend).
+      expect(dictLocales(join(builds[brand].dist, builds[brand].manifest['runtime.js'])), brand).toEqual(['en', 'fa', 'tr']);
+    }
+  });
+
+  for (const { brand, edition, locale } of CASES) {
+    it(`${brand} (${edition}): a widget speaking ${locale} is given runtime-${locale}`, async () => {
+      workspace(edition);
+      const body = await configBody(brand, edition);
+      expect(body.locale).toBe(locale);
+      expect(body.runtimeUrl).toBe(url(brand, `runtime-${locale}.js`));
+    });
+  }
+
+  it('a workspace that sets its widget\'s language: the runtime of the language the body makes it speak', async () => {
+    for (const [edition, brand, language] of [['iran', 'iran', 'en'], ['international', 'respok', 'tr']] as const) {
+      workspace(edition, (t) => { Object.assign(t.widget_settings[0], { widget_language: language }); });
+      const body = await configBody(brand, edition);
+      // runtime.js reads `widgetLanguage`, else `locale` (runtimeLocales.test.ts proves the reading the same).
+      const speaks = manifestMod.runtimeDictLocale(body.widgetLanguage, body.locale);
+      expect(body.runtimeUrl, `${edition} ${language}`).toBe(url(brand, `runtime-${speaks}.js`));
+    }
+  });
+});

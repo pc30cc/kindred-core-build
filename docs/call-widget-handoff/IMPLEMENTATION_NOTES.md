@@ -536,9 +536,15 @@ Defects and wishes found while building, outside the scope the owner set (D29):
 - A booking an operator completes or cancels before its time stays on Sh until then (D15).
 - The top placements' 20px offset is fixed; a site with a fixed header may want a setting.
 
-## Visual QA and behaviour specs (local gates, not in CI)
+## Visual QA and behaviour specs
 
-All three specs need Chromium (`PLAYWRIGHT_CHROMIUM_PATH` or `/opt/pw-browsers`) and run one worker:
+Since 2026-11-24 CI's job "Call widget browser specs" (`.github/workflows/ci.yml`, `call-widget-e2e`) runs on
+every push and pull request, with Playwright's own Chromium: `callWidgetBehaviour.spec.ts` and
+`callWidgetPlacement.spec.ts` in full, and from `callWidgetScreens.spec.ts` the real loader in source, shipped and
+built modes ("boots through the real loader"). Tier A (the pixel comparison, about 15 minutes, sensitive to the
+fonts and the Chromium build) and the matrix stay local gates.
+
+All three specs need Chromium (`PLAYWRIGHT_CHROMIUM_PATH`, `/opt/pw-browsers`, else Playwright's own) and run one worker:
 
 ```sh
 # Tier A: every P/M/C state of both brands against the reference re-render (≤ 0.20% per panel, box probes ±0.5px),

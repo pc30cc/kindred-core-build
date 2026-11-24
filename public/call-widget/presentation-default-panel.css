@@ -92,10 +92,11 @@
 .badge .chn { font-weight: 500; color: var(--ink-3); }
 /* The dots between the channels. The shipped Persian 500 face has no U+00B7,
    so in Persian they take the 400 face (already loaded: no Latin face is
-   fetched for two dots), widened to the advance of the design's dot. A Latin
-   panel keeps its own 500 dot. */
+   fetched for two dots), whose dot has the advance of the design's (Inter
+   Medium's, which the board falls back to). A Latin panel keeps its own 500
+   dot. */
 .badge .chn b { font-weight: inherit; }
-[dir="rtl"] .badge .chn b { font-weight: 400; margin-inline: .01875em; }
+[dir="rtl"] .badge .chn b { font-weight: 400; }
 .hh { margin: 14px 0 6px; font-size: 25px; font-weight: 700; line-height: 1.45; letter-spacing: -.01em; text-wrap: balance; }
 .hs { max-width: 340px; font-size: 14px; line-height: 1.85; color: var(--ink-3); text-wrap: pretty; }
 .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 24px; }

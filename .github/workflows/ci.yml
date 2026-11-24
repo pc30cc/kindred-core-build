@@ -141,8 +141,7 @@ jobs:
   # server and a fake LiveKit room). Behaviour and placement in full, and the
   # real loader in source, shipped and built modes (the hashed names, the
   # engine's core and its one language). Tier A, the pixel comparison against
-  # the handoff's boards (about 15 minutes, sensitive to the fonts and the
-  # Chromium build), stays a local gate: docs/call-widget-handoff/IMPLEMENTATION_NOTES.md.
+  # the handoff's boards, is the next job.
   call-widget-e2e:
     name: Call widget browser specs (Chromium, hermetic)
     runs-on: ubuntu-24.04
@@ -182,6 +181,146 @@ jobs:
       - name: Behaviour and placement
         if: ${{ !cancelled() }}
         run: npx playwright test e2e/callWidgetBehaviour.spec.ts e2e/callWidgetPlacement.spec.ts
+
+  # Tier A, the call widget's pixel gate: every P/M/C state of both brands
+  # against the reference re-render of the handoff's boards (≤ 0.20% per
+  # panel), the placements by geometry and board 12's tokens
+  # (docs/call-widget-handoff/IMPLEMENTATION_NOTES.md, "Visual QA"), with the
+  # system fonts it was tuned with. The loader test of the same file runs in
+  # call-widget-e2e above, the matrix on a change to the call widget and
+  # weekly (call-widget-matrix.yml); the
+  # handoff package's own PNGs need the owner's package and stay local.
+  call-widget-pixels:
+    name: Call widget pixel gate (Tier A)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.3'
+
+      - name: Cache Bun install cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Install Chromium (with its system libraries)
+        run: bunx playwright install --with-deps chromium
+
+      # The fonts the gate was tuned with (e2e/harness/fontconfig/README.md):
+      # Inter as the system's sans-serif and system-ui, and text drawn
+      # unhinted in grayscale, as images rather than for a screen.
+      - name: The gate's fonts
+        run: |
+          sudo apt-get install -y --no-install-recommends fonts-inter
+          sudo cp e2e/harness/fontconfig/*.conf /etc/fonts/conf.d/
+          fc-cache -f >/dev/null
+          fc-match -v sans-serif | grep -E 'family:|hinting:|rgba:' | head -4
+
+      - name: Tier A
+        env:
+          CALL_SCREENS_OUT: ${{ runner.temp }}/call-screens
+        run: npx playwright test e2e/callWidgetScreens.spec.ts --grep-invert "boots through the real loader"
+
+      - name: Keep the shots of a failed run
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: call-screens
+          path: ${{ runner.temp }}/call-screens
+          retention-days: 7
+
+  # The browser specs that need the whole application: a real PostgreSQL with
+  # the self-host chain, PostgREST (the version production runs) and the
+  # unmodified Express server, behind the same-origin proxy
+  # (E2E_FULL_STACK=1: e2e/harness/setupFullStack.ts). The SEO audit also
+  # serves a local HTTPS fixture site on 127.0.0.1:443 under a test-only
+  # hostname and runs the real seo-crawler worker against it.
+  full-stack-e2e:
+    name: Full-stack browser specs (PostgreSQL, PostgREST, Express)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      E2E_FULL_STACK: '1'
+      E2E_PG_SUPERUSER_DSN: postgres://postgres:postgres@127.0.0.1:5432/postgres
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.3'
+
+      - name: Cache Bun install cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Install Chromium (with its system libraries)
+        run: bunx playwright install --with-deps chromium
+
+      # The harness's default path (E2E_POSTGREST_BIN); 14.5 is the version
+      # production runs (src/test/integration/postgrestEngineParity.pg.test.ts).
+      - name: PostgREST 14.5
+        run: |
+          mkdir -p /tmp/postgrest-bin
+          curl -fsSL https://github.com/PostgREST/postgrest/releases/download/v14.5/postgrest-v14.5-linux-static-x86-64.tar.xz | tar -xJ -C /tmp/postgrest-bin
+          /tmp/postgrest-bin/postgrest --version
+
+      # The SEO audit's fixture site: port 443 without root, and its one
+      # /etc/hosts line (the spec adds it and removes it again).
+      - name: Let the SEO audit serve its fixture site
+        run: |
+          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=443
+          sudo chmod a+w /etc/hosts
+
+      - name: Full-stack browser specs
+        run: npx playwright test e2e/adminVerification.spec.ts e2e/inboxHistoryPaging.spec.ts e2e/seoAudit.spec.ts
 
   # pgvector/pgvector:pg16 is PostgreSQL 16 with pgvector: the database-only
   # acceptance suite (postgresOnlyAcceptance.pg.test.ts) retrieves AI knowledge

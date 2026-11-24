@@ -1,0 +1,82 @@
+name: Call widget pixel matrix
+
+# Tier A's matrix (e2e/callWidgetScreens.spec.ts, CALL_SCREENS_MATRIX=1):
+# every P/M/C state of both brands again for every other preset accent, the
+# light accent (Ink on it) and radius sm/lg, each against the reference
+# re-rendered the same way (14 runs, about 13 minutes). Tier A itself runs in
+# ci.yml on every push; the matrix on a change that can move a pixel of the
+# call widget, weekly, and by hand. The handoff package's own PNGs
+# ("reproduces") need the owner's package and stay local.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/call-widget-matrix.yml'
+      - 'public/call-widget/**'
+      - 'public/widget/presentation-default-fonts.css'
+      - 'public/widget/fonts/**'
+      - 'docs/call-widget-handoff/**'
+      - 'e2e/callWidgetScreens.spec.ts'
+      - 'e2e/harness/call*'
+      - 'e2e/harness/pngDiff.ts'
+      - 'e2e/harness/fontconfig/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/call-widget-matrix.yml'
+      - 'public/call-widget/**'
+      - 'public/widget/presentation-default-fonts.css'
+      - 'public/widget/fonts/**'
+      - 'docs/call-widget-handoff/**'
+      - 'e2e/callWidgetScreens.spec.ts'
+      - 'e2e/harness/call*'
+      - 'e2e/harness/pngDiff.ts'
+      - 'e2e/harness/fontconfig/**'
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: call-widget-matrix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    name: Call widget pixel matrix (accents, radii)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.3'
+
+      - name: Install dependencies (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Install Chromium (with its system libraries)
+        run: bunx playwright install --with-deps chromium
+
+      # The fonts the gate was tuned with (e2e/harness/fontconfig/README.md).
+      - name: The gate's fonts
+        run: |
+          sudo apt-get install -y --no-install-recommends fonts-inter
+          sudo cp e2e/harness/fontconfig/*.conf /etc/fonts/conf.d/
+          fc-cache -f >/dev/null
+
+      - name: The matrix
+        env:
+          CALL_SCREENS_MATRIX: '1'
+        run: npx playwright test e2e/callWidgetScreens.spec.ts -g "matrix"

@@ -47,6 +47,20 @@ async function withSiteDefault(page: Page, locale: 'en' | 'fa' | 'tr') {
   });
 }
 
+/**
+ * The dashboard's default language is the Super Admin's platform setting
+ * (shared/panelLanguages.ts, owner 2026-10-31): a browser where nobody picked
+ * a language follows it once the platform's settings are in, whatever
+ * /runtime-config.js said for the first paint. Set through its real route,
+ * as the Super Admin's Branding page does (it drops the server's cache).
+ */
+async function setPanelDefault(context: BrowserContext, locale: 'en' | 'fa' | 'tr') {
+  const res = await context.request.put('/api/admin/management/platform-settings', {
+    data: { default_locale: locale, active_locales: ['en', 'fa', 'tr'] },
+  });
+  expect(res.ok(), `platform-settings: ${res.status()} ${await res.text()}`).toBe(true);
+}
+
 async function seedSessionCookie(context: BrowserContext, token: string, port: number) {
   await context.addCookies([
     {
@@ -106,9 +120,13 @@ test.describe('admin verification page — authenticated (E2E_FULL_STACK=1)', ()
     test(`renders with dir="${dir}" for site default locale ${locale}`, async ({ page, context }) => {
       await withSiteDefault(page, locale);
       await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
+      // The last of these (en) leaves the platform as the tests after it expect it.
+      await setPanelDefault(context, locale);
       await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
-      const heading = locale === 'fa' ? 'تأیید هویت و رمز یکبار مصرف' : locale === 'tr' ? 'Doğrulama ve OTP' : 'Verification & OTP';
+      const heading = locale === 'fa' ? 'تأیید هویت و کد یکبارمصرف' : locale === 'tr' ? 'Doğrulama ve OTP' : 'Verification & OTP';
       await page.waitForSelector(`h1:has-text("${heading}")`, { timeout: 15_000 }).catch(() => {});
+      // In that language (tr and en share a direction: the heading tells them apart).
+      await expect(page.locator('h1').first()).toContainText(heading, { timeout: 15_000 });
       const container = page.locator('h1').first().locator('xpath=ancestor::div[@dir][1]');
       await expect(container).toHaveAttribute('dir', dir, { timeout: 15_000 });
     });
@@ -165,12 +183,16 @@ test.describe('admin verification page — authenticated (E2E_FULL_STACK=1)', ()
     // 4. A stale expectedRevision is rejected as a visible revision conflict.
     await page.getByRole('row', { name: /Change email/ }).getByRole('button', { name: 'Edit' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
+    // The form is drawn once the purpose's settings (and their revision) are
+    // in: wait for it, or the bump below can land before that read, which
+    // then returns the new revision and saves without a conflict.
+    const changeEmailCooldown = page.getByLabel('Resend cooldown (seconds)');
+    await expect(changeEmailCooldown).toBeVisible({ timeout: 10_000 });
+    const currentChangeEmailCooldown = await changeEmailCooldown.inputValue();
     // Out-of-band mutation via a raw DB bump of `revision` while the dialog
     // is open, simulating a second admin's concurrent change — the open
     // dialog still holds the now-stale revision it loaded with.
     await db.query(`UPDATE public.verification_purpose_settings SET revision = revision + 1 WHERE purpose = 'change_email'`);
-    const changeEmailCooldown = page.getByLabel('Resend cooldown (seconds)');
-    const currentChangeEmailCooldown = await changeEmailCooldown.inputValue();
     await changeEmailCooldown.fill(String(Number(currentChangeEmailCooldown) + 5));
     await page.getByRole('button', { name: 'Save changes' }).click();
     await expect(page.getByText('Someone else changed these settings. Reload and try again.')).toBeVisible({ timeout: 10_000 });

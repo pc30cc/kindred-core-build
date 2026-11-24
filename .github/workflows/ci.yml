@@ -233,6 +233,10 @@ jobs:
           fc-cache -f >/dev/null
           fc-match -v sans-serif | grep -E 'family:|hinting:|rgba:' | head -4
 
+      - name: TEMPORARY font diagnostic
+        continue-on-error: true
+        run: npx playwright test e2e/tmpFontDebug.spec.ts
+
       - name: Tier A
         env:
           CALL_SCREENS_OUT: ${{ runner.temp }}/call-screens

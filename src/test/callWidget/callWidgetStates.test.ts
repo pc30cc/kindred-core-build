@@ -202,15 +202,16 @@ describe('the light screens draw what their state holds', () => {
     expect(one.q('[data-screen="home"] [data-action="callback"]')).toBeNull();
   });
 
-  it('home: the channel line\'s dots sit in <b>: weight 400 in Persian (the shipped Persian 500 face has no U+00B7, so no Latin face is fetched for them), at the design dot\'s advance; a Latin line keeps its 500 dot', () => {
+  it('home: the channel line\'s dots sit in <b>: weight 400 in Persian (the shipped Persian 500 face has no U+00B7, so no Latin face is fetched for them), whose advance is the design dot\'s; a Latin line keeps its 500 dot', () => {
     const m = opened({ locale: 'fa', legacy: false });
     expect(m.qa('.badge .chn b').map((b) => b.textContent)).toEqual(['·', '·']);
     expect(m.q('.badge .chn')!.textContent).toBe('صوتی · تصویری · درخواست تماس');
     const css = widgetSource('presentation-default-panel.css');
     // `<b>` is bold by default: the dot must not turn 700 anywhere.
     expect(css).toMatch(/(^|\n)\.badge \.chn b \{ font-weight: inherit; \}/);
-    // The 400 dot is 0.45px narrower than the reference's at 12px (Tier A box probe of `.badge`, ±0.5px for two dots).
-    expect(css).toMatch(/\n\[dir="rtl"\] \.badge \.chn b \{ font-weight: 400; margin-inline: \.01875em; \}/);
+    // The 400 dot's advance is the reference's (Inter Medium's) at 12px: no margin (Tier A box probe of
+    // `.badge`, ±0.5px; with the earlier .01875em margins the badge was 0.88px wider than the design's in CI).
+    expect(css).toMatch(/\n\[dir="rtl"\] \.badge \.chn b \{ font-weight: 400; \}/);
   });
 
   it('channels on but nobody available: the widget is offline, and the workspace\'s offline behaviour applies (D17, owner 2026-10-21)', () => {

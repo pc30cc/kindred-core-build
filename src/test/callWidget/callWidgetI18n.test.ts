@@ -12,8 +12,8 @@ import { resolve } from 'node:path';
 import vm from 'node:vm';
 
 const source = readFileSync(resolve(process.cwd(), 'public/call-widget/runtime.js'), 'utf8');
-/** The I18N object, evaluated on its own (it is a plain literal). */
-const I18N = vm.runInNewContext(`(${/var I18N = (\{[\s\S]*?\n {2}\});/.exec(source)![1]})`) as Record<'en' | 'fa' | 'tr', Record<string, string>>;
+/** The strings (BUILT_IN_I18N), evaluated on their own (a plain literal). */
+const I18N = vm.runInNewContext(`(${/var BUILT_IN_I18N = (\{[\s\S]*?\n {2}\});/.exec(source)![1]})`) as Record<'en' | 'fa' | 'tr', Record<string, string>>;
 const LOCALES = ['en', 'fa', 'tr'] as const;
 
 /** Every key new-hooks §5.1–5.5 names, plus the contract's (§6); not the board-12-only three. */

@@ -932,7 +932,9 @@ test.describe('10 the lazy panel', () => {
           // The fonts stylesheet is the chat build's (hashed there; this scratch build is the call widget's alone).
           expect(files.filter((f) => !f.startsWith('/widget/fonts/')).map((f) => f.replace('fonts.#.css', 'fonts.css')).sort()).toEqual([
             '/api/call-widget/bootstrap', '/call-widget/l.js', '/call-widget/presentation-default.#.js', '/call-widget/presentation-registry.#.js',
-            `/call-widget/${brand === 'webyar' ? 'presentation-default' : 'presentation-intl'}.#.css`, '/call-widget/runtime.#.css', '/call-widget/runtime.#.js',
+            `/call-widget/${brand === 'webyar' ? 'presentation-default' : 'presentation-intl'}.#.css`, '/call-widget/runtime.#.css',
+            // The engine: its core and the one language the widget speaks.
+            '/call-widget/runtime-core.#.js', `/call-widget/runtime-i18n-${brand === 'webyar' ? 'fa' : 'en'}.#.js`,
             '/widget/presentation-default-fonts.css',
           ].sort());
           await s.w('.ccw-launcher-wrap .ccw-launcher-btn').hover();
@@ -1025,7 +1027,7 @@ test.describe('10 the lazy panel', () => {
           const mod = at(/presentation-default-panel\.[0-9a-f]{12}\.js/);
           expect(mod, 'the module, with no intent').toBeGreaterThan(-1);
           // In the loader's page-load pass, not on the visitor's intent nor at the mount (runtime.css is the mount's).
-          expect(mod, 'requested with the page-load scripts').toBeGreaterThan(at(/\/runtime\.[0-9a-f]{12}\.js/));
+          expect(mod, 'requested with the page-load scripts').toBeGreaterThan(at(/\/runtime-core\.[0-9a-f]{12}\.js/));
           expect(mod, 'before the mount').toBeLessThan(at(/\/runtime\.[0-9a-f]{12}\.css/));
         });
       });
@@ -1361,3 +1363,36 @@ test.describe('15 accessibility extras', () => {
   });
 });
 
+// ─── 16 · the engine's languages (built) ─────────────────────────────────
+test.describe('16 the engine\'s languages (built: runtime-core.js and runtime-i18n-<id>.js)', () => {
+  for (const brand of BRANDS) {
+    test(`${brand}: the core runs with the widget's language only; switching fetches the other language's file once and redraws in it`, async ({ browser }) => {
+      const build = buildCallWidgetScratch(brand);
+      try {
+        const [first, other] = brand === 'webyar' ? ['fa', 'en'] : ['en', 'fa'];
+        const SHORT: Record<string, string> = { en: 'EN', fa: 'فا' };
+        await withSession(browser, { brand, mode: 'built', dist: build.dist, boot: { i18n: { available_locales: [first, other] } } }, async (s) => {
+          const engineFiles = () => s.log.requests.map((r) => r.split('?')[0])
+            .filter((r) => /^\/call-widget\/runtime(-core|-i18n-[a-z]+)?\.[0-9a-f]{12}\.js$/.test(r))
+            .map((r) => r.replace(/\.[0-9a-f]{12}\./, '.#.'));
+          await clickLauncher(s);
+          await s.waitOpen(true);
+          expect(engineFiles()).toEqual(['/call-widget/runtime-core.#.js', `/call-widget/runtime-i18n-${first}.#.js`]);
+          const pill = s.w('.scr.on .lang span').first();
+          await expect(pill).toHaveText(SHORT[first]);
+          await s.w('.scr.on select[data-action=lang]').selectOption(other);
+          await expect(pill).toHaveText(SHORT[other]);
+          await expect(s.w('.ccw-root')).toHaveAttribute('lang', other);
+          await expect(s.w('.ccw-root')).toHaveAttribute('dir', other === 'fa' ? 'rtl' : 'ltr');
+          expect(engineFiles()).toEqual(['/call-widget/runtime-core.#.js', `/call-widget/runtime-i18n-${first}.#.js`, `/call-widget/runtime-i18n-${other}.#.js`]);
+          // Back again: both are here, nothing more is fetched.
+          await s.w('.scr.on select[data-action=lang]').selectOption(first);
+          await expect(pill).toHaveText(SHORT[first]);
+          expect(engineFiles()).toHaveLength(3);
+        });
+      } finally {
+        build.cleanup();
+      }
+    });
+  }
+});

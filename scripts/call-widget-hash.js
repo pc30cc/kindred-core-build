@@ -19,6 +19,7 @@ import { fileURLToPath } from 'url';
 import { resolveBuildBrand } from './build/brand.mjs';
 import { isWidgetSource, transformWidgetAsset } from './build/widgetBrand.mjs';
 import { precompressFiles } from './build/precompress.mjs';
+import { callRuntimeFiles } from './build/runtimeLocales.mjs';
 
 // CALL_WIDGET_BUILD_ROOT: another tree with the same layout (public/, dist/),
 // for the script's own test (src/test/widget/callWidgetBuild.test.ts).
@@ -51,8 +52,13 @@ for (const script of presentations.filter((name) => name !== 'presentation-regis
 // Minified without comments; the RESPOK build also leaves out the Iran
 // region's local kit (scripts/build/widgetBrand.mjs, scripts/build/brand.mjs).
 const brand = resolveBuildBrand(process.env);
+// The engine also ships cut by language (scripts/build/runtimeLocales.mjs):
+// runtime-core.js (no strings) and runtime-i18n-<id>.js per language, which a
+// built l.js runs instead of runtime.js; runtime.js stays whole for the
+// operator preview, older loaders and the loader's unhashed fallback.
+const generated = new Map(callRuntimeFiles(readFileSync(join(source, 'runtime.js'), 'utf8')));
 const shippedBytes = (name, options) => {
-  const raw = readFileSync(join(source, name));
+  const raw = generated.has(name) ? Buffer.from(generated.get(name), 'utf8') : readFileSync(join(source, name));
   return isWidgetSource(name) ? Buffer.from(transformWidgetAsset(name, raw, brand, options), 'utf8') : raw;
 };
 const hashedName = (name, bytes) => {
@@ -63,7 +69,7 @@ const hashedName = (name, bytes) => {
 mkdirSync(output, { recursive: true });
 const files = {};
 const hashedPaths = [];
-for (const name of ['runtime.js', 'runtime.css', ...presentations]) {
+for (const name of ['runtime.js', ...generated.keys(), 'runtime.css', ...presentations]) {
   const bytes = shippedBytes(name);
   files[name] = hashedName(name, bytes);
   writeFileSync(join(output, files[name]), bytes);

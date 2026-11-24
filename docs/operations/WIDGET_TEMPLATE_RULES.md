@@ -491,7 +491,7 @@ one is a decision, with the reason in the commit and here.
 | chat `runtime-fab.css` | 2 KB | page views of a workspace wearing a launcher style |
 | chat `runtime-emoji.js` | 4 KB | the emoji search's first use |
 | call `l.js` (built) | 2.6 KB | every page view |
-| call engine `runtime.js` | 21.1 KB | first page view |
+| call engine (built: `runtime-core.js` + one `runtime-i18n-<id>.js`; `runtime.js` whole) | 21.1 KB | first page view |
 | call core presentation | 10.5 KB | first page view |
 | call `runtime.css` | 4.9 KB | first page view |
 | call skin | 2.2 KB | first page view |
@@ -548,6 +548,24 @@ the designs, in brackets):
 A page view that never opens the call panel pays the page-load total only
 (+5.9–7.3 KB over `6f8af41`); the panel's 27.6 KB come on the first intent
 (pointer over the launcher, focus, a press), before the click.
+
+Since 2026-11-24 the engine also ships cut by language
+(`scripts/build/runtimeLocales.mjs`, `scripts/call-widget-hash.js`): its
+strings are blocks between `// @locale <id>` markers in `runtime.js`, and the
+build writes `runtime-core.js` (the engine without them) and one
+`runtime-i18n-<id>.js` per language, which adds its strings to
+`window.__ccw_i18n`. A built `l.js` runs the core with the widget's language
+only: the visitor's pick (`ccw_locale`) or the bootstrap's default, started
+with the page-load scripts, else the one the engine asks for
+(`missingLocale`) before the mount; a language the visitor switches to comes
+then (`loadLocale`). A language file that fails sends the loader to the
+fixed names, where `runtime.js` keeps every language (as for the operator
+preview and the raw `l.js`). Measured that day (gzip 5, as shipped, iran):
+`runtime.js` 20,583 B before, 20,754 B whole after; a built page load runs
+the core 12,838 B with Persian 3,454 B (16,292 B), English 2,738 B or
+Turkish 3,102 B, 4.3–5.0 KB less; `l.js` built 2,470 B (the cut's names
+and its loading). The engine's cap is checked on both: the core with the
+largest language, and `runtime.js` whole.
 
 The International skins on 2026-10-18: `presentation-t1-intl.css` 2.1 KB
 and `presentation-t2-intl.css` 2.0 KB (of 6), in both builds.

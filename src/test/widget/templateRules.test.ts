@@ -27,6 +27,7 @@ import { JSDOM } from 'jsdom';
 import postcss from 'postcss';
 import { CALL_WIDGET_TEMPLATES, CHAT_WIDGET_TEMPLATES, EDITION_CALL_WIDGET_TEMPLATES, EDITION_CHAT_WIDGET_TEMPLATES } from '../../../shared/widgetTemplates';
 import { transformWidgetAsset } from '../../../scripts/build/widgetBrand.mjs';
+import { callRuntimeFiles } from '../../../scripts/build/runtimeLocales.mjs';
 import { buildCallWidget } from './callWidgetBuildFixture';
 
 const ROOT = process.cwd();
@@ -72,7 +73,12 @@ export const BUDGETS = {
   call: {
     /** l.js as built (with this build's names): every page view of every site. Measured 2,254 (iran's dist l.js; this test computes 2,252 iran / 2,253 respok). */
     loader: 2_600,
-    /** runtime.js, the engine: page load. Measured 19,863 (iran). */
+    /**
+     * The engine: page load. Measured 19,863 (iran), when every page load ran
+     * runtime.js. A built l.js now runs runtime-core.js with one
+     * runtime-i18n-<id>.js (the larger counts); runtime.js, whole, stays under
+     * the same cap (the operator preview, the loader's fallback).
+     */
     engine: 21_100,
     /** The core presentation (presentation-default.js): page load. Measured 9,816 (round 7b: WebYar's stage hold). */
     presentation: 10_500,
@@ -524,8 +530,19 @@ describe('size budgets (minified as shipped, gzip level 5)', () => {
   // file's shipped bytes' sha256, 12 hex) and the chat build's names for the
   // fonts stylesheet and LiveKit (scripts/widget-hash.js: md5, 8 hex).
   const CALL_BRANDS = ['iran', 'respok'] as const;
-  const callFiles = ['runtime.js', 'runtime.css', ...readdirSync(resolve(ROOT, CALL_DIR)).filter((f) => /^presentation-[a-z0-9-]+\.(js|css)$/.test(f)).sort()];
-  const shippedBytes = (path: string, brand: Brand) => Buffer.from(transformWidgetAsset(path.split('/').pop()!, readFileSync(resolve(ROOT, path)), brand), 'utf8');
+  // The engine cut by language (runtime-core.js, runtime-i18n-<id>.js), made
+  // from runtime.js as the script makes it (scripts/build/runtimeLocales.mjs).
+  const callGenerated = new Map(callRuntimeFiles(read(`${CALL_DIR}/runtime.js`)) as Array<[string, string]>);
+  const callFiles = ['runtime.js', ...callGenerated.keys(), 'runtime.css', ...readdirSync(resolve(ROOT, CALL_DIR)).filter((f) => /^presentation-[a-z0-9-]+\.(js|css)$/.test(f)).sort()];
+  const callSource = (path: string) => {
+    const name = path.split('/').pop()!;
+    return path.startsWith(`${CALL_DIR}/`) && callGenerated.has(name) ? Buffer.from(callGenerated.get(name)!, 'utf8') : readFileSync(resolve(ROOT, path));
+  };
+  const shippedBytes = (path: string, brand: Brand) => Buffer.from(transformWidgetAsset(path.split('/').pop()!, callSource(path), brand), 'utf8');
+  const callGzip = (name: string, brand: Brand) => gzipSync(shippedBytes(`${CALL_DIR}/${name}`, brand), { level: 5 }).length;
+  /** What a built l.js runs as the engine: the core with its largest language file. */
+  const builtEngine = (brand: Brand) => callGzip('runtime-core.js', brand)
+    + Math.max(...[...callGenerated.keys()].filter((n) => n.startsWith('runtime-i18n-')).map((n) => callGzip(n, brand)));
   const hex = (algorithm: 'sha256' | 'md5', bytes: Buffer, length: number) => createHash(algorithm).update(bytes).digest('hex').slice(0, length);
   const callBuilds = new Map<Brand, { files: Record<string, string>; livekit: string; fonts: string }>();
   const callBuild = (brand: Brand) => {
@@ -570,8 +587,9 @@ describe('size budgets (minified as shipped, gzip level 5)', () => {
     .filter((e) => (EDITION_CALL_WIDGET_TEMPLATES[e].offered as readonly string[]).includes(id))
     .map((e) => EDITION_BRAND[e]));
 
-  it(`call l.js ≤ ${BUDGETS.call.loader} B as built, runtime.js ≤ ${BUDGETS.call.engine} B, runtime.css ≤ ${BUDGETS.call.runtimeCss} B, in both builds`, () => {
+  it(`call l.js ≤ ${BUDGETS.call.loader} B as built, the engine ≤ ${BUDGETS.call.engine} B (built: the core and a language; runtime.js whole), runtime.css ≤ ${BUDGETS.call.runtimeCss} B, in both builds`, () => {
     for (const brand of CALL_BRANDS) expect(builtLoader(brand), `l.js built (${brand})`).toBeLessThanOrEqual(BUDGETS.call.loader);
+    for (const brand of CALL_BRANDS) expect(builtEngine(brand), `runtime-core.js + runtime-i18n (${brand})`).toBeLessThanOrEqual(BUDGETS.call.engine);
     expect(both(`${CALL_DIR}/runtime.js`)).toBeLessThanOrEqual(BUDGETS.call.engine);
     expect(both(`${CALL_DIR}/runtime.css`)).toBeLessThanOrEqual(BUDGETS.call.runtimeCss);
   });
@@ -590,7 +608,7 @@ describe('size budgets (minified as shipped, gzip level 5)', () => {
         expect(panel, `${t.panel.script} (${brand})`).toBeLessThanOrEqual(BUDGETS.call.panel);
         expect(panelCss, `${t.panel.style} (${brand})`).toBeLessThanOrEqual(BUDGETS.call.panelCss);
         expect(panel + panelCss, `first open (${brand})`).toBeLessThanOrEqual(BUDGETS.call.firstOpenTotal);
-        const pageLoad = builtLoader(brand) + shippedGzip(`${CALL_DIR}/presentation-registry.js`, brand) + shippedGzip(`${CALL_DIR}/runtime.js`, brand)
+        const pageLoad = builtLoader(brand) + shippedGzip(`${CALL_DIR}/presentation-registry.js`, brand) + builtEngine(brand)
           + core + shippedGzip(`${CALL_DIR}/runtime.css`, brand) + skin + shippedGzip(`${CHAT_DIR}/presentation-default-fonts.css`, brand);
         expect(pageLoad, `page load (${brand})`).toBeLessThanOrEqual(BUDGETS.call.pageLoadTotal);
       }

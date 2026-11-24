@@ -123,7 +123,7 @@ test.describe('admin verification page — authenticated (E2E_FULL_STACK=1)', ()
       // The last of these (en) leaves the platform as the tests after it expect it.
       await setPanelDefault(context, locale);
       await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
-      const heading = locale === 'fa' ? 'تأیید هویت و رمز یکبار مصرف' : locale === 'tr' ? 'Doğrulama ve OTP' : 'Verification & OTP';
+      const heading = locale === 'fa' ? 'تأیید هویت و کد یکبارمصرف' : locale === 'tr' ? 'Doğrulama ve OTP' : 'Verification & OTP';
       await page.waitForSelector(`h1:has-text("${heading}")`, { timeout: 15_000 }).catch(() => {});
       // In that language (tr and en share a direction: the heading tells them apart).
       await expect(page.locator('h1').first()).toContainText(heading, { timeout: 15_000 });

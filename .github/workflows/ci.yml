@@ -223,18 +223,20 @@ jobs:
       - name: Install Chromium (with its system libraries)
         run: bunx playwright install --with-deps chromium
 
-      # The full Chromium (Chrome for Testing), as the local gate runs it
-      # (e2e/harness/callReference.ts resolveCallChromium), not the headless
-      # shell Playwright picks by default.
-      - name: Use the full Chromium
-        run: echo "PLAYWRIGHT_CHROMIUM_PATH=$(find ~/.cache/ms-playwright -path '*/chromium-*/chrome-linux*/chrome' -type f | head -1)" >> "$GITHUB_ENV"
+      # The fonts the gate was tuned with (e2e/harness/fontconfig/README.md):
+      # Inter as the system's sans-serif and system-ui, and text drawn
+      # unhinted in grayscale, as images rather than for a screen.
+      - name: The gate's fonts
+        run: |
+          sudo apt-get install -y --no-install-recommends fonts-inter
+          sudo cp e2e/harness/fontconfig/*.conf /etc/fonts/conf.d/
+          fc-cache -f >/dev/null
+          fc-match -v sans-serif | grep -E 'family:|hinting:|rgba:' | head -4
 
       - name: Tier A
         env:
           CALL_SCREENS_OUT: ${{ runner.temp }}/call-screens
-        run: |
-          echo "Chromium: $PLAYWRIGHT_CHROMIUM_PATH"
-          npx playwright test e2e/callWidgetScreens.spec.ts --grep-invert "boots through the real loader"
+        run: npx playwright test e2e/callWidgetScreens.spec.ts --grep-invert "boots through the real loader"
 
       - name: Keep the shots of a failed run
         if: ${{ failure() }}

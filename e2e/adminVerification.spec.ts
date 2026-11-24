@@ -47,6 +47,20 @@ async function withSiteDefault(page: Page, locale: 'en' | 'fa' | 'tr') {
   });
 }
 
+/**
+ * The dashboard's default language is the Super Admin's platform setting
+ * (shared/panelLanguages.ts, owner 2026-10-31): a browser where nobody picked
+ * a language follows it once the platform's settings are in, whatever
+ * /runtime-config.js said for the first paint. Set through its real route,
+ * as the Super Admin's Branding page does (it drops the server's cache).
+ */
+async function setPanelDefault(context: BrowserContext, locale: 'en' | 'fa' | 'tr') {
+  const res = await context.request.put('/api/admin/management/platform-settings', {
+    data: { default_locale: locale, active_locales: ['en', 'fa', 'tr'] },
+  });
+  expect(res.ok(), `platform-settings: ${res.status()} ${await res.text()}`).toBe(true);
+}
+
 async function seedSessionCookie(context: BrowserContext, token: string, port: number) {
   await context.addCookies([
     {
@@ -106,9 +120,13 @@ test.describe('admin verification page — authenticated (E2E_FULL_STACK=1)', ()
     test(`renders with dir="${dir}" for site default locale ${locale}`, async ({ page, context }) => {
       await withSiteDefault(page, locale);
       await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
+      // The last of these (en) leaves the platform as the tests after it expect it.
+      await setPanelDefault(context, locale);
       await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
       const heading = locale === 'fa' ? 'تأیید هویت و رمز یکبار مصرف' : locale === 'tr' ? 'Doğrulama ve OTP' : 'Verification & OTP';
       await page.waitForSelector(`h1:has-text("${heading}")`, { timeout: 15_000 }).catch(() => {});
+      // In that language (tr and en share a direction: the heading tells them apart).
+      await expect(page.locator('h1').first()).toContainText(heading, { timeout: 15_000 });
       const container = page.locator('h1').first().locator('xpath=ancestor::div[@dir][1]');
       await expect(container).toHaveAttribute('dir', dir, { timeout: 15_000 });
     });

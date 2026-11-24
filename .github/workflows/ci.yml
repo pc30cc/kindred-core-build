@@ -223,10 +223,18 @@ jobs:
       - name: Install Chromium (with its system libraries)
         run: bunx playwright install --with-deps chromium
 
+      # The full Chromium (Chrome for Testing), as the local gate runs it
+      # (e2e/harness/callReference.ts resolveCallChromium), not the headless
+      # shell Playwright picks by default.
+      - name: Use the full Chromium
+        run: echo "PLAYWRIGHT_CHROMIUM_PATH=$(find ~/.cache/ms-playwright -path '*/chromium-*/chrome-linux*/chrome' -type f | head -1)" >> "$GITHUB_ENV"
+
       - name: Tier A
         env:
           CALL_SCREENS_OUT: ${{ runner.temp }}/call-screens
-        run: npx playwright test e2e/callWidgetScreens.spec.ts --grep-invert "boots through the real loader"
+        run: |
+          echo "Chromium: $PLAYWRIGHT_CHROMIUM_PATH"
+          npx playwright test e2e/callWidgetScreens.spec.ts --grep-invert "boots through the real loader"
 
       - name: Keep the shots of a failed run
         if: ${{ failure() }}

@@ -144,11 +144,12 @@ openssl x509 -in tls/mail-relay.crt -noout -subject -ext subjectAltName -enddate
 step is undone by the one before it.
 
 0. In each brand's Super Admin → Providers → Email (smtp), set
-   **Encryption** to `none` and save. Production's rows have no encryption
-   set, which reads as `auto`: the backend then takes STARTTLS as soon as the
-   relay offers it, refuses its self-signed certificate (there is no
-   `tls_ca` yet), and every mail would fail until step 2. `none` is what
-   happens on the wire today, written down. Press Test.
+   **Encryption** to `none` and save. A row with no encryption set reads as
+   `auto`: the backend then takes STARTTLS as soon as the relay offers it,
+   refuses its self-signed certificate (there is no `tls_ca` yet), and every
+   mail would fail until step 2. `none` is what happens on the wire before
+   the rollout, written down. Press Test. (Production's rows were saved
+   `none` on 2026-10-30.)
 1. **Deploy the relay with TLS offered but not yet required**: put
    `RELAY_TLS_AUTH_ONLY=no` in `.env`, then `docker compose config --quiet`
    and `docker compose up -d mail-relay`. Check:
@@ -184,6 +185,45 @@ step is undone by the one before it.
    `docker exec mail-relay postconf smtpd_tls_auth_only` reads `yes`. Press
    Test in each brand again. From now on a client that does not take
    STARTTLS is not offered AUTH, so it cannot send.
+
+   Test alone does not prove this step: a brand still on `none` is not
+   offered AUTH, and nodemailer then skips the sign-in, so its Test passes
+   while its real mail is refused (554, permanent, not retried). Before this
+   step, check that both brands read `starttls` and pass Test; after it,
+   send one real mail per brand and find `TLS connection established`
+   before its `sasl_username` line in the log. If either fails, put
+   `RELAY_TLS_AUTH_ONLY=no` back in `.env` and `docker compose up -d
+   mail-relay`.
+
+Done on production 2026-11-26, 05:40 to 05:43 UTC, with the steps above in
+order (the first deploy of this compose, its bounce watcher and both events
+tokens included): one real mail per brand after each step went out, the last
+ones over TLS 1.3 before their sign-in, and the relay now offers STARTTLS
+and no AUTH before it. The backups (the 2026-10-29 folder, `postconf -n`,
+`docker inspect` and the relay's whole log until then, which held its
+addresses) are in `/root/relay-upgrade-20261126/backup/` on the host, root
+only.
+
+### Going back
+
+Within this compose, step by step: a brand goes back by saving its smtp
+provider with `encryption` `none` (only before step 4, or with
+`RELAY_TLS_AUTH_ONLY=no` back in `.env`), and step 4 by putting
+`RELAY_TLS_AUTH_ONLY=no` back in `.env` and `docker compose up -d
+mail-relay`.
+
+To the 2026-10-29 compose (`docker-compose.yml.20261029` in the relay's
+folder): `/etc/postfix` is an anonymous volume that a recreate carries over,
+and the image only writes the `POSTFIX_*` variables that are set, never
+removing one. So restoring the old file alone would keep `maillog_file`
+(whose folder the old compose does not mount: Postfix may not start) and
+`smtpd_tls_auth_only = yes` with `smtpd_tls_security_level = none` (AUTH
+never offered: every mail of both brands refused). In this order: save both
+brands' providers with `encryption` `none`; run
+`docker exec mail-relay postconf -X maillog_file smtpd_tls_auth_only smtpd_tls_cert_file smtpd_tls_key_file smtpd_tls_loglevel`;
+put the old file back as `docker-compose.yml`; `docker rm -f
+mail-relay-bounce-watcher`; `docker compose up -d mail-relay`; check
+`postconf maillog_file smtpd_tls_auth_only` and press Test in both brands.
 
 ## Rotation
 

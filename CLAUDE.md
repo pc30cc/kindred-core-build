@@ -176,11 +176,14 @@ encrypted under `PLUGIN_SECRETS_MASTER_KEY` on save and never reach a browser.
 Since 2026-10-29 15:11 UTC both brands send through our own Postfix relay,
 `mail-relay` on host.respok.app (`deploy/mail-relay/`: SASL per brand on
 `mail-relay:587` over the coolify network, DKIM selector `mx2026`, PTR
-`mail.respok.app`); receiving stays on iCloud. That hop gets STARTTLS with
-the relay's own certificate (self-signed for `mail-relay`, made on the host
-into `deploy/mail-relay/tls/`, never committed; the providers check it as
-`tls_ca`) and no AUTH before it; until its rollout (`deploy/mail-relay/README.md`,
-"TLS", step 0 first: `encryption` `none`, or every mail fails) it is plain.
+`mail.respok.app`); receiving stays on iCloud. Since 2026-11-26 that hop has
+STARTTLS with the relay's own certificate (self-signed for `mail-relay`, made
+on the host into `/opt/mail-relay/tls/`, never committed; both brands' smtp
+providers check it as `tls_ca`, `encryption` `starttls`) and no AUTH before
+it, and the relay's bounce watcher runs beside it. A brand saved back to
+`encryption` `none` can no longer send; going back to the 2026-10-29 relay
+first clears what the new compose wrote into the carried-over `main.cf`
+(`deploy/mail-relay/README.md`, "TLS" and "Going back").
 Failed transactional mail is retried by the email outbox (289b); a
 suppressed address (289; hard bounces of the address and complaints, fed by
 `/api/email-events/{resend,sendgrid,relay}` and the relay's bounce watcher;

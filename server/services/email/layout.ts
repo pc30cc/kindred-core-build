@@ -521,6 +521,11 @@ function rawText(nodes: Node[]): string {
 const FORBIDDEN = new Set([
   'script', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'input', 'select', 'textarea',
   'link', 'meta', 'base', 'plaintext', 'svg', 'math',
+  // A browser reads what is inside these as text up to their first closing
+  // tag, wherever it stands; this reader reads it as markup. A closing tag
+  // inside an attribute or a comment would end them early there, and what
+  // follows would be live markup that went past every check here.
+  'xmp', 'noembed', 'noframes',
 ]);
 /** Forbidden too, but their words are the author's: the element goes, what is inside it stays. */
 const UNWRAPPED = new Set(['form', 'button']);

@@ -580,9 +580,16 @@ over unchanged. A full disk stops Postgres too.
     six seeded `offline_message_received` templates (both editions, all still
     as seeded) their plain subject and added `offline_messages_summary`; the
     rest writes no data. RESPOK by its migrator on push.
-    Then `290_platform_brand_assets.sql` (2026-10-30 19:23 UTC),
-    `291_email_templates_redesign.sql` (20:19) and
-    `292_billing_crypto_usd_accounts.sql` (2026-11-01 07:40), each by hand
+    Then `290_platform_brand_assets.sql` (2026-10-30 19:23 UTC, before the
+    merge of PR #375; RESPOK by its migrator at 20:19) and
+    `291_email_templates_redesign.sql`, which needs the backend that wraps
+    content rows, so it ran after that merge, once backends 25 and 32 were
+    live: WebYar's by the script at 20:19:42 UTC, RESPOK's by `psql -f` at
+    20:20:06 (its name had been entered in RESPOK's ledger at 19:23 so the
+    migrator skipped it, so that ledger row reads 19:23:29), each replacing
+    168 rows (0 added, none kept; dumps and logs in
+    `/root/webyar-migrate-291/` and `/root/respok-migrate-291/`). Then
+    `292_billing_crypto_usd_accounts.sql` (2026-11-01 07:40), by hand
     before its merge. Then `293_team_calls.sql` (colleague calls: the App
     Review plan and its seed get `team_calls`, and `team_call_place()`, which
     every colleague call is placed through), applied by hand before the

@@ -35,9 +35,10 @@ settings:
     # last one. Build 6 is the first numbered after colleague calls say
     # `rang` (#414): the server stamps the ring for builds 3-5 from their push
     # (server/services/push/teamCallRing.ts, TEAM_CALL_PUSH_STAMP_BUILDS), so
-    # never upload a build below 6 again.
+    # never upload a build below 6 again. Build 7 (2026-11-26): threads in
+    # pages of 100 (#422) and the security fixes (#423).
     MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "6"
+    CURRENT_PROJECT_VERSION: "7"
 
 packages:
   # The one external dependency in this app, and it earns its place: a call

@@ -1,7 +1,7 @@
 {
-  "versionName": "1.9.1",
-  "versionCode": 31,
-  "sha256": "233e19e9da8990f7b324c70925eba6b64972927363a7e35e6b7093b136415192",
-  "sizeBytes": 58102427,
-  "releasedAt": "2026-11-05T07:56:17Z"
+  "versionName": "1.9.2",
+  "versionCode": 32,
+  "sha256": "a08d2c55e848f064ea8db1bffff7c17cf33b78458a36a36b0920e44e71d11544",
+  "sizeBytes": 58102431,
+  "releasedAt": "2026-11-26T06:02:18Z"
 }

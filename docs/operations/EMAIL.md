@@ -451,13 +451,14 @@ container there that can watch it. The relay offers STARTTLS with a
 certificate of its own, self-signed for `mail-relay` (CN and SAN), made once
 on the host into `deploy/mail-relay/tls/`, mounted read-only and never
 committed; the backends check it against that same certificate, saved as
-the smtp provider's `tls_ca`. Production's hop stays plain until this is
-rolled out, without a mail outage, in this order (the commands are in
-`deploy/mail-relay/README.md`, "TLS"):
+the smtp provider's `tls_ca`. It was rolled out on 2026-11-26 (05:40 to
+05:43 UTC), without a mail outage, in this order (the commands, the record
+and the way back are in `deploy/mail-relay/README.md`, "TLS"):
 
-0. Save each brand's smtp provider with `encryption` `none`. Today's rows have
-   none set, which is `auto`: it would take the STARTTLS the relay starts to
-   offer and refuse the self-signed certificate, and every mail would fail.
+0. Save each brand's smtp provider with `encryption` `none`. A row with none
+   set is `auto`: it would take the STARTTLS the relay starts to offer and
+   refuse the self-signed certificate, and every mail would fail.
+   (Production's rows were saved `none` on 2026-10-30.)
 1. Deploy the relay with TLS offered but not yet required
    (`RELAY_TLS_AUTH_ONLY=no` in its `.env`).
 2. Save each brand's smtp provider with `encryption` `starttls`,
@@ -465,7 +466,9 @@ rolled out, without a mail outage, in this order (the commands are in
 3. Test: the form's Test, then one real mail, and the relay's log shows TLS
    before the sign-in.
 4. Turn on `smtpd_tls_auth_only` (remove `RELAY_TLS_AUTH_ONLY` from `.env`;
-   the compose's default is `yes`) and test again.
+   the compose's default is `yes`) and test again with one real mail per
+   brand: the form's Test passes even for a brand left on `none` (it is not
+   offered AUTH, so nodemailer skips the sign-in), while its mail is refused.
 
 Until step 4 a client may still sign in without TLS; after it, a provider
 saved with `encryption` `none` can no longer send through the relay.

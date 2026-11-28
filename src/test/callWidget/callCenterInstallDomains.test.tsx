@@ -2,9 +2,10 @@
  * Call Center → Install → Allowed domains (owner, 2026-11-28): the
  * registered website is shown as one of the sites, fixed; Add is offered only
  * while the plan's max_call_widget_domains has a slot free (-1 = always,
- * unknown = never); a refusal past the number says so. The page carries no
- * bootstrap test (owner, 2026-11-28): run from the panel's address, which is
- * none of the workspace's sites, it could only ever answer origin_denied.
+ * unknown = never); a refusal past the number says so. The page is the embed
+ * code and the domains only (owner, 2026-11-28): no bootstrap test (run from
+ * the panel's address, which is none of the workspace's sites, it could only
+ * ever answer origin_denied) and no install health list.
  *
  * @vitest-environment jsdom
  */
@@ -31,7 +32,6 @@ vi.mock('@/hooks/useCallCenter', () => ({
       ...(state.registered ? { registered_domains: state.registered } : {}),
     },
   }),
-  useCallCenterOverview: () => ({ data: { provider: { ready: true } } }),
   useUpdateCallCenterSettings: () => ({
     isPending: false,
     mutateAsync: async (patch: Record<string, unknown>) => {
@@ -143,5 +143,16 @@ describe('the allowed domains of the call widget', () => {
     expect(screen.queryByRole('button', { name: 'اجرای تست' })).toBeNull();
     expect(fetchSpy.mock.calls.some(([url]) => String(url).includes('/call-widget/bootstrap'))).toBe(false);
     expect('testBootstrap' in I).toBe(false);
+  });
+
+  it('carries no install health list', () => {
+    mount();
+    expect(screen.queryByText('سلامت نصب')).toBeNull();
+    expect(screen.queryByText('پلتفرم فعال است')).toBeNull();
+    expect(screen.queryByText('کلید عمومی تولید شده')).toBeNull();
+    expect('installHealth' in I).toBe(false);
+    // What stays: the embed code and the domains.
+    expect(screen.getByText(I.embedCode)).toBeTruthy();
+    expect(screen.getByText(I.allowedDomains)).toBeTruthy();
   });
 });

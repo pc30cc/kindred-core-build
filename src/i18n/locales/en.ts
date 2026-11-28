@@ -4048,12 +4048,6 @@ const en = {
       downloadZip: 'Download ZIP',
     },
     install: {
-      installHealth: 'Install health',
-      platformEnabled: 'Platform enabled',
-      workspaceEnabled: 'Workspace enabled',
-      callsServiceReady: 'Calls service ready',
-      publicKeyGenerated: 'Public key generated',
-      allowedDomainConfigured: 'Allowed domain configured',
       embedCode: 'Embed code',
       embedCodeHint: 'Widget script is loaded from {{assets}}. API requests go to {{api}}. These can differ (e.g. CDN-hosted assets + separate API host).',
       workspaceIdInstall: 'Workspace ID install',
@@ -4069,7 +4063,6 @@ const en = {
       addDomain: 'Add domain',
       fixInvalidDomains: 'Fix invalid domains first',
       allowedDomainsSaved: 'Allowed domains saved',
-      domainCount: '{{{count}}} domain(s)',
     },
     settingsPage: {
       masterOnHint: 'On: visitors can call your team from the call widget, and operators see the Call Center.',

@@ -1,11 +1,11 @@
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
-import { useCallCenterSettings, useUpdateCallCenterSettings, useCallCenterOverview } from '@/hooks/useCallCenter';
+import { useCallCenterSettings, useUpdateCallCenterSettings } from '@/hooks/useCallCenter';
 import { Panel, SectionHeading } from '@/features/calls/callCenterUi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useState, useEffect } from 'react';
 import { toast } from '@/hooks/use-toast';
-import { Copy, AlertCircle, CheckCircle2, Plus, Trash2, Activity, Code2, Globe } from 'lucide-react';
+import { Copy, Plus, Trash2, Code2, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
@@ -13,16 +13,6 @@ import { usePlanAccess } from '@/hooks/useEntitlements';
 import {
   CALL_WIDGET_DOMAINS_LIMIT_KEY, canAddDomain, cleanDomainEntry, domainSlotsUsed, isValidDomainEntry,
 } from '../../../../shared/callCenter/callWidgetDomains';
-
-function HealthRow({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
-  return (
-    <div className="flex items-center gap-2 py-1.5 text-sm">
-      {ok ? <CheckCircle2 className="h-4 w-4 text-success shrink-0" /> : <AlertCircle className="h-4 w-4 text-warning shrink-0" />}
-      <span className="flex-1">{label}</span>
-      {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
-    </div>
-  );
-}
 
 function validateDomain(d: string): string | null {
   if (!d) return 'empty';
@@ -38,7 +28,6 @@ export default function InstallPage() {
   const { t } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const { data } = useCallCenterSettings(workspace?.id);
-  const { data: overview } = useCallCenterOverview(workspace?.id);
   const update = useUpdateCallCenterSettings(workspace?.id);
   const plan = usePlanAccess(workspace?.id);
   const apiBase = (RESOLVED_API_BASE as string) || window.location.origin;
@@ -103,25 +92,8 @@ export default function InstallPage() {
     }
   }
 
-  const platformOk = !!data?.platform?.call_center_enabled;
-  const wsOk = !!data?.settings?.enabled;
-  const providerOk = !!overview?.provider?.ready;
-  const hasKey = !!data?.settings?.public_key;
-  const savedSlots = domainSlotsUsed(registered, data?.settings?.allowed_domains ?? []);
-  const domainsOk = savedSlots > 0;
-
   return (
     <div className="space-y-6 max-w-3xl">
-      {/* Install health */}
-      <Panel className="space-y-1">
-        <SectionHeading icon={Activity} title={t('callCenter.install.installHealth')} className="mb-2" />
-        <HealthRow ok={platformOk} label={t('callCenter.install.platformEnabled')} />
-        <HealthRow ok={wsOk} label={t('callCenter.install.workspaceEnabled')} />
-        <HealthRow ok={providerOk} label={t('callCenter.install.callsServiceReady')} />
-        <HealthRow ok={hasKey} label={t('callCenter.install.publicKeyGenerated')} />
-        <HealthRow ok={domainsOk} label={t('callCenter.install.allowedDomainConfigured')} hint={t('callCenter.install.domainCount', { count: String(savedSlots) })} />
-      </Panel>
-
       {/* Embed code */}
       <Panel className="space-y-4">
         <SectionHeading

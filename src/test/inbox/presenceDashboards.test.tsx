@@ -328,3 +328,36 @@ describe('the Overview\'s conversation pills', () => {
     expect(pill('data-resolved')!.textContent).toBe('حل‌شده یا بسته: ۰');
   });
 });
+
+// The dashboard's header (owner, 2026-11-28): no date, no greeting, no
+// workspace line, and no "Get started" checklist (none of its steps was
+// tracked and its trial days were never granted). The plan tile stays for
+// those who see billing, the shortcuts for everyone; the page keeps a heading
+// for screen readers.
+describe('the dashboard\'s header', () => {
+  beforeAll(() => {
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
+  });
+
+  it.each(['owner', 'agent'])('carries no date, greeting, workspace line or checklist (%s)', async (role) => {
+    state.role = role;
+    state.conversations = [];
+    const view = mountWith(<OverviewPage />);
+    const hero = await waitFor(() => {
+      const el = document.querySelector('[data-page-hero="dashboard"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    const text = view.container.textContent ?? '';
+    for (const gone of [en.dashboard.greetingMorning, en.dashboard.greetingAfternoon, en.dashboard.greetingEvening,
+      `${en.dashboard.workspaceLabel}:`, en.wizard.trialDaysCollected, en.wizard.sectionConnect, en.wizard.installWidget]) {
+      expect(text).not.toContain(gone);
+    }
+    expect(hero.querySelector('[data-hero-eyebrow]')).toBeNull();
+    const heading = hero.querySelector('h1');
+    expect(heading?.textContent).toBe(en.nav.dashboard);
+    expect(heading?.className).toContain('sr-only');
+    expect(hero.querySelector('[data-hero-actions]')).not.toBeNull();
+    expect(hero.querySelector('[data-hero-aside]') !== null).toBe(role === 'owner');
+  });
+});

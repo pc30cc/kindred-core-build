@@ -340,6 +340,12 @@
   display: none;
 }
 
+/* With the greeting gone (owner, 2026-11-28), a member who does not see the
+   plan tile has nothing left in that band: no empty band above the figures. */
+:root[data-panel-family="art"] [data-shell="side-layout"] [data-page-hero="dashboard"]:not(:has([data-hero-aside])) {
+  display: none;
+}
+
 /* ── Short screens (under 860px): the chrome a size smaller too ────────── */
 
 @media (max-height: 859px) {

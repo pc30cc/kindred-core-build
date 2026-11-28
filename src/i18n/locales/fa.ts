@@ -4052,13 +4052,6 @@ const fa: TranslationKeys = {
       addDomain: 'افزودن دامنه',
       fixInvalidDomains: 'ابتدا دامنه‌های نامعتبر را اصلاح کنید',
       allowedDomainsSaved: 'دامنه‌های مجاز ذخیره شد',
-      testBootstrap: 'تست بوت‌استرپ',
-      testBootstrapHint: 'آنچه را مرورگر هنگام بارگذاری ویجت می‌بیند بررسی می‌کند.',
-      testFromPanelNote: 'این تست از آدرس پنل اجرا می‌شود که جزو سایت‌های شما نیست، پس «origin_denied» اینجا طبیعی است. روی سایت خودتان ویجت بالا می‌آید.',
-      runTest: 'اجرای تست',
-      rawResponse: 'پاسخ خام',
-      statusLabel: 'وضعیت:',
-      reasonLabel: 'دلیل:',
       domainCount: '{{{count}}} دامنه',
     },
     settingsPage: {

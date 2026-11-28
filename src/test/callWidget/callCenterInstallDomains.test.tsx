@@ -2,8 +2,9 @@
  * Call Center → Install → Allowed domains (owner, 2026-11-28): the
  * registered website is shown as one of the sites, fixed; Add is offered only
  * while the plan's max_call_widget_domains has a slot free (-1 = always,
- * unknown = never); a refusal past the number says so; the bootstrap test,
- * run from the panel's address, explains its origin_denied.
+ * unknown = never); a refusal past the number says so. The page carries no
+ * bootstrap test (owner, 2026-11-28): run from the panel's address, which is
+ * none of the workspace's sites, it could only ever answer origin_denied.
  *
  * @vitest-environment jsdom
  */
@@ -134,11 +135,13 @@ describe('the allowed domains of the call widget', () => {
     expect(state.toasts[0].title).toBe(I.domainLimitReached.replace('{{max}}', '2'));
   });
 
-  it('the bootstrap test, run from the panel\'s address, explains its origin_denied', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ status: 403, json: async () => ({ status: 'error', reason: 'origin_denied' }) })));
+  it('carries no bootstrap test: the page never calls the bootstrap', () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
     mount();
-    fireEvent.click(screen.getByRole('button', { name: I.runTest }));
-    await waitFor(() => expect(document.querySelector('[data-test-from-panel]')).not.toBeNull());
-    expect(document.querySelector('[data-test-from-panel]')!.textContent).toBe(I.testFromPanelNote);
+    expect(screen.queryByText('تست بوت‌استرپ')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'اجرای تست' })).toBeNull();
+    expect(fetchSpy.mock.calls.some(([url]) => String(url).includes('/call-widget/bootstrap'))).toBe(false);
+    expect('testBootstrap' in I).toBe(false);
   });
 });

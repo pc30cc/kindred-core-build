@@ -4056,13 +4056,6 @@ const tr: TranslationKeys = {
       addDomain: 'Alan ekle',
       fixInvalidDomains: 'Önce geçersiz alanları düzeltin',
       allowedDomainsSaved: 'İzinli alanlar kaydedildi',
-      testBootstrap: 'Bootstrap testi',
-      testBootstrapHint: 'Widget yüklendiğinde tarayıcının ne gördüğünü doğrular.',
-      testFromPanelNote: 'Bu test panelin adresinden çalışır; bu adres sitelerinizden biri değildir, bu yüzden burada "origin_denied" beklenir. Kendi sitenizde widget yüklenir.',
-      runTest: 'Testi çalıştır',
-      rawResponse: 'Ham yanıt',
-      statusLabel: 'Durum:',
-      reasonLabel: 'Neden:',
       domainCount: '{{{count}}} alan',
     },
     settingsPage: {

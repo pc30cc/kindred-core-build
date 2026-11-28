@@ -467,7 +467,8 @@ those sites, the owner answered yes. Before this, the widget ran on any site whi
   - It shows the registered website as a fixed row and a "used of max" line.
   - Add appears only while a slot is free: always when unlimited, never while the plan is unknown.
   - A row not filled in yet holds a slot.
-  - The bootstrap test runs from the panel's address, so its `origin_denied` is explained and the panel is not exempted.
+  - It has no bootstrap test (owner, 2026-11-28). Run from the panel's address, which is none of the workspace's sites,
+    it could only answer `origin_denied`, and the panel is not exempted. The install health list above it says what is missing.
 - **Not covered:**
   - the subdomains of the registered website, which take a `*.` entry;
   - a later workspace of the same account that has no verified row (migration 288), whose list then holds every slot.

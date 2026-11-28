@@ -4069,13 +4069,6 @@ const en = {
       addDomain: 'Add domain',
       fixInvalidDomains: 'Fix invalid domains first',
       allowedDomainsSaved: 'Allowed domains saved',
-      testBootstrap: 'Test bootstrap',
-      testBootstrapHint: 'Verifies what a browser sees when loading the widget.',
-      testFromPanelNote: 'This test runs from the panel\'s address, which is none of your sites, so "origin_denied" is expected here. On your own site the widget loads.',
-      runTest: 'Run test',
-      rawResponse: 'Raw response',
-      statusLabel: 'Status:',
-      reasonLabel: 'Reason:',
       domainCount: '{{{count}}} domain(s)',
     },
     settingsPage: {

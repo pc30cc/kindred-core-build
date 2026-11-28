@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useState, useEffect } from 'react';
 import { toast } from '@/hooks/use-toast';
-import { Copy, AlertCircle, CheckCircle2, Plus, Trash2, Activity, Code2, Globe, FlaskConical } from 'lucide-react';
+import { Copy, AlertCircle, CheckCircle2, Plus, Trash2, Activity, Code2, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
@@ -34,16 +34,6 @@ function validateDomain(d: string): string | null {
   return null;
 }
 
-/** What the bootstrap test shows: the answer's status and fields, or the fetch's error. */
-type BootstrapTestResult = {
-  httpStatus?: number;
-  status?: string;
-  reason?: string;
-  effective?: Record<string, unknown>;
-  error?: string;
-  [key: string]: unknown;
-};
-
 export default function InstallPage() {
   const { t } = useTranslation();
   const { workspace } = useActiveWorkspace();
@@ -67,7 +57,6 @@ export default function InstallPage() {
 
   const [domains, setDomains] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<number, string>>({});
-  const [bootstrapResult, setBootstrapResult] = useState<BootstrapTestResult | null>(null);
 
   useEffect(() => {
     if (data?.settings?.allowed_domains) setDomains([...data.settings.allowed_domains]);
@@ -111,16 +100,6 @@ export default function InstallPage() {
       } else {
         toast({ title: t('callCenter.settingsPage.saveFailed'), description: e.message, variant: 'destructive' });
       }
-    }
-  }
-
-  async function testBootstrap() {
-    try {
-      const r = await fetch(`${apiBase}/api/call-widget/bootstrap?workspaceId=${wid}`);
-      const j = await r.json();
-      setBootstrapResult({ httpStatus: r.status, ...j });
-    } catch (e: unknown) {
-      setBootstrapResult({ error: e instanceof Error ? e.message : String(e) });
     }
   }
 
@@ -206,43 +185,6 @@ export default function InstallPage() {
           )}
           <Button onClick={saveDomains} disabled={update.isPending || Object.values(errors).some(Boolean)}>{t('callCenter.common.save')}</Button>
         </div>
-      </Panel>
-
-      {/* Bootstrap test */}
-      <Panel className="space-y-3">
-        <SectionHeading
-          icon={FlaskConical}
-          title={t('callCenter.install.testBootstrap')}
-          hint={t('callCenter.install.testBootstrapHint')}
-        />
-        <Button variant="outline" onClick={testBootstrap}>{t('callCenter.install.runTest')}</Button>
-        {bootstrapResult && (
-          <div className="rounded border p-3 text-sm space-y-2">
-            <div className="flex items-center gap-2">
-              {bootstrapResult.httpStatus === 200 && bootstrapResult.status !== 'disabled' ? (
-                <CheckCircle2 className="h-4 w-4 text-success" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-warning" />
-              )}
-              <span className="font-medium">{t('callCenter.install.statusLabel')} {bootstrapResult.status || `HTTP ${bootstrapResult.httpStatus}`}</span>
-            </div>
-            {bootstrapResult.reason && <div className="text-xs text-muted-foreground">{t('callCenter.install.reasonLabel')} {bootstrapResult.reason}</div>}
-            {bootstrapResult.reason === 'origin_denied' && (
-              <div data-test-from-panel className="text-xs text-muted-foreground">{t('callCenter.install.testFromPanelNote')}</div>
-            )}
-            {bootstrapResult.effective && (
-              <div className="grid grid-cols-2 gap-1 text-xs">
-                {Object.entries(bootstrapResult.effective).map(([k, v]) => (
-                  <div key={k}><span className="text-muted-foreground">{k}:</span> {String(v)}</div>
-                ))}
-              </div>
-            )}
-            <details className="text-xs">
-              <summary className="cursor-pointer text-muted-foreground">{t('callCenter.install.rawResponse')}</summary>
-              <pre className="mt-2 bg-muted p-2 rounded overflow-x-auto">{JSON.stringify(bootstrapResult, null, 2)}</pre>
-            </details>
-          </div>
-        )}
       </Panel>
     </div>
   );

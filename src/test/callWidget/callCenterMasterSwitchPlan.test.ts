@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
   planAllows: true,
   planChecks: 0,
   updates: [] as Array<Record<string, unknown>>,
+  role: 'owner' as string,
 }));
 
 vi.mock('../../../server/supabase.js', () => ({
@@ -27,7 +28,7 @@ vi.mock('../../../server/supabase.js', () => ({
       b.then = (ok: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(ok);
       return b;
     },
-    rpc: async (fn: string) => ({ data: fn === 'get_workspace_role' ? 'owner' : null, error: null }),
+    rpc: async (fn: string) => ({ data: fn === 'get_workspace_role' ? state.role : null, error: null }),
   }),
 }));
 vi.mock('../../../server/lib/workspaceAuth.js', async (importOriginal) => ({
@@ -72,7 +73,7 @@ const row = (enabled: boolean): Row => ({
   widget_template_id: 'intl', widget_theme: {}, pre_call_form_schema: [], business_hours: {}, avatar_url: null, avatar_storage_path: null,
 });
 
-beforeEach(() => { state.row = row(false); state.planAllows = true; state.planChecks = 0; state.updates = []; });
+beforeEach(() => { state.row = row(false); state.planAllows = true; state.planChecks = 0; state.updates = []; state.role = 'owner'; });
 
 describe('the workspace call center switch follows the plan', () => {
   it('switches on when the plan has the call center', async () => {
@@ -113,5 +114,53 @@ describe('the workspace call center switch follows the plan', () => {
     state.planAllows = false;
     expect((await put({ display_name: 'Team' })).status).toBe(200);
     expect(state.planChecks).toBe(0);
+  });
+});
+
+// The switch is the owner's alone (owner, 2026-11-28): it sits in the call
+// center's masthead for the owner only, and the server refuses an admin's
+// change. An admin's save that resends the stored value still saves the rest.
+describe('the workspace call center switch is the owner\'s', () => {
+  it('refuses an admin\'s switch on (403 owner_only), writes nothing, asks no plan', async () => {
+    state.role = 'admin';
+    const res = await put({ enabled: true, display_name: 'Support' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('owner_only');
+    expect(state.updates).toEqual([]);
+    expect(state.row.enabled).toBe(false);
+    expect(state.planChecks).toBe(0);
+  });
+
+  it('refuses an admin\'s switch off too', async () => {
+    state.role = 'admin';
+    state.row = row(true);
+    const res = await put({ enabled: false });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('owner_only');
+    expect(state.row.enabled).toBe(true);
+  });
+
+  it('an admin\'s save that resends the stored value saves the rest, and not enabled', async () => {
+    state.role = 'admin';
+    state.row = row(true);
+    const res = await put({ enabled: true, display_name: 'Team' });
+    expect(res.status).toBe(200);
+    expect(state.updates).toEqual([{ display_name: 'Team' }]);
+    expect(state.row.enabled).toBe(true);
+  });
+
+  it('an admin\'s save of the stored value alone writes nothing and answers the row', async () => {
+    state.role = 'admin';
+    const res = await put({ enabled: false });
+    expect(res.status).toBe(200);
+    expect(state.updates).toEqual([]);
+    expect(res.body.settings?.enabled).toBe(false);
+  });
+
+  it('the owner switches it on and off', async () => {
+    expect((await put({ enabled: true })).status).toBe(200);
+    expect(state.row.enabled).toBe(true);
+    expect((await put({ enabled: false })).status).toBe(200);
+    expect(state.row.enabled).toBe(false);
   });
 });

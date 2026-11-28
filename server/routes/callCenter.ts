@@ -215,7 +215,7 @@ async function requireWorkspaceAdmin(req: Request, res: Response, workspaceId: s
   if (!['owner', 'admin'].includes(String(role))) {
     res.status(403).json({ error: 'forbidden' }); return null;
   }
-  return ctx;
+  return { ...ctx, role: String(role) as 'owner' | 'admin' };
 }
 
 // Who may act on a call: one rule, shared with routes/calls.ts
@@ -473,6 +473,17 @@ callCenterRouter.put('/settings', async (req, res) => {
     return res.status(400).json({ error: 'invalid_body', details: { fieldErrors: { widget_template_id: ['template_not_available_in_edition'] } } });
   }
   const patch: Record<string, unknown> = { ...parsed.data };
+  // The workspace's call center switch is the owner's alone (owner,
+  // 2026-11-28; the switch sits in the call center's masthead, shown to the
+  // owner only). An admin's save that resends the stored value writes
+  // nothing for it; an admin's change is refused, and nothing is written.
+  if (patch.enabled !== undefined && ctx.role !== 'owner') {
+    const current = await getOrCreateWorkspaceSettings(ctx.config, wid);
+    if (patch.enabled !== !!current.enabled) {
+      return res.status(403).json({ error: 'owner_only', field: 'enabled' });
+    }
+    delete patch.enabled;
+  }
   // Switching the call center on needs it in the workspace's plan. Only the
   // switch from off to on is checked: a workspace that is already on resends
   // `enabled: true` with every save, and switching off is always allowed.
@@ -504,7 +515,11 @@ callCenterRouter.put('/settings', async (req, res) => {
   }
   let settingsRaw: WorkspaceCallCenterSettings;
   try {
-    settingsRaw = await updateWorkspaceSettings(ctx.config, wid, patch as Partial<WorkspaceCallCenterSettings>);
+    // Nothing left to write (an admin's save that only resent `enabled`):
+    // answer with the row as it is.
+    settingsRaw = Object.keys(patch).length > 0
+      ? await updateWorkspaceSettings(ctx.config, wid, patch as Partial<WorkspaceCallCenterSettings>)
+      : await getOrCreateWorkspaceSettings(ctx.config, wid);
   } catch (e) {
     // Migration 277 not applied yet (RESPOK's migrator runs beside the new
     // backend): try again in a few minutes, not a 500.

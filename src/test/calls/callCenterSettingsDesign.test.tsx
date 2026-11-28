@@ -80,8 +80,10 @@ const PLATFORM = {
 const DESIGN = {
   launcher_style: 'round_label', callback_slots_enabled: false, callback_slot_minutes: 30, callback_days_ahead: 4, callback_slot_capacity: null,
 };
+// `enabled` is not among them: the workspace's switch is the owner's, in the
+// call center's masthead (owner, 2026-11-28).
 const OLD_KEYS = [
-  'enabled', 'display_name', 'voice_enabled', 'video_enabled', 'callback_enabled', 'pre_call_form_enabled',
+  'display_name', 'voice_enabled', 'video_enabled', 'callback_enabled', 'pre_call_form_enabled',
   'offline_behavior', 'recording_enabled', 'recording_consent_required', 'routing_mode', 'widget_position',
   'widget_template_id', 'widget_theme', 'pre_call_form_schema', 'default_department_id', 'widget_default_locale',
   'widget_enabled_locales', 'widget_custom_texts', 'operator_video_visible_to_visitor',

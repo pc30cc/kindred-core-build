@@ -9,6 +9,10 @@ import { Copy, AlertCircle, CheckCircle2, Plus, Trash2, Activity, Code2, Globe, 
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
+import { usePlanAccess } from '@/hooks/useEntitlements';
+import {
+  CALL_WIDGET_DOMAINS_LIMIT_KEY, canAddDomain, cleanDomainEntry, domainSlotsUsed, isValidDomainEntry,
+} from '../../../../shared/callCenter/callWidgetDomains';
 
 function HealthRow({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
   return (
@@ -20,15 +24,25 @@ function HealthRow({ ok, label, hint }: { ok: boolean; label: string; hint?: str
   );
 }
 
-const DOMAIN_RE = /^(\*\.)?([a-z0-9-]+\.)+[a-z]{2,}$/i;
 function validateDomain(d: string): string | null {
   if (!d) return 'empty';
   if (/[\s]/.test(d)) return 'no whitespace allowed';
   if (/^https?:/i.test(d)) return 'no protocol (http/https)';
   if (d.includes('/')) return 'no slashes';
-  if (!DOMAIN_RE.test(d)) return 'invalid domain';
+  // The rule the server applies to an added entry (shared/callCenter/callWidgetDomains.ts).
+  if (!isValidDomainEntry(cleanDomainEntry(d))) return 'invalid domain';
   return null;
 }
+
+/** What the bootstrap test shows: the answer's status and fields, or the fetch's error. */
+type BootstrapTestResult = {
+  httpStatus?: number;
+  status?: string;
+  reason?: string;
+  effective?: Record<string, unknown>;
+  error?: string;
+  [key: string]: unknown;
+};
 
 export default function InstallPage() {
   const { t } = useTranslation();
@@ -36,6 +50,7 @@ export default function InstallPage() {
   const { data } = useCallCenterSettings(workspace?.id);
   const { data: overview } = useCallCenterOverview(workspace?.id);
   const update = useUpdateCallCenterSettings(workspace?.id);
+  const plan = usePlanAccess(workspace?.id);
   const apiBase = (RESOLVED_API_BASE as string) || window.location.origin;
   // Widget asset base may live on a different origin (e.g. CDN/frontend
   // host) than the API. Falls back to the API origin for single-host setups.
@@ -52,7 +67,7 @@ export default function InstallPage() {
 
   const [domains, setDomains] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<number, string>>({});
-  const [bootstrapResult, setBootstrapResult] = useState<any>(null);
+  const [bootstrapResult, setBootstrapResult] = useState<BootstrapTestResult | null>(null);
 
   useEffect(() => {
     if (data?.settings?.allowed_domains) setDomains([...data.settings.allowed_domains]);
@@ -65,7 +80,15 @@ export default function InstallPage() {
     const err = validateDomain(next[i]);
     setErrors((e) => ({ ...e, [i]: err || '' }));
   }
-  function addDomain() { setDomains([...domains, '']); }
+  // The call widget's sites (owner, 2026-11-28): the registered website counts
+  // as one of the plan's max_call_widget_domains (-1 = unlimited), this list
+  // holds the rest, and Add is offered only while a slot is free. The server
+  // refuses a save that adds past the number (PUT /api/call-center/settings).
+  const registered = data?.registered_domains ?? [];
+  const maxDomains = plan.limit(CALL_WIDGET_DOMAINS_LIMIT_KEY);
+  const slotsUsed = domainSlotsUsed(registered, domains);
+  const mayAdd = canAddDomain(registered, domains, maxDomains);
+  function addDomain() { if (mayAdd) setDomains([...domains, '']); }
   function removeDomain(i: number) {
     setDomains(domains.filter((_, idx) => idx !== i));
     setErrors((e) => { const c = { ...e }; delete c[i]; return c; });
@@ -76,8 +99,19 @@ export default function InstallPage() {
     const errs: Record<number, string> = {};
     cleaned.forEach((d, i) => { const e = validateDomain(d); if (e) errs[i] = e; });
     if (Object.keys(errs).length) { setErrors(errs); toast({ title: t('callCenter.install.fixInvalidDomains'), variant: 'destructive' }); return; }
-    await update.mutateAsync({ allowed_domains: cleaned });
-    toast({ title: t('callCenter.install.allowedDomainsSaved') });
+    try {
+      await update.mutateAsync({ allowed_domains: cleaned });
+      toast({ title: t('callCenter.install.allowedDomainsSaved') });
+    } catch (err: unknown) {
+      const e = err as { code?: unknown; message?: string };
+      if (e.code === 'plan_limit') {
+        toast({ title: t('callCenter.install.domainLimitReached', { max: String(maxDomains ?? 0) }), variant: 'destructive' });
+      } else if (e.code === 'invalid_body') {
+        toast({ title: t('callCenter.install.fixInvalidDomains'), variant: 'destructive' });
+      } else {
+        toast({ title: t('callCenter.settingsPage.saveFailed'), description: e.message, variant: 'destructive' });
+      }
+    }
   }
 
   async function testBootstrap() {
@@ -85,8 +119,8 @@ export default function InstallPage() {
       const r = await fetch(`${apiBase}/api/call-widget/bootstrap?workspaceId=${wid}`);
       const j = await r.json();
       setBootstrapResult({ httpStatus: r.status, ...j });
-    } catch (e: any) {
-      setBootstrapResult({ error: e.message });
+    } catch (e: unknown) {
+      setBootstrapResult({ error: e instanceof Error ? e.message : String(e) });
     }
   }
 
@@ -94,7 +128,8 @@ export default function InstallPage() {
   const wsOk = !!data?.settings?.enabled;
   const providerOk = !!overview?.provider?.ready;
   const hasKey = !!data?.settings?.public_key;
-  const domainsOk = (data?.settings?.allowed_domains?.length || 0) > 0;
+  const savedSlots = domainSlotsUsed(registered, data?.settings?.allowed_domains ?? []);
+  const domainsOk = savedSlots > 0;
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -105,7 +140,7 @@ export default function InstallPage() {
         <HealthRow ok={wsOk} label={t('callCenter.install.workspaceEnabled')} />
         <HealthRow ok={providerOk} label={t('callCenter.install.callsServiceReady')} />
         <HealthRow ok={hasKey} label={t('callCenter.install.publicKeyGenerated')} />
-        <HealthRow ok={domainsOk} label={t('callCenter.install.allowedDomainConfigured')} hint={t('callCenter.install.domainCount', { count: String(data?.settings?.allowed_domains?.length || 0) })} />
+        <HealthRow ok={domainsOk} label={t('callCenter.install.allowedDomainConfigured')} hint={t('callCenter.install.domainCount', { count: String(savedSlots) })} />
       </Panel>
 
       {/* Embed code */}
@@ -139,10 +174,17 @@ export default function InstallPage() {
           icon={Globe}
           title={t('callCenter.install.allowedDomains')}
           hint={t('callCenter.install.allowedDomainsHint')}
-          count={domains.length || undefined}
+          count={slotsUsed || undefined}
         />
         <div className="space-y-2">
-          {domains.length === 0 && <p className="text-sm text-muted-foreground">{t('callCenter.install.noDomainsYet')}</p>}
+          {registered.map((d) => (
+            <div key={`registered-${d}`} data-registered-domain className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2">
+              <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="flex-1 truncate text-sm" dir="ltr">{d}</span>
+              <span className="text-xs text-muted-foreground" title={t('callCenter.install.registeredDomainHint')}>{t('callCenter.install.registeredDomain')}</span>
+            </div>
+          ))}
+          {registered.length === 0 && domains.length === 0 && <p className="text-sm text-muted-foreground">{t('callCenter.install.noDomainsYet')}</p>}
           {domains.map((d, i) => (
             <div key={i} className="space-y-1">
               <div className="flex gap-2">
@@ -153,8 +195,15 @@ export default function InstallPage() {
             </div>
           ))}
         </div>
+        {maxDomains !== null && maxDomains >= 0 && (
+          <p data-domain-slots className="text-xs text-muted-foreground">
+            {t('callCenter.install.domainsOfPlan', { used: String(slotsUsed), max: String(maxDomains) })}
+          </p>
+        )}
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={addDomain}><Plus className="h-3.5 w-3.5 me-1" />{t('callCenter.install.addDomain')}</Button>
+          {mayAdd && (
+            <Button variant="outline" size="sm" onClick={addDomain} data-add-domain><Plus className="h-3.5 w-3.5 me-1" />{t('callCenter.install.addDomain')}</Button>
+          )}
           <Button onClick={saveDomains} disabled={update.isPending || Object.values(errors).some(Boolean)}>{t('callCenter.common.save')}</Button>
         </div>
       </Panel>
@@ -178,6 +227,9 @@ export default function InstallPage() {
               <span className="font-medium">{t('callCenter.install.statusLabel')} {bootstrapResult.status || `HTTP ${bootstrapResult.httpStatus}`}</span>
             </div>
             {bootstrapResult.reason && <div className="text-xs text-muted-foreground">{t('callCenter.install.reasonLabel')} {bootstrapResult.reason}</div>}
+            {bootstrapResult.reason === 'origin_denied' && (
+              <div data-test-from-panel className="text-xs text-muted-foreground">{t('callCenter.install.testFromPanelNote')}</div>
+            )}
             {bootstrapResult.effective && (
               <div className="grid grid-cols-2 gap-1 text-xs">
                 {Object.entries(bootstrapResult.effective).map(([k, v]) => (

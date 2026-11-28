@@ -24,6 +24,8 @@ import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useCallCenterCapabilities, useCallCenterOverview } from '@/hooks/useCallCenter';
+import { Switch } from '@/components/ui/switch';
+import { useCallCenterMasterSwitch } from '@/features/calls/useCallCenterMasterSwitch';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -123,6 +125,10 @@ function CallCenterShell() {
     }
   }
 
+  // The workspace's call center switch (owner, 2026-11-28): in the masthead,
+  // beside the live numbers, for the workspace owner only.
+  const master = useCallCenterMasterSwitch(workspace?.id);
+
   const isAvailable = myStatus === 'available';
   const presenceTone: Tone = isAvailable ? 'success' : myStatus === 'away' ? 'warning' : 'neutral';
   const presenceLabel = isAvailable
@@ -164,7 +170,7 @@ function CallCenterShell() {
           </div>
 
           {/* Live counters — visible from every tab, not just the dashboard. */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <StatusChip tone={waiting > 0 ? 'warning' : 'neutral'} icon={Inbox}>
               <span className="tabular-nums font-semibold">{waiting}</span>
               <span className="opacity-70">{t('callCenter.queue.chips.waiting')}</span>
@@ -176,6 +182,23 @@ function CallCenterShell() {
             <StatusChip tone={readiness.tone} icon={readiness.icon} className="hidden sm:inline-flex">
               {readiness.label}
             </StatusChip>
+            {master.isOwner && master.ready && (
+              <label
+                data-cc-master
+                title={master.planLocked && !master.on
+                  ? t('callCenter.settingsPage.masterPlanLocked')
+                  : master.on ? t('callCenter.settingsPage.masterOnHint') : t('callCenter.settingsPage.masterOffHint')}
+                className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-border/60 bg-card/70 py-1 pe-1.5 ps-2.5 text-xs font-medium"
+              >
+                <span>{t('teamDept.ccMasterTitle')}</span>
+                <Switch
+                  checked={master.on}
+                  onCheckedChange={(v) => void master.set(v)}
+                  disabled={master.pending || (!master.on && !master.canTurnOn)}
+                  aria-label={t('teamDept.ccMasterTitle')}
+                />
+              </label>
+            )}
           </div>
 
           <div className="ms-auto flex items-center gap-1.5">

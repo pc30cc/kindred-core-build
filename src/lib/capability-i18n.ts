@@ -131,6 +131,7 @@ const EN_LABELS: Record<string, string> = {
   recording_retention_days: 'Call Recording Retention',
   max_call_recordings: 'Max Call Recordings',
   max_call_recording_storage_mb: 'Recording Storage',
+  max_call_widget_domains: 'Max Call Widget Domains',
   included_ai_allowance_irr: 'AI Allowance / Month',
   seo_max_pages_per_crawl: 'SEO — Max pages per audit',
   seo_max_depth: 'SEO — Max crawl depth',
@@ -475,6 +476,10 @@ const FA: Record<string, CapabilityText> = {
   max_call_recording_storage_mb: {
     label: 'فضای ذخیره‌ی ضبط تماس',
     description: `سقف مجموع حجم فایل‌های ضبط تماس فضای کاری (مگابایت). پیش از شروع هر ضبط بررسی می‌شود و حذف یک ضبط ظرفیت را آزاد می‌کند. مقدار ${U} یعنی نامحدود.`,
+  },
+  max_call_widget_domains: {
+    label: 'حداکثر دامنه‌ی ویجت تماس',
+    description: `تعداد سایت‌هایی که ویجت تماس روی آن‌ها کار می‌کند؛ سایتی که با آن ثبت‌نام شده یکی از آن‌هاست. ویجت تماس فقط روی سایت ثبت‌نام و فهرست خود مرکز تماس (مرکز تماس ← نصب ← دامنه‌های مجاز) کار می‌کند. افزودن دامنه بیش از این عدد پذیرفته نمی‌شود و فهرست ذخیره‌شده کم نمی‌شود. مقدار ${U} یعنی نامحدود.`,
   },
   included_ai_allowance_irr: {
     label: 'سهمیه‌ی ماهانه‌ی هوش مصنوعی',
@@ -928,6 +933,10 @@ const TR: Record<string, CapabilityText> = {
   max_call_recording_storage_mb: {
     label: 'Kayıt Depolama',
     description: 'Çalışma alanının çağrı kayıtlarının toplam boyut sınırı (MiB). Her kayıt başlamadan önce uygulanır; bir kaydı silmek kapasiteyi boşaltır. -1 = sınırsız.',
+  },
+  max_call_widget_domains: {
+    label: 'Maks. Arama Widget Alan Adı',
+    description: 'Arama widget\'ının çalıştığı site sayısı; kayıtta verilen web sitesi de buna dahildir. Arama widget\'ı yalnızca kayıtlı web sitesinde ve çağrı merkezinin kendi listesinde (Çağrı Merkezi → Kurulum → İzinli alan adları) çalışır. Bu sayıyı aşan bir alan adı eklenemez; kayıtlı liste kısaltılmaz. -1 = sınırsız.',
   },
   included_ai_allowance_irr: {
     label: 'Aylık Yapay Zekâ Payı',

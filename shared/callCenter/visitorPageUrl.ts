@@ -12,12 +12,13 @@ import { stripSensitiveUrlParts } from '../pageUrlPrivacy.js';
  * (server/routes/callWidget.ts). The panel checks a call's page again against
  * the call's stored `origin`, for rows written before that check.
  *
- * The Origin binds the page only as far as the workspace's allow-list does:
- * with an empty list (the default) or a plan without one, any site may run
- * the widget (server/services/widget/public.ts, getWorkspaceOriginRules), and
- * a request can name any site as its Origin. So the panel never lets the
- * visitor's `page_title` stand for the link: the link reads the page's real
- * host (pageLinkLabel), and the title is shown beside it as plain text.
+ * The Origin binds the page only as far as the workspace's sites do: the
+ * call widget runs on the registered website and the call center's own list
+ * (server/services/callCenter/callWidgetDomains.ts, since 2026-11-28), and a
+ * request that is not a browser can still name one of them as its Origin. So
+ * the panel never lets the visitor's `page_title` stand for the link: the
+ * link reads the page's real host (pageLinkLabel), and the title is shown
+ * beside it as plain text.
  */
 
 /**

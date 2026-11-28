@@ -430,6 +430,57 @@ below are ones the shipped clients already handle):
 - `call_center_agent_presence.active_call_count` is set from the call-centre calls the operator holds (ringing,
   connecting, active) on every accept, end, reject, cancel, transfer and `room_finished`, instead of counted up and down.
 
+## Sites the call widget runs on (owner, 2026-11-28)
+
+The owner asked for the call center's allowed domains to be set per plan: one by default, the website the account
+signed up with, and an Add button only when the plan allows more. Asked whether the widget should then also run only on
+those sites, the owner answered yes. Before this, the widget ran on any site while the chat widget's own list was empty
+(the default), because it fell back to the chat widget's rule.
+
+- **Rule** (`server/services/callCenter/callWidgetDomains.ts`, the one `callOriginAllowed` of
+  `server/routes/callWidget.ts`):
+  - The four gated routes are bootstrap, call request, join token and callback request. They accept only two kinds of
+    site:
+    - the registered website, meaning the workspace's verified `workspace_domains`, which only the signup trigger
+      writes;
+    - the call center's own list, `call_center_settings.allowed_domains`.
+  - Matching:
+    - the registered website and a plain entry each match their host and its `www.` twin;
+    - `*.example.com` matches the apex and every subdomain;
+    - no Origin never passes.
+  - A verified row that names a platform host counts only for the platform's own workspace.
+  - The chat widget's rule (`getWorkspaceOriginRules`, `isWorkspaceOriginAllowed`) is unchanged.
+- **Number:** `max_call_widget_domains` in the capability registry. It is the Super Admin's per plan (and per workspace
+  override), with registry default 1 and -1 for unlimited.
+  - The registered website takes one slot, and an entry that only spells it takes none
+    (`shared/callCenter/callWidgetDomains.ts`).
+  - A host and its `www.` twin are one site in the list too.
+  - `PUT /api/call-center/settings` refuses only a save that adds a site past the number: 403 `plan_limit`.
+  - A resent, shortened or respelled list is accepted, so an old dashboard's save works and a downgrade never cuts a
+    working site.
+  - Only a save that adds an entry reads the plan and the registered website.
+  - An unreadable plan answers 503 `entitlements_unavailable`, never "limit 0".
+  - An added entry must be a domain (punycode TLDs too), and a `*.` is never accepted on a public suffix (`*.com.tr`,
+    `*.github.io`); otherwise the save gets 400.
+  - An entry stored with a port before saves were checked keeps matching only that host and port.
+- **Install page:**
+  - It shows the registered website as a fixed row and a "used of max" line.
+  - Add appears only while a slot is free: always when unlimited, never while the plan is unknown.
+  - A row not filled in yet holds a slot.
+  - The bootstrap test runs from the panel's address, so its `origin_denied` is explained and the panel is not exempted.
+- **Not covered:**
+  - the subdomains of the registered website, which take a `*.` entry;
+  - a later workspace of the same account that has no verified row (migration 288), whose list then holds every slot.
+- **Checked before the merge:**
+  - WebYar's landing (`webyar.ai`, `www.webyar.ai`) and RESPOK's (`respok.app`) embed their own platform workspace,
+    whose registered website they are.
+  - The only lists in use (one entry in WebYar's platform workspace, `respok.app` in RESPOK's) stay.
+
+The switch moved too (owner, 2026-11-28). The call center's on/off switch is in the masthead for the workspace owner
+only. `useCallCenterMasterSwitch` drives it, and the Overview's "Turn on" uses the same switch, for the owner only.
+`PUT /api/call-center/settings` refuses anyone else's change of `enabled` with 403 `owner_only`. The operators' notice
+says the owner turns it on at the top of the call center.
+
 ## Reported to the owner (decided here, reversible later)
 
 DM Mono for Respok's reference code (a 1,780 B subset would give the exact glyphs on one element of one screen); the

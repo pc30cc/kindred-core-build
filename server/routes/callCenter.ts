@@ -33,6 +33,9 @@ import {
 import { normalizeClientWsUrl } from '../services/calls/rtcResolver.js';
 import { computeRecordingCapability, disabledRecordingCapability } from '../services/callCenter/recording.js';
 import {
+  addsSitePastLimit, callWidgetDomainLimit, domainListAdditions, isAddableDomainEntry, registeredWebsiteDomains,
+} from '../services/callCenter/callWidgetDomains.js';
+import {
   startCallCenterRecording,
   stopCallCenterRecording,
   getCallCenterRecordingStatus,
@@ -215,7 +218,7 @@ async function requireWorkspaceAdmin(req: Request, res: Response, workspaceId: s
   if (!['owner', 'admin'].includes(String(role))) {
     res.status(403).json({ error: 'forbidden' }); return null;
   }
-  return ctx;
+  return { ...ctx, role: String(role) as 'owner' | 'admin' };
 }
 
 // Who may act on a call: one rule, shared with routes/calls.ts
@@ -372,7 +375,10 @@ callCenterRouter.get('/settings', async (req, res) => {
     offline_behavior: normalizeCallWidgetOfflineBehavior(settingsRaw.offline_behavior),
     ...normalizedPlacement(settingsRaw),
   };
-  res.json({ settings, platform, effective, recording });
+  // The registered website the call widget runs on beside the list (Install
+  // page; services/callCenter/callWidgetDomains.ts). A failed read shows none.
+  const registered_domains = await registeredWebsiteDomains(ctx.config, wid).catch(() => [] as string[]);
+  res.json({ settings, platform, effective, recording, registered_domains });
 });
 
 /**
@@ -413,7 +419,7 @@ function isMissingDesignColumn(error: unknown): boolean {
 
 const settingsPatchSchema = z.object({
   enabled: z.boolean().optional(),
-  allowed_domains: z.array(z.string()).optional(),
+  allowed_domains: z.array(z.string().max(255)).max(1000).optional(),
   // Stored as one of the five placements: an older spelling becomes its
   // placement, anything else `right` (where it always rendered), so an old
   // dashboard resending what it loaded never fails.
@@ -473,6 +479,41 @@ callCenterRouter.put('/settings', async (req, res) => {
     return res.status(400).json({ error: 'invalid_body', details: { fieldErrors: { widget_template_id: ['template_not_available_in_edition'] } } });
   }
   const patch: Record<string, unknown> = { ...parsed.data };
+  // The workspace's call center switch is the owner's alone (owner,
+  // 2026-11-28; the switch sits in the call center's masthead, shown to the
+  // owner only). An admin's save that resends the stored value writes
+  // nothing for it; an admin's change is refused, and nothing is written.
+  if (patch.enabled !== undefined && ctx.role !== 'owner') {
+    const current = await getOrCreateWorkspaceSettings(ctx.config, wid);
+    if (patch.enabled !== !!current.enabled) {
+      return res.status(403).json({ error: 'owner_only', field: 'enabled' });
+    }
+    delete patch.enabled;
+  }
+  // The sites the call widget runs on: the registered website counts as one
+  // of the plan's max_call_widget_domains, the list holds the rest
+  // (services/callCenter/callWidgetDomains.ts). Only a save that adds an
+  // entry is checked, and reads the plan and the registered website: a list
+  // resent or shortened is always stored, whatever those would say.
+  if (patch.allowed_domains !== undefined) {
+    const current = await getOrCreateWorkspaceSettings(ctx.config, wid);
+    const { list, added } = domainListAdditions(patch.allowed_domains, current.allowed_domains);
+    const invalid = added.find((entry) => !isAddableDomainEntry(entry));
+    if (invalid !== undefined) {
+      return res.status(400).json({ error: 'invalid_body', details: { fieldErrors: { allowed_domains: ['invalid_domain'] } }, entry: invalid });
+    }
+    if (added.length > 0) {
+      const [registered, max] = await Promise.all([
+        registeredWebsiteDomains(ctx.config, wid),
+        callWidgetDomainLimit(ctx.config, wid),
+      ]);
+      if (max === null) return res.status(503).json({ error: 'entitlements_unavailable' });
+      if (addsSitePastLimit({ list, stored: current.allowed_domains, registered, max })) {
+        return res.status(403).json({ error: 'plan_limit', limit: 'max_call_widget_domains', max });
+      }
+    }
+    patch.allowed_domains = list;
+  }
   // Switching the call center on needs it in the workspace's plan. Only the
   // switch from off to on is checked: a workspace that is already on resends
   // `enabled: true` with every save, and switching off is always allowed.
@@ -504,7 +545,11 @@ callCenterRouter.put('/settings', async (req, res) => {
   }
   let settingsRaw: WorkspaceCallCenterSettings;
   try {
-    settingsRaw = await updateWorkspaceSettings(ctx.config, wid, patch as Partial<WorkspaceCallCenterSettings>);
+    // Nothing left to write (an admin's save that only resent `enabled`):
+    // answer with the row as it is.
+    settingsRaw = Object.keys(patch).length > 0
+      ? await updateWorkspaceSettings(ctx.config, wid, patch as Partial<WorkspaceCallCenterSettings>)
+      : await getOrCreateWorkspaceSettings(ctx.config, wid);
   } catch (e) {
     // Migration 277 not applied yet (RESPOK's migrator runs beside the new
     // backend): try again in a few minutes, not a 500.

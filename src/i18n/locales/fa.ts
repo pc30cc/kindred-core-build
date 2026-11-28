@@ -4031,12 +4031,6 @@ const fa: TranslationKeys = {
       downloadZip: 'دانلود ZIP',
     },
     install: {
-      installHealth: 'سلامت نصب',
-      platformEnabled: 'پلتفرم فعال است',
-      workspaceEnabled: 'فضای کاری فعال است',
-      callsServiceReady: 'سرویس تماس آماده است',
-      publicKeyGenerated: 'کلید عمومی تولید شده',
-      allowedDomainConfigured: 'دامنه مجاز پیکربندی شده',
       embedCode: 'کد جاسازی',
       embedCodeHint: 'اسکریپت ویجت از {{assets}} بارگذاری می‌شود. درخواست‌های API به {{api}} می‌روند. این‌ها می‌توانند متفاوت باشند (مثلاً منابع CDN + هاست API جدا).',
       workspaceIdInstall: 'نصب با شناسهٔ فضای کاری',
@@ -4052,7 +4046,6 @@ const fa: TranslationKeys = {
       addDomain: 'افزودن دامنه',
       fixInvalidDomains: 'ابتدا دامنه‌های نامعتبر را اصلاح کنید',
       allowedDomainsSaved: 'دامنه‌های مجاز ذخیره شد',
-      domainCount: '{{{count}}} دامنه',
     },
     settingsPage: {
       masterOnHint: 'روشن: بازدیدکنندگان از ویجت تماس با تیم شما تماس می‌گیرند و اپراتورها مرکز تماس را می‌بینند.',

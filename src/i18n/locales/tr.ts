@@ -4035,12 +4035,6 @@ const tr: TranslationKeys = {
       downloadZip: 'ZIP indir',
     },
     install: {
-      installHealth: 'Kurulum sağlığı',
-      platformEnabled: 'Platform etkin',
-      workspaceEnabled: 'Çalışma alanı etkin',
-      callsServiceReady: 'Çağrı servisi hazır',
-      publicKeyGenerated: 'Genel anahtar üretildi',
-      allowedDomainConfigured: 'İzinli alan yapılandırıldı',
       embedCode: 'Gömme kodu',
       embedCodeHint: 'Widget script {{assets}} adresinden yüklenir. API istekleri {{api}} adresine gider. Bunlar farklı olabilir (örn. CDN varlıkları + ayrı API).',
       workspaceIdInstall: 'Çalışma alanı ID ile kurulum',
@@ -4056,7 +4050,6 @@ const tr: TranslationKeys = {
       addDomain: 'Alan ekle',
       fixInvalidDomains: 'Önce geçersiz alanları düzeltin',
       allowedDomainsSaved: 'İzinli alanlar kaydedildi',
-      domainCount: '{{{count}}} alan',
     },
     settingsPage: {
       masterOnHint: 'Açık: ziyaretçiler arama widget\'ından ekibinizi arayabilir ve operatörler Çağrı Merkezi\'ni görür.',

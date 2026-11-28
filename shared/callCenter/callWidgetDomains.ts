@@ -9,8 +9,12 @@
 
 export const CALL_WIDGET_DOMAINS_LIMIT_KEY = 'max_call_widget_domains';
 
-/** One list entry: an optional `*.` and ASCII labels, no scheme, path or port. */
-const DOMAIN_RE = /^(\*\.)?([a-z0-9-]+\.)+[a-z]{2,}$/;
+/**
+ * One list entry: an optional `*.` and ASCII labels (punycode `xn--` ones
+ * included, top level too), no scheme, path or port. The server also refuses
+ * a `*.` on a public suffix (`*.com.tr`).
+ */
+const DOMAIN_RE = /^(\*\.)?([a-z0-9-]+\.)+(?:[a-z]{2,}|xn--[a-z0-9-]+)$/;
 
 /** A list entry as stored: trimmed and lower case. */
 export function cleanDomainEntry(raw: unknown): string {
@@ -38,20 +42,46 @@ export function bareDomain(domain: string): string {
   return d.startsWith('www.') ? d.slice(4) : d;
 }
 
-/** The list entries that take a slot: a spelling of the registered website does not. */
-export function listEntriesTakingSlots(registered: string[], list: unknown): string[] {
+/**
+ * The sites the list adds, one key each: a host and its `www.` twin are one
+ * site (the matcher takes either for both), a `*.` entry is its own, and a
+ * spelling of the registered website is none.
+ */
+export function listSlotKeys(registered: string[], list: unknown): string[] {
   const own = new Set(registered.map(bareDomain));
-  return cleanDomainList(list).filter((entry) => entry.startsWith('*.') || !own.has(bareDomain(entry)));
+  const keys: string[] = [];
+  for (const entry of cleanDomainList(list)) {
+    const key = entry.startsWith('*.') ? entry : bareDomain(entry);
+    if (!entry.startsWith('*.') && own.has(key)) continue;
+    if (!keys.includes(key)) keys.push(key);
+  }
+  return keys;
 }
 
-/** The slots used: the registered website (one, however many verified rows) and the list's others. */
+/** The slots used: the registered website (one, however many verified rows) and the list's sites. */
 export function domainSlotsUsed(registered: string[], list: unknown): number {
-  return (registered.length > 0 ? 1 : 0) + listEntriesTakingSlots(registered, list).length;
+  return (registered.length > 0 ? 1 : 0) + listSlotKeys(registered, list).length;
 }
 
-/** May one more site be added? `max` null = not known yet (nothing offered). */
-export function canAddDomain(registered: string[], list: unknown, max: number | null): boolean {
+/**
+ * Past the number with a site the stored list did not have? A list that is
+ * resent, shortened or respelled adds no site, so it never is.
+ */
+export function addsSitePastLimit(input: { list: unknown; stored: unknown; registered: string[]; max: number }): boolean {
+  if (input.max < 0) return false;
+  const before = new Set(listSlotKeys(input.registered, input.stored));
+  const added = listSlotKeys(input.registered, input.list).filter((key) => !before.has(key));
+  return added.length > 0 && domainSlotsUsed(input.registered, input.list) > input.max;
+}
+
+/**
+ * May one more row be added? A row not filled in yet holds a slot too, so the
+ * page never offers more rows than the plan allows. `max` null = not known
+ * yet (nothing offered), -1 = unlimited.
+ */
+export function canAddDomain(registered: string[], rows: string[], max: number | null): boolean {
   if (max === null) return false;
   if (max < 0) return true;
-  return domainSlotsUsed(registered, list) < max;
+  const blank = rows.filter((row) => !cleanDomainEntry(row)).length;
+  return domainSlotsUsed(registered, rows) + blank < max;
 }

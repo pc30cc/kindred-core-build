@@ -454,12 +454,19 @@ those sites, the owner answered yes. Before this, the widget ran on any site whi
   override), with registry default 1 and -1 for unlimited.
   - The registered website takes one slot, and an entry that only spells it takes none
     (`shared/callCenter/callWidgetDomains.ts`).
+  - A host and its `www.` twin are one site in the list too.
   - `PUT /api/call-center/settings` refuses only a save that adds a site past the number: 403 `plan_limit`.
-  - A resent or shortened list is accepted, so an old dashboard's save works and a downgrade never cuts a working site.
-  - An added entry must be a domain; otherwise the save gets 400.
+  - A resent, shortened or respelled list is accepted, so an old dashboard's save works and a downgrade never cuts a
+    working site.
+  - Only a save that adds an entry reads the plan and the registered website.
+  - An unreadable plan answers 503 `entitlements_unavailable`, never "limit 0".
+  - An added entry must be a domain (punycode TLDs too), and a `*.` is never accepted on a public suffix (`*.com.tr`,
+    `*.github.io`); otherwise the save gets 400.
+  - An entry stored with a port before saves were checked keeps matching only that host and port.
 - **Install page:**
   - It shows the registered website as a fixed row and a "used of max" line.
   - Add appears only while a slot is free: always when unlimited, never while the plan is unknown.
+  - A row not filled in yet holds a slot.
   - The bootstrap test runs from the panel's address, so its `origin_denied` is explained and the panel is not exempted.
 - **Not covered:**
   - the subdomains of the registered website, which take a `*.` entry;
@@ -468,6 +475,11 @@ those sites, the owner answered yes. Before this, the widget ran on any site whi
   - WebYar's landing (`webyar.ai`, `www.webyar.ai`) and RESPOK's (`respok.app`) embed their own platform workspace,
     whose registered website they are.
   - The only lists in use (one entry in WebYar's platform workspace, `respok.app` in RESPOK's) stay.
+
+The switch moved too (owner, 2026-11-28). The call center's on/off switch is in the masthead for the workspace owner
+only. `useCallCenterMasterSwitch` drives it, and the Overview's "Turn on" uses the same switch, for the owner only.
+`PUT /api/call-center/settings` refuses anyone else's change of `enabled` with 403 `owner_only`. The operators' notice
+says the owner turns it on at the top of the call center.
 
 ## Reported to the owner (decided here, reversible later)
 

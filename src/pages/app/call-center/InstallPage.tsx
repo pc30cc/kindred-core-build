@@ -11,7 +11,7 @@ import { useTranslation } from '@/i18n';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import { usePlanAccess } from '@/hooks/useEntitlements';
 import {
-  CALL_WIDGET_DOMAINS_LIMIT_KEY, canAddDomain, domainSlotsUsed,
+  CALL_WIDGET_DOMAINS_LIMIT_KEY, canAddDomain, cleanDomainEntry, domainSlotsUsed, isValidDomainEntry,
 } from '../../../../shared/callCenter/callWidgetDomains';
 
 function HealthRow({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
@@ -24,13 +24,13 @@ function HealthRow({ ok, label, hint }: { ok: boolean; label: string; hint?: str
   );
 }
 
-const DOMAIN_RE = /^(\*\.)?([a-z0-9-]+\.)+[a-z]{2,}$/i;
 function validateDomain(d: string): string | null {
   if (!d) return 'empty';
   if (/[\s]/.test(d)) return 'no whitespace allowed';
   if (/^https?:/i.test(d)) return 'no protocol (http/https)';
   if (d.includes('/')) return 'no slashes';
-  if (!DOMAIN_RE.test(d)) return 'invalid domain';
+  // The rule the server applies to an added entry (shared/callCenter/callWidgetDomains.ts).
+  if (!isValidDomainEntry(cleanDomainEntry(d))) return 'invalid domain';
   return null;
 }
 
@@ -94,12 +94,13 @@ export default function InstallPage() {
       toast({ title: t('callCenter.install.allowedDomainsSaved') });
     } catch (err: unknown) {
       const e = err as { code?: unknown; message?: string };
-      toast({
-        title: e.code === 'plan_limit'
-          ? t('callCenter.install.domainLimitReached', { max: String(maxDomains ?? 0) })
-          : (e.message || t('callCenter.install.fixInvalidDomains')),
-        variant: 'destructive',
-      });
+      if (e.code === 'plan_limit') {
+        toast({ title: t('callCenter.install.domainLimitReached', { max: String(maxDomains ?? 0) }), variant: 'destructive' });
+      } else if (e.code === 'invalid_body') {
+        toast({ title: t('callCenter.install.fixInvalidDomains'), variant: 'destructive' });
+      } else {
+        toast({ title: t('callCenter.settingsPage.saveFailed'), description: e.message, variant: 'destructive' });
+      }
     }
   }
 

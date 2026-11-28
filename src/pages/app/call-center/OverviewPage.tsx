@@ -23,6 +23,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useMemo } from 'react';
 import { useTranslation } from '@/i18n';
+import { useCallCenterMasterSwitch } from '@/features/calls/useCallCenterMasterSwitch';
 import { callbackStatusLabel } from '@/features/calls/callLabels';
 import { CallDuration } from '@/features/calls/CallDuration';
 import { formatTime } from '@/lib/date';
@@ -74,6 +75,7 @@ export default function CallCenterOverviewPage() {
   const { data: callbacksData } = useCallCenterCallbacks(workspace?.id);
   const { data: presenceData } = useCallCenterAgentPresence(workspace?.id);
   const { data: caps } = useCallCenterCapabilities(workspace?.id);
+  const master = useCallCenterMasterSwitch(workspace?.id);
   const callbackOn = caps?.platform_callback_enabled !== false;
 
   const platformOk = !!settings?.platform?.call_center_enabled;
@@ -163,9 +165,13 @@ export default function CallCenterOverviewPage() {
             <div className="mt-0.5 truncate text-xl font-semibold leading-tight">{statusText}</div>
           </div>
           <div data-banner-actions className="flex items-center gap-2">
-            {platformOk && !wsEnabled && (
-              <Button asChild variant="outline" size="sm">
-                <Link to="settings">{t('callCenter.overview.turnOn')}</Link>
+            {/* The switch is the workspace owner's (masthead; owner, 2026-11-28):
+                only the owner is offered "Turn on", and it switches it here. */}
+            {platformOk && !wsEnabled && master.isOwner && (
+              <Button variant="outline" size="sm" data-cc-turn-on
+                disabled={master.pending || !master.canTurnOn}
+                onClick={() => void master.set(true)}>
+                {t('callCenter.overview.turnOn')}
               </Button>
             )}
             {callbackOn && (

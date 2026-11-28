@@ -32,7 +32,9 @@ import {
 } from '../services/calls/livekitConfig.js';
 import { normalizeClientWsUrl } from '../services/calls/rtcResolver.js';
 import { computeRecordingCapability, disabledRecordingCapability } from '../services/callCenter/recording.js';
-import { callWidgetDomainLimit, checkDomainListSave, registeredWebsiteDomains } from '../services/callCenter/callWidgetDomains.js';
+import {
+  addsSitePastLimit, callWidgetDomainLimit, domainListAdditions, isAddableDomainEntry, registeredWebsiteDomains,
+} from '../services/callCenter/callWidgetDomains.js';
 import {
   startCallCenterRecording,
   stopCallCenterRecording,
@@ -489,23 +491,28 @@ callCenterRouter.put('/settings', async (req, res) => {
     delete patch.enabled;
   }
   // The sites the call widget runs on: the registered website counts as one
-  // of the plan's max_call_widget_domains, the list holds the rest. Only a
-  // save that adds a site is held to the number (services/callCenter/
-  // callWidgetDomains.ts), so a resent or shortened list is always accepted.
+  // of the plan's max_call_widget_domains, the list holds the rest
+  // (services/callCenter/callWidgetDomains.ts). Only a save that adds an
+  // entry is checked, and reads the plan and the registered website: a list
+  // resent or shortened is always stored, whatever those would say.
   if (patch.allowed_domains !== undefined) {
-    const [current, registered, max] = await Promise.all([
-      getOrCreateWorkspaceSettings(ctx.config, wid),
-      registeredWebsiteDomains(ctx.config, wid),
-      callWidgetDomainLimit(ctx.config, wid),
-    ]);
-    const verdict = checkDomainListSave({ next: patch.allowed_domains, stored: current.allowed_domains, registered, max });
-    if (verdict.kind === 'invalid_domain') {
-      return res.status(400).json({ error: 'invalid_body', details: { fieldErrors: { allowed_domains: ['invalid_domain'] } }, entry: verdict.entry });
+    const current = await getOrCreateWorkspaceSettings(ctx.config, wid);
+    const { list, added } = domainListAdditions(patch.allowed_domains, current.allowed_domains);
+    const invalid = added.find((entry) => !isAddableDomainEntry(entry));
+    if (invalid !== undefined) {
+      return res.status(400).json({ error: 'invalid_body', details: { fieldErrors: { allowed_domains: ['invalid_domain'] } }, entry: invalid });
     }
-    if (verdict.kind === 'plan_limit') {
-      return res.status(403).json({ error: 'plan_limit', limit: 'max_call_widget_domains', max: verdict.max });
+    if (added.length > 0) {
+      const [registered, max] = await Promise.all([
+        registeredWebsiteDomains(ctx.config, wid),
+        callWidgetDomainLimit(ctx.config, wid),
+      ]);
+      if (max === null) return res.status(503).json({ error: 'entitlements_unavailable' });
+      if (addsSitePastLimit({ list, stored: current.allowed_domains, registered, max })) {
+        return res.status(403).json({ error: 'plan_limit', limit: 'max_call_widget_domains', max });
+      }
     }
-    patch.allowed_domains = verdict.list;
+    patch.allowed_domains = list;
   }
   // Switching the call center on needs it in the workspace's plan. Only the
   // switch from off to on is checked: a workspace that is already on resends

@@ -31,6 +31,12 @@ vi.mock('@/hooks/useWorkspaceRole', () => ({ useWorkspaceRole: () => ({ data: st
 vi.mock('@/hooks/useCallCenter', () => ({
   useCallCenterCapabilities: () => ({ data: state.caps }),
   useCallCenterOverview: () => ({ data: { waiting_calls: 0, active_calls: 0, provider: { ready: true } } }),
+  // The Overview page's other reads: nothing yet.
+  useCallCenterSettings: () => ({ data: { platform: { call_center_enabled: true }, settings: { enabled: state.caps.workspace_enabled } } }),
+  useCallCenterQueue: () => ({ data: undefined }),
+  useCallCenterCalls: () => ({ data: undefined }),
+  useCallCenterCallbacks: () => ({ data: undefined }),
+  useCallCenterAgentPresence: () => ({ data: undefined }),
   useUpdateCallCenterSettings: () => ({
     isPending: false,
     mutateAsync: async (patch: Record<string, unknown>) => { state.patches.push(patch); return {}; },
@@ -124,6 +130,43 @@ describe('the call center switch in the masthead', () => {
     state.caps = { ...state.caps, platform_enabled: false };
     mount();
     expect(masterSwitch()).toBeDisabled();
+  });
+});
+
+describe('the Overview\'s "Turn on"', () => {
+  async function mountOverview() {
+    const { default: OverviewPage } = await import('@/pages/app/call-center/OverviewPage');
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <I18nProvider initialLocale="fa" initialTranslations={fa}>
+          <MemoryRouter><OverviewPage /></MemoryRouter>
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it('the owner turns the call center on from it', async () => {
+    await mountOverview();
+    const button = await waitFor(() => {
+      const b = document.querySelector('[data-cc-turn-on]');
+      expect(b).not.toBeNull();
+      return b as HTMLButtonElement;
+    });
+    expect(button.textContent).toBe(fa.callCenter.overview.turnOn);
+    fireEvent.click(button);
+    await waitFor(() => expect(state.patches).toEqual([{ enabled: true }]));
+  });
+
+  it.each(['admin', 'agent'])('%s is not offered it', async (role) => {
+    state.role = role;
+    await mountOverview();
+    expect(document.querySelector('[data-cc-turn-on]')).toBeNull();
+  });
+
+  it('operators who find it off are told the owner turns it on at the top of the call center', () => {
+    expect(fa.callCenter.layout.unavailableWorkspace).toContain('مالک فضای کاری');
+    expect(fa.callCenter.layout.unavailableWorkspace).not.toContain('مدیر');
   });
 });
 

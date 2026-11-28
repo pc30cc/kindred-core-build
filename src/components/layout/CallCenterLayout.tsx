@@ -23,10 +23,9 @@ import {
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
-import { useCallCenterCapabilities, useCallCenterOverview, useUpdateCallCenterSettings } from '@/hooks/useCallCenter';
-import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
+import { useCallCenterCapabilities, useCallCenterOverview } from '@/hooks/useCallCenter';
 import { Switch } from '@/components/ui/switch';
-import { toast } from '@/hooks/use-toast';
+import { useCallCenterMasterSwitch } from '@/features/calls/useCallCenterMasterSwitch';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -127,30 +126,8 @@ function CallCenterShell() {
   }
 
   // The workspace's call center switch (owner, 2026-11-28): in the masthead,
-  // beside the live numbers, for the workspace owner only (the server refuses
-  // anyone else's change). Off by default. Off is always allowed; on needs the
-  // call center in the plan and on the platform.
-  const { data: role } = useWorkspaceRole(workspace?.id);
-  const isOwner = role === 'owner';
-  const updateSettings = useUpdateCallCenterSettings(workspace?.id);
-  const ccOn = !!caps?.workspace_enabled;
-  const planCallCenter = plan.module('call_center');
-  const planLocked = plan.status === 'ready' && !planCallCenter;
-  async function setWorkspaceEnabled(next: boolean) {
-    if (!workspace) return;
-    try {
-      await updateSettings.mutateAsync({ enabled: next });
-      qc.invalidateQueries({ queryKey: ['call-center'] });
-      toast({ title: t(next ? 'teamDept.ccMasterOn' : 'teamDept.ccMasterOff') });
-    } catch (err: unknown) {
-      const planDenied = (err as { code?: unknown }).code === 'plan_forbidden';
-      toast({
-        title: planDenied ? t('callCenter.settingsPage.masterPlanLocked') : t('callCenter.settingsPage.saveFailed'),
-        description: planDenied ? undefined : (err as Error).message,
-        variant: 'destructive',
-      });
-    }
-  }
+  // beside the live numbers, for the workspace owner only.
+  const master = useCallCenterMasterSwitch(workspace?.id);
 
   const isAvailable = myStatus === 'available';
   const presenceTone: Tone = isAvailable ? 'success' : myStatus === 'away' ? 'warning' : 'neutral';
@@ -193,7 +170,7 @@ function CallCenterShell() {
           </div>
 
           {/* Live counters — visible from every tab, not just the dashboard. */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <StatusChip tone={waiting > 0 ? 'warning' : 'neutral'} icon={Inbox}>
               <span className="tabular-nums font-semibold">{waiting}</span>
               <span className="opacity-70">{t('callCenter.queue.chips.waiting')}</span>
@@ -205,20 +182,19 @@ function CallCenterShell() {
             <StatusChip tone={readiness.tone} icon={readiness.icon} className="hidden sm:inline-flex">
               {readiness.label}
             </StatusChip>
-            {isOwner && caps && (
+            {master.isOwner && master.ready && (
               <label
                 data-cc-master
-                title={planLocked && !ccOn
+                title={master.planLocked && !master.on
                   ? t('callCenter.settingsPage.masterPlanLocked')
-                  : ccOn ? t('callCenter.settingsPage.masterOnHint') : t('callCenter.settingsPage.masterOffHint')}
-                className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/70 py-1 pe-1.5 ps-2.5 text-xs font-medium"
+                  : master.on ? t('callCenter.settingsPage.masterOnHint') : t('callCenter.settingsPage.masterOffHint')}
+                className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-border/60 bg-card/70 py-1 pe-1.5 ps-2.5 text-xs font-medium"
               >
                 <span>{t('teamDept.ccMasterTitle')}</span>
                 <Switch
-                  checked={ccOn}
-                  onCheckedChange={(v) => void setWorkspaceEnabled(v)}
-                  disabled={updateSettings.isPending
-                    || (!ccOn && (!caps.platform_enabled || plan.status !== 'ready' || !planCallCenter))}
+                  checked={master.on}
+                  onCheckedChange={(v) => void master.set(v)}
+                  disabled={master.pending || (!master.on && !master.canTurnOn)}
                   aria-label={t('teamDept.ccMasterTitle')}
                 />
               </label>

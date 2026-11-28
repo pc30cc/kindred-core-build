@@ -10,8 +10,10 @@
  * default 1, -1 = unlimited): the registered website counts as one, so a
  * plan of 1 means the registered website alone, and the list may hold the
  * rest. The number is checked when the list is saved, and only against
- * growth: a list that is resent or shortened is accepted as it is, so an old
- * dashboard's save or a downgrade never cuts a site that works today.
+ * growth: a list that is resent, shortened or respelled is accepted as it is,
+ * so an old dashboard's save or a downgrade never cuts a site that works
+ * today. Only a save that adds a site reads the plan and the registered
+ * website; an unreadable plan answers "unavailable", never a limit of 0.
  *
  * The registered website is the workspace's verified domains
  * (`workspace_domains.verified`, written only by the signup website trigger,
@@ -23,8 +25,10 @@
  *
  * Matching: the registered website and a plain list entry match their host
  * and its `www.` twin, never another subdomain; `*.example.com` matches
- * example.com and every subdomain (utils/domain.ts isOriginAllowed). A list
- * entry spelled with its port keeps matching that host and port, as before.
+ * example.com and every subdomain (utils/domain.ts isOriginAllowed). An
+ * entry stored with a port before saves were checked keeps matching only that
+ * host and port, as before. A `*.` on a public suffix (`*.com.tr`) is never
+ * accepted in a save: one entry would open every site under it.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -34,16 +38,19 @@ import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { CAPABILITY_REGISTRY } from '../billing/capabilityRegistry.js';
 import { getPlatformHosts, isPlatformHostIn } from '../platformHosts.js';
 import { isOriginAllowed, normalizeDomain } from '../../utils/domain.js';
+import { registrableDomain } from '../../utils/workspaceDomainInput.js';
+import { isUnreadableEntitlementReason } from '../billing/entitlementParse.js';
 import { originAllowed, type WorkspaceCallCenterSettings } from './settings.js';
 import {
   CALL_WIDGET_DOMAINS_LIMIT_KEY,
+  addsSitePastLimit,
   cleanDomainList,
-  domainSlotsUsed,
   isValidDomainEntry,
 } from '../../../shared/callCenter/callWidgetDomains.js';
 
 export {
   CALL_WIDGET_DOMAINS_LIMIT_KEY,
+  addsSitePastLimit,
   cleanDomainList,
   domainSlotsUsed,
   isValidDomainEntry,
@@ -129,7 +136,10 @@ export async function callWidgetOriginAllowed(
   } catch {
     return false;
   }
-  return isOriginAllowed(origin, [...registered, ...cleanDomainList(ws.allowed_domains)], false);
+  // An entry stored with a port matched only that host and port (above):
+  // the www-aware match below drops ports, so it does not see those.
+  const list = cleanDomainList(ws.allowed_domains).filter((entry) => !entry.includes(':'));
+  return isOriginAllowed(origin, [...registered, ...list], false);
 }
 
 // ── The plan's number ───────────────────────────────────────────────────────
@@ -143,9 +153,10 @@ function registryDefault(): number {
  * The plan's `max_call_widget_domains` (-1 = unlimited), read as the chat
  * widget reads `max_widget_domains` (services/widget/entitlements.ts): a
  * self-host in unlimited billing answers -1, a key the plan never names the
- * registry default, a denial 0.
+ * registry default, an explicit denial 0, and an answer that cannot be read
+ * null (the caller says "unavailable", never "limit 0").
  */
-export async function callWidgetDomainLimit(config: ServerConfig, workspaceId: string): Promise<number> {
+export async function callWidgetDomainLimit(config: ServerConfig, workspaceId: string): Promise<number | null> {
   const res = await checkEntitlementFromDB(
     config.supabaseUrl,
     config.supabaseServiceRoleKey,
@@ -154,28 +165,26 @@ export async function callWidgetDomainLimit(config: ServerConfig, workspaceId: s
     { numeric: true, selfHostBillingUnlimited: config.selfHostBillingUnlimited === true },
   );
   if (res.allowed && res.limitValid && typeof res.limit === 'number') return res.limit;
-  if (res.reason === 'feature_not_in_plan' || res.allowed) return registryDefault();
+  if (res.reason === 'feature_not_in_plan') return registryDefault();
+  if (res.plan === 'error' || isUnreadableEntitlementReason(res.reason)) return null;
+  if (res.allowed) return registryDefault();
   return 0;
 }
 
 /**
- * A save of the list: what to store, or why not. Every entry the save adds
- * must be a domain (`*.` allowed); an entry already stored is kept as it is.
- * Past the plan's number only a save that adds nothing is accepted.
+ * Is this entry one a save may add? A domain (`*.` allowed), and a `*.` only
+ * on a registrable domain or under one: `*.shop.com` yes, `*.com.tr` or
+ * `*.github.io` no (the Public Suffix List, utils/workspaceDomainInput.ts).
  */
-export function checkDomainListSave(input: {
-  next: unknown;
-  stored: unknown;
-  registered: string[];
-  max: number;
-}): { kind: 'ok'; list: string[] } | { kind: 'invalid_domain'; entry: string } | { kind: 'plan_limit'; max: number } {
-  const list = cleanDomainList(input.next);
-  const stored = cleanDomainList(input.stored);
-  const added = list.filter((entry) => !stored.includes(entry));
-  const invalid = added.find((entry) => !isValidDomainEntry(entry));
-  if (invalid !== undefined) return { kind: 'invalid_domain', entry: invalid };
-  if (input.max >= 0 && added.length > 0 && domainSlotsUsed(input.registered, list) > input.max) {
-    return { kind: 'plan_limit', max: input.max };
-  }
-  return { kind: 'ok', list };
+export function isAddableDomainEntry(entry: string): boolean {
+  if (!isValidDomainEntry(entry)) return false;
+  if (!entry.startsWith('*.')) return true;
+  return registrableDomain(entry.slice(2)) !== null;
+}
+
+/** The list a save sends, as it would be stored, and its entries the stored list does not have. */
+export function domainListAdditions(next: unknown, stored: unknown): { list: string[]; added: string[] } {
+  const list = cleanDomainList(next);
+  const before = cleanDomainList(stored);
+  return { list, added: list.filter((entry) => !before.includes(entry)) };
 }

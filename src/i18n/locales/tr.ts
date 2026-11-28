@@ -3718,7 +3718,7 @@ const tr: TranslationKeys = {
       headerSubtitle: 'Bağımsız ses ve görüntü modülü — sohbetten ayrıdır.',
       unavailableTitle: 'Çağrı merkezi kullanılamıyor',
       unavailablePlatform: 'Çağrı merkezi platformda kapatılmış.',
-      unavailableWorkspace: 'Çağrı merkezi çalışma alanınızda kapalı. Bir sahip veya yönetici, çağrı merkezi ayarlarından açabilir.',
+      unavailableWorkspace: 'Çağrı merkezi çalışma alanınızda kapalı. Çalışma alanı sahibi onu çağrı merkezinin üst kısmından açabilir.',
       pill: {
         loading: 'Yükleniyor…',
         platformDisabled: 'Platform devre dışı',

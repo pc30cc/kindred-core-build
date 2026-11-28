@@ -91,6 +91,13 @@ describe('the allowed domains of the call widget', () => {
     expect(addButton()).toBeNull();
   });
 
+  it('a row not filled in yet holds a slot: Add never opens more rows than the plan allows', () => {
+    state.max = 2;
+    mount();
+    fireEvent.click(addButton()!);
+    expect(addButton()).toBeNull();
+  });
+
   it('a spelling of the registered website takes no slot', () => {
     state.max = 2;
     state.allowed = ['www.mywebsite.com'];

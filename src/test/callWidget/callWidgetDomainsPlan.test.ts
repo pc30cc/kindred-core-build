@@ -121,25 +121,43 @@ describe('counting the sites', () => {
     expect(shared.canAddDomain([], [], null)).toBe(false);
   });
 
-  it('a save past the number is refused only when it adds a site', () => {
-    const save = (next: string[], stored: string[], max: number, registered = ['mywebsite.com']) =>
-      domains.checkDomainListSave({ next, stored, registered, max }).kind;
-    expect(save(['shop.com'], [], 1)).toBe('plan_limit');
-    expect(save(['www.mywebsite.com'], [], 1)).toBe('ok');
-    expect(save(['shop.com'], [], 1, [])).toBe('ok');
-    expect(save(['shop.com'], [], 2)).toBe('ok');
-    expect(save(['a.com', 'b.com'], [], 2)).toBe('plan_limit');
-    expect(save(['a.com', 'b.com', 'c.com'], [], -1)).toBe('ok');
-    // A list stored past the number (a downgrade, or before the number): resent or shortened, never cut.
-    expect(save(['a.com', 'b.com'], ['a.com', 'b.com'], 1)).toBe('ok');
-    expect(save(['a.com'], ['a.com', 'b.com'], 1)).toBe('ok');
-    expect(save(['a.com', 'c.com'], ['a.com', 'b.com'], 1)).toBe('plan_limit');
+  it('a host and its www twin are one site in the list too', () => {
+    expect(shared.domainSlotsUsed(['mywebsite.com'], ['shop.com', 'www.shop.com'])).toBe(2);
+    expect(shared.canAddDomain(['mywebsite.com'], ['shop.com', 'www.shop.com'], 3)).toBe(true);
   });
 
-  it('an added entry must be a domain; one already stored is kept as it is', () => {
-    expect(domains.checkDomainListSave({ next: ['https://x.com'], stored: [], registered: [], max: -1 })).toEqual({ kind: 'invalid_domain', entry: 'https://x.com' });
-    expect(domains.checkDomainListSave({ next: ['x.com/path'], stored: ['x.com/path'], registered: [], max: -1 }).kind).toBe('ok');
-    expect(domains.checkDomainListSave({ next: [' Shop.COM ', 'shop.com', ''], stored: [], registered: [], max: -1 })).toEqual({ kind: 'ok', list: ['shop.com'] });
+  it('a row not filled in yet holds a slot, so no more rows are offered than the plan allows', () => {
+    expect(shared.canAddDomain(['mywebsite.com'], [''], 2)).toBe(false);
+    expect(shared.canAddDomain(['mywebsite.com'], [''], 3)).toBe(true);
+    expect(shared.canAddDomain(['mywebsite.com'], ['', ''], 3)).toBe(false);
+  });
+
+  it('a save past the number is refused only when it adds a site', () => {
+    const past = (list: string[], stored: string[], max: number, registered = ['mywebsite.com']) =>
+      shared.addsSitePastLimit({ list, stored, registered, max });
+    expect(past(['shop.com'], [], 1)).toBe(true);
+    expect(past(['www.mywebsite.com'], [], 1)).toBe(false);
+    expect(past(['shop.com'], [], 1, [])).toBe(false);
+    expect(past(['shop.com'], [], 2)).toBe(false);
+    expect(past(['a.com', 'b.com'], [], 2)).toBe(true);
+    expect(past(['a.com', 'b.com', 'c.com'], [], -1)).toBe(false);
+    // A list stored past the number (a downgrade, or before the number): resent, shortened or respelled, never cut.
+    expect(past(['a.com', 'b.com'], ['a.com', 'b.com'], 1)).toBe(false);
+    expect(past(['a.com'], ['a.com', 'b.com'], 1)).toBe(false);
+    expect(past(['www.a.com', 'b.com'], ['a.com', 'b.com'], 1)).toBe(false);
+    expect(past(['a.com', 'b.com', 'www.mywebsite.com'], ['a.com', 'b.com'], 1)).toBe(false);
+    expect(past(['a.com', 'c.com'], ['a.com', 'b.com'], 1)).toBe(true);
+  });
+
+  it('an added entry must be a domain, and a *. never on a public suffix', () => {
+    expect(domains.isAddableDomainEntry('shop.com')).toBe(true);
+    expect(domains.isAddableDomainEntry('*.shop.com')).toBe(true);
+    expect(domains.isAddableDomainEntry('shop.xn--mgba3a4f16a')).toBe(true);
+    expect(domains.isAddableDomainEntry('https://x.com')).toBe(false);
+    expect(domains.isAddableDomainEntry('*.com.tr')).toBe(false);
+    expect(domains.isAddableDomainEntry('*.co.ir')).toBe(false);
+    expect(domains.isAddableDomainEntry('*.github.io')).toBe(false);
+    expect(domains.domainListAdditions([' Shop.COM ', 'shop.com', '', 'x.com/path'], ['x.com/path'])).toEqual({ list: ['shop.com', 'x.com/path'], added: ['shop.com'] });
   });
 });
 
@@ -162,6 +180,13 @@ describe('where the call widget runs', () => {
   it('nowhere without a registered website or a list (the chat widget\'s empty list no longer opens it)', async () => {
     state.domains = [];
     expect(await allowed('https://anything.example')).toBe(false);
+  });
+
+  it('an entry stored with a port keeps matching only that host and port', async () => {
+    state.domains = [];
+    expect(await allowed('https://shop.example:8080', ['shop.example:8080'])).toBe(true);
+    expect(await allowed('https://shop.example:9999', ['shop.example:8080'])).toBe(false);
+    expect(await allowed('http://shop.example', ['shop.example:8080'])).toBe(false);
   });
 
   it('never without an Origin, nor after a failed read of the registered website', async () => {
@@ -223,6 +248,31 @@ describe('PUT and GET /api/call-center/settings', () => {
     state.domains = [];
     domains.invalidateRegisteredWebsiteCache();
     expect((await put({ allowed_domains: ['shop.com'] })).status).toBe(200);
+  });
+
+  it('an unreadable plan answers 503 entitlements_unavailable, never a limit of 0', async () => {
+    state.limit = { allowed: false, limit: undefined as never, limitValid: false, reason: 'rpc_error' };
+    const res = await put({ allowed_domains: ['shop.com'] });
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe('entitlements_unavailable');
+    expect(state.updates).toEqual([]);
+  });
+
+  it('a save that adds nothing reads neither the plan nor the registered website', async () => {
+    state.row = { ...state.row, allowed_domains: ['a.com', 'b.com'] };
+    state.domainsFail = true;
+    state.limit = { allowed: false, limit: undefined as never, limitValid: false, reason: 'rpc_error' };
+    const res = await put({ allowed_domains: ['a.com'], display_name: 'Help' });
+    expect(res.status).toBe(200);
+    expect(state.domainReads).toBe(0);
+    expect(state.row.allowed_domains).toEqual(['a.com']);
+  });
+
+  it('refuses a *. on a public suffix (400)', async () => {
+    state.limit = { allowed: true, limit: -1, limitValid: true, reason: undefined };
+    const res = await put({ allowed_domains: ['*.com.tr'] });
+    expect(res.status).toBe(400);
+    expect(state.updates).toEqual([]);
   });
 
   it('refuses an added entry that is no domain (400)', async () => {

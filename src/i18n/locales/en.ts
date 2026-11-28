@@ -3731,7 +3731,7 @@ const en = {
       headerSubtitle: 'Standalone voice & video module — independent of chat.',
       unavailableTitle: 'The call center is not available',
       unavailablePlatform: 'The platform has switched the call center off.',
-      unavailableWorkspace: 'Your workspace has the call center switched off. An owner or admin can turn it on in the call center settings.',
+      unavailableWorkspace: 'The call center is off in your workspace. The workspace owner can turn it on at the top of the call center.',
       pill: {
         loading: 'Loading…',
         platformDisabled: 'Platform disabled',

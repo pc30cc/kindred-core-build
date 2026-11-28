@@ -3714,7 +3714,7 @@ const fa: TranslationKeys = {
       headerSubtitle: 'ماژول مستقل صدا و تصویر — جدا از گفتگو.',
       unavailableTitle: 'مرکز تماس در دسترس نیست',
       unavailablePlatform: 'مرکز تماس در پلتفرم خاموش شده است.',
-      unavailableWorkspace: 'مرکز تماس در فضای کاری شما خاموش است. مالک یا مدیر فضای کاری می‌تواند آن را از تنظیمات مرکز تماس روشن کند.',
+      unavailableWorkspace: 'مرکز تماس در فضای کاری شما خاموش است. مالک فضای کاری می‌تواند آن را از بالای صفحهٔ مرکز تماس روشن کند.',
       pill: {
         loading: 'در حال بارگذاری…',
         platformDisabled: 'پلتفرم غیرفعال است',
@@ -4054,7 +4054,7 @@ const fa: TranslationKeys = {
       allowedDomainsSaved: 'دامنه‌های مجاز ذخیره شد',
       testBootstrap: 'تست بوت‌استرپ',
       testBootstrapHint: 'آنچه را مرورگر هنگام بارگذاری ویجت می‌بیند بررسی می‌کند.',
-      testFromPanelNote: 'این آزمایش از آدرس پنل انجام می‌شود که جزو سایت‌های شما نیست، پس «origin_denied» اینجا طبیعی است. روی سایت خودتان ویجت بالا می‌آید.',
+      testFromPanelNote: 'این تست از آدرس پنل اجرا می‌شود که جزو سایت‌های شما نیست، پس «origin_denied» اینجا طبیعی است. روی سایت خودتان ویجت بالا می‌آید.',
       runTest: 'اجرای تست',
       rawResponse: 'پاسخ خام',
       statusLabel: 'وضعیت:',

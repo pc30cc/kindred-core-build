@@ -4049,7 +4049,6 @@ const en = {
     },
     install: {
       embedCode: 'Embed code',
-      embedCodeHint: 'Widget script is loaded from {{assets}}. API requests go to {{api}}. These can differ (e.g. CDN-hosted assets + separate API host).',
       workspaceIdInstall: 'Workspace ID install',
       publicKeyInstall: 'Public key install',
       publicKeyNotAvailable: 'Public key not available yet.',

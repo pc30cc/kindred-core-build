@@ -4032,7 +4032,6 @@ const fa: TranslationKeys = {
     },
     install: {
       embedCode: 'کد جاسازی',
-      embedCodeHint: 'اسکریپت ویجت از {{assets}} بارگذاری می‌شود. درخواست‌های API به {{api}} می‌روند. این‌ها می‌توانند متفاوت باشند (مثلاً منابع CDN + هاست API جدا).',
       workspaceIdInstall: 'نصب با شناسهٔ فضای کاری',
       publicKeyInstall: 'نصب با کلید عمومی',
       publicKeyNotAvailable: 'کلید عمومی هنوز در دسترس نیست.',

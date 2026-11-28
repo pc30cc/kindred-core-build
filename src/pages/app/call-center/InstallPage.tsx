@@ -96,11 +96,7 @@ export default function InstallPage() {
     <div className="space-y-6 max-w-3xl">
       {/* Embed code */}
       <Panel className="space-y-4">
-        <SectionHeading
-          icon={Code2}
-          title={t('callCenter.install.embedCode')}
-          hint={t('callCenter.install.embedCodeHint', { assets: widgetAssetBase, api: apiBase })}
-        />
+        <SectionHeading icon={Code2} title={t('callCenter.install.embedCode')} />
         <div>
           <div className="text-xs text-muted-foreground mb-1">{t('callCenter.install.workspaceIdInstall')}</div>
           <pre className="overflow-x-auto rounded-lg border border-border/60 bg-muted/60 p-3 text-xs">{snippetWs}</pre>

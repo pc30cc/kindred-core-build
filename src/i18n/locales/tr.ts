@@ -4036,7 +4036,6 @@ const tr: TranslationKeys = {
     },
     install: {
       embedCode: 'Gömme kodu',
-      embedCodeHint: 'Widget script {{assets}} adresinden yüklenir. API istekleri {{api}} adresine gider. Bunlar farklı olabilir (örn. CDN varlıkları + ayrı API).',
       workspaceIdInstall: 'Çalışma alanı ID ile kurulum',
       publicKeyInstall: 'Genel anahtar ile kurulum',
       publicKeyNotAvailable: 'Genel anahtar henüz yok.',

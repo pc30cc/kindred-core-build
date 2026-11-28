@@ -32,6 +32,7 @@ import {
 } from '../services/calls/livekitConfig.js';
 import { normalizeClientWsUrl } from '../services/calls/rtcResolver.js';
 import { computeRecordingCapability, disabledRecordingCapability } from '../services/callCenter/recording.js';
+import { callWidgetDomainLimit, checkDomainListSave, registeredWebsiteDomains } from '../services/callCenter/callWidgetDomains.js';
 import {
   startCallCenterRecording,
   stopCallCenterRecording,
@@ -372,7 +373,10 @@ callCenterRouter.get('/settings', async (req, res) => {
     offline_behavior: normalizeCallWidgetOfflineBehavior(settingsRaw.offline_behavior),
     ...normalizedPlacement(settingsRaw),
   };
-  res.json({ settings, platform, effective, recording });
+  // The registered website the call widget runs on beside the list (Install
+  // page; services/callCenter/callWidgetDomains.ts). A failed read shows none.
+  const registered_domains = await registeredWebsiteDomains(ctx.config, wid).catch(() => [] as string[]);
+  res.json({ settings, platform, effective, recording, registered_domains });
 });
 
 /**
@@ -413,7 +417,7 @@ function isMissingDesignColumn(error: unknown): boolean {
 
 const settingsPatchSchema = z.object({
   enabled: z.boolean().optional(),
-  allowed_domains: z.array(z.string()).optional(),
+  allowed_domains: z.array(z.string().max(255)).max(1000).optional(),
   // Stored as one of the five placements: an older spelling becomes its
   // placement, anything else `right` (where it always rendered), so an old
   // dashboard resending what it loaded never fails.
@@ -483,6 +487,25 @@ callCenterRouter.put('/settings', async (req, res) => {
       return res.status(403).json({ error: 'owner_only', field: 'enabled' });
     }
     delete patch.enabled;
+  }
+  // The sites the call widget runs on: the registered website counts as one
+  // of the plan's max_call_widget_domains, the list holds the rest. Only a
+  // save that adds a site is held to the number (services/callCenter/
+  // callWidgetDomains.ts), so a resent or shortened list is always accepted.
+  if (patch.allowed_domains !== undefined) {
+    const [current, registered, max] = await Promise.all([
+      getOrCreateWorkspaceSettings(ctx.config, wid),
+      registeredWebsiteDomains(ctx.config, wid),
+      callWidgetDomainLimit(ctx.config, wid),
+    ]);
+    const verdict = checkDomainListSave({ next: patch.allowed_domains, stored: current.allowed_domains, registered, max });
+    if (verdict.kind === 'invalid_domain') {
+      return res.status(400).json({ error: 'invalid_body', details: { fieldErrors: { allowed_domains: ['invalid_domain'] } }, entry: verdict.entry });
+    }
+    if (verdict.kind === 'plan_limit') {
+      return res.status(403).json({ error: 'plan_limit', limit: 'max_call_widget_domains', max: verdict.max });
+    }
+    patch.allowed_domains = verdict.list;
   }
   // Switching the call center on needs it in the workspace's plan. Only the
   // switch from off to on is checked: a workspace that is already on resends

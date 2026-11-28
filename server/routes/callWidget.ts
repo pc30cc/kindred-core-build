@@ -1,6 +1,7 @@
 /**
  * Call Center — public visitor-facing routes for the standalone call widget.
- * Mounted at /api/call-widget/*. CORS is dynamic per workspace allowed_domains.
+ * Mounted at /api/call-widget/*. CORS reflects the caller; which sites may use a
+ * workspace's widget is callOriginAllowed (services/callCenter/callWidgetDomains.ts).
  * No service tokens leak to visitors. Visitors get short-lived HMAC sessions.
  */
 import { Router, type NextFunction, type Response } from 'express';
@@ -15,7 +16,6 @@ import {
   getPlatformCallCenterSettings,
   computeEffectiveCallCenterCaps,
   computeEffectiveCallCenterLocales,
-  originAllowed,
   callWidgetDesignSettings,
   type CallWidgetDesignSettings,
   type WorkspaceCallCenterSettings,
@@ -24,7 +24,7 @@ import { signWidgetSession, verifyWidgetSession } from '../services/callCenter/w
 import { memoCallWidgetBootstrap } from '../services/callCenter/bootstrapCache.js';
 import { loadPublicCallPresence, operatorOwnName } from '../services/callCenter/publicPresence.js';
 import { issuePresenceTicket, readPresenceTicket } from '../services/callCenter/presenceTicket.js';
-import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
+import { callWidgetOriginAllowed } from '../services/callCenter/callWidgetDomains.js';
 import { takeAnonymousCallBootstrap } from '../services/widget/security.js';
 import { resolveEffectiveCallProvider, resolveCallProvider } from '../services/calls/providerResolver.js';
 import { clearInCall } from '../services/calls/availability.js';
@@ -168,7 +168,7 @@ export function callWidgetCors(req: ExpressRequest, res: Response, next: NextFun
   next();
 }
 
-// Dynamic CORS per workspace allowed_domains
+// CORS reflects the caller, so the loader can read a 403 origin_denied body.
 callWidgetRouter.use(callWidgetCors);
 
 function getOrigin(req): string | null {
@@ -176,27 +176,18 @@ function getOrigin(req): string | null {
 }
 
 /**
- * ONE canonical origin boundary for the visitor-facing call widget.
- *
- * The call widget used to enforce ONLY `call_center_workspace_settings.allowed_domains`
- * and fail closed when that list was empty — so a site where the chat widget
- * worked fine got a 403 `origin_denied` from /call-widget/bootstrap.
- * The canonical widget boundary (verified workspace_domains + widget_settings
- * allowlist + subdomain rules) is the same one the chat widget uses; the
- * call-center list stays as an ADDITIONAL allowance.
+ * ONE origin boundary for the visitor-facing call widget (bootstrap, a call
+ * request, a join token, a callback request): the workspace's registered
+ * website and the call center's own list, nothing else (owner, 2026-11-28;
+ * services/callCenter/callWidgetDomains.ts). It used to fall back to the
+ * chat widget's rule, under which an empty chat list let any site run it.
  */
-async function callOriginAllowed(
+function callOriginAllowed(
   config: ServerConfig,
   ws: WorkspaceCallCenterSettings,
   origin: string | null,
 ): Promise<boolean> {
-  if (!origin) return false;
-  if (originAllowed(ws, origin)) return true;
-  try {
-    return await isWorkspaceOriginAllowed(config, ws.workspace_id, origin);
-  } catch {
-    return false;
-  }
+  return callWidgetOriginAllowed(config, ws, origin);
 }
 
 /**

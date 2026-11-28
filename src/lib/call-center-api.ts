@@ -618,7 +618,11 @@ export const callCenterApi = {
       `/api/call-center/capabilities?workspaceId=${encodeURIComponent(workspaceId)}`,
     ),
   getSettings: (workspaceId: string) =>
-    jsonFetch<{ settings: CallCenterWorkspaceSettings; platform: CallCenterPlatformSettings; effective: CallCenterEffectiveCaps; recording?: RecordingCapability }>(
+    jsonFetch<{
+      settings: CallCenterWorkspaceSettings; platform: CallCenterPlatformSettings; effective: CallCenterEffectiveCaps; recording?: RecordingCapability;
+      /** The registered website the call widget runs on beside allowed_domains (absent from an older backend). */
+      registered_domains?: string[];
+    }>(
       `/api/call-center/settings?workspaceId=${encodeURIComponent(workspaceId)}`,
     ),
   updateSettings: (workspaceId: string, patch: Partial<CallCenterWorkspaceSettings>) =>

@@ -94,6 +94,10 @@ function oldRow(): Row {
     id: 'cc-1', workspace_id: WS, enabled: true, public_key: 'cck_x', display_name: 'Support', widget_position: 'bottom-right',
     widget_template_id: 'default', widget_theme: {}, pre_call_form_schema: [], offline_behavior: 'show_callback',
     business_hours: { legacy: true, note: 'free text from the API', days: ['sat', 'sun'] }, avatar_url: null, avatar_storage_path: null,
+    // What an old dashboard loaded and resends with its whole save: a resent
+    // list adds no site, so the plan's domain number is not asked
+    // (services/callCenter/callWidgetDomains.ts).
+    allowed_domains: ['shop.example'],
   };
 }
 const row277 = (): Row => ({ ...oldRow(), launcher_style: 'round_label', callback_slots_enabled: false, callback_slot_minutes: 30, callback_days_ahead: 4, callback_slot_capacity: null });

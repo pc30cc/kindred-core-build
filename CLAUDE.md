@@ -62,7 +62,14 @@ the widget's one language, `runtime-i18n-<id>.js`; rules doc §5), the core
 (`presentation-default.js`, which draws the launcher), `runtime.css`, the skin
 and the fonts stylesheet; the panel (`presentation-default-panel.js` and
 `.css`) loads on the visitor's first intent (rules doc, "Call widget panel").
-Its budgets are `BUDGETS.call` in the same test. The
+Its budgets are `BUDGETS.call` in the same test. Since 2026-11-28 (owner)
+it runs only on the workspace's registered website (its verified
+`workspace_domains`) and the call center's own list (Install → Allowed
+domains), never by the chat widget's rule; the plan's
+`max_call_widget_domains` (registry default 1 = the registered website, -1 =
+unlimited) bounds them, checked only when a save adds a site
+(`server/services/callCenter/callWidgetDomains.ts`). Its on/off switch is in
+the call center's masthead, for the workspace owner only. The
 pixel gate is `e2e/callWidgetScreens.spec.ts` (Tier A, both brands, against
 the handoff's boards). Decisions, deviations and rollout:
 `docs/call-widget-handoff/IMPLEMENTATION_NOTES.md`. Members join a call room

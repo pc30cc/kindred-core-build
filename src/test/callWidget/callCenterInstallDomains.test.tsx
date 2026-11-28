@@ -5,7 +5,8 @@
  * unknown = never); a refusal past the number says so. The page is the embed
  * code and the domains only (owner, 2026-11-28): no bootstrap test (run from
  * the panel's address, which is none of the workspace's sites, it could only
- * ever answer origin_denied) and no install health list.
+ * ever answer origin_denied), no install health list and no line naming the
+ * asset and API hosts under the embed code.
  *
  * @vitest-environment jsdom
  */
@@ -145,12 +146,15 @@ describe('the allowed domains of the call widget', () => {
     expect('testBootstrap' in I).toBe(false);
   });
 
-  it('carries no install health list', () => {
+  it('carries no install health list and no hosts line under the embed code', () => {
     mount();
     expect(screen.queryByText('سلامت نصب')).toBeNull();
     expect(screen.queryByText('پلتفرم فعال است')).toBeNull();
     expect(screen.queryByText('کلید عمومی تولید شده')).toBeNull();
     expect('installHealth' in I).toBe(false);
+    // Nor the line under the embed code naming the asset and API hosts.
+    expect(screen.queryByText(/اسکریپت ویجت از/)).toBeNull();
+    expect('embedCodeHint' in I).toBe(false);
     // What stays: the embed code and the domains.
     expect(screen.getByText(I.embedCode)).toBeTruthy();
     expect(screen.getByText(I.allowedDomains)).toBeTruthy();

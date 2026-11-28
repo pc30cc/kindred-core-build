@@ -72,10 +72,10 @@ describe('signup step 2 (SignupStepCompany)', () => {
     expect((screen.getByRole('button', { name: en.auth.completeSignup }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it.each(['en', 'fa'] as const)('says nothing new about it (%s): only the labels the form already had', (locale) => {
+  it.each(['en', 'fa'] as const)('says nothing new about it (%s): only the labels and the two hints', (locale) => {
     const A = (locale === 'fa' ? fa : en).auth;
     const view = step('', locale);
-    expect(view.container.textContent).toBe(A.companyNameLabel + A.websiteDomainLabel + A.websiteDomainHint + A.completeSignup);
+    expect(view.container.textContent).toBe(A.companyNameLabel + A.companyNameHint + A.websiteDomainLabel + A.websiteDomainHint + A.completeSignup);
   });
 });
 

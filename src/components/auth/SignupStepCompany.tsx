@@ -39,6 +39,7 @@ export default function SignupStepCompany({
           required
           maxLength={100}
         />
+        <p className="text-xs text-muted-foreground">{t('auth.companyNameHint')}</p>
       </div>
 
       {/* Website Domain */}

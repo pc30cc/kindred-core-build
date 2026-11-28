@@ -6,7 +6,6 @@ import { Link } from 'react-router-dom';
 import { NumberTicker } from '@/components/magic/NumberTicker';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
-import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useConversations } from '@/hooks/useConversations';
 import { useOnlineVisitors, useVisitorSessions } from '@/hooks/useVisitors';
@@ -24,8 +23,6 @@ import { formatBytesAsMb, formatMb } from '@/lib/storageUnits';
 import { BYTES_PER_MB } from '../../../shared/planLimits';
 import { useEdition } from '@/hooks/useEdition';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
-import { formatLongDate } from '@/lib/date';
-import GetStartedWizard from '@/components/app/GetStartedWizard';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { OperatorAvatar } from '@/components/ui/operator-avatar';
 import { contactDisplayName } from '@/lib/contact-display';
@@ -89,7 +86,6 @@ export default function OverviewPage() {
   // Art draws the activity as daily columns (src/themes/art/charts); null in Classic.
   const art = useArtCharts();
   const workspace = useCurrentWorkspace();
-  const { platformName } = useBrandingContext();
   const { user } = useAuth();
   const wsPath = useWorkspacePath();
 
@@ -187,15 +183,6 @@ export default function OverviewPage() {
   }, [sessions]);
   const teamOnline = team.filter((m) => m.state === 'online' || m.status === 'online').length;
 
-  const userName =
-    (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
-
-  const greeting = useMemo(() => {
-    const h = new Date().getHours();
-    if (h < 12) return tr('dashboard.greetingMorning');
-    if (h < 18) return tr('dashboard.greetingAfternoon');
-    return tr('dashboard.greetingEvening');
-  }, [locale]);
 
   // 14-day conversation trend (falls back to the window around the latest data)
   const chartData = useMemo(() => {
@@ -297,29 +284,11 @@ export default function OverviewPage() {
         <span aria-hidden className="meteor" style={{ top: 10, insetInlineEnd: 80 }} />
         <span aria-hidden className="meteor" style={{ top: 40, insetInlineEnd: 260, animationDelay: "2.4s" }} />
         <span aria-hidden className="meteor" style={{ top: 0, insetInlineEnd: 420, animationDelay: "4.8s" }} />
-        <div className="relative flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div
-              dir={dir}
-              data-hero-eyebrow
-              className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur"
-            >
-              <Sparkles className="h-3 w-3 text-primary" />
-              <bdi className="text-shine">{formatLongDate(new Date())}</bdi>
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight sm:text-[34px]">
-              <span className="text-brand">
-                {greeting}{userName ? `، ${userName}` : ''}
-              </span>
-            </h1>
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              {workspace?.name
-                ? `${tr('dashboard.workspaceLabel')}: ${workspace.name}`
-                : platformName}
-            </p>
-          </div>
-
-          {canSeeBilling && (
+        {/* The date, the greeting and the workspace line are gone (owner,
+            2026-11-28); the page keeps its heading for screen readers. */}
+        <h1 className="sr-only">{tr('nav.dashboard')}</h1>
+        {canSeeBilling && (
+        <div className="relative flex flex-wrap items-start justify-end gap-4">
           <Link
             to={wsPath('/billing')}
             data-hero-aside
@@ -334,11 +303,11 @@ export default function OverviewPage() {
             </span>
             <ArrowRight className={`h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 ${isRtl ? 'rotate-180' : ''}`} />
           </Link>
-          )}
         </div>
+        )}
 
         {/* quick actions */}
-        <div data-hero-actions className="relative mt-5 flex flex-wrap gap-2">
+        <div data-hero-actions className={cn('relative flex flex-wrap gap-2', canSeeBilling && 'mt-5')}>
           {[
             { label: tr('dashboard.openInbox'), icon: Inbox, path: '/inbox', accent: 'emerald' as AiAccent, hidden: !inboxOk },
             { label: tr('dashboard.manageContacts'), icon: Users, path: '/contacts', accent: 'amber' as AiAccent },
@@ -701,8 +670,9 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {/* ── Onboarding ───────────────────────────────────── */}
-      {canSeeBilling && <GetStartedWizard />}
+      {/* The "Get started" checklist (GetStartedWizard) is off for now (owner,
+          2026-11-28): none of its steps is tracked, and the trial days it
+          counts are never granted. Put it back here once they are. */}
     </div>
   );
 }

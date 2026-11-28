@@ -34,6 +34,16 @@ function validateDomain(d: string): string | null {
   return null;
 }
 
+/** What the bootstrap test shows: the answer's status and fields, or the fetch's error. */
+type BootstrapTestResult = {
+  httpStatus?: number;
+  status?: string;
+  reason?: string;
+  effective?: Record<string, unknown>;
+  error?: string;
+  [key: string]: unknown;
+};
+
 export default function InstallPage() {
   const { t } = useTranslation();
   const { workspace } = useActiveWorkspace();
@@ -57,7 +67,7 @@ export default function InstallPage() {
 
   const [domains, setDomains] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<number, string>>({});
-  const [bootstrapResult, setBootstrapResult] = useState<any>(null);
+  const [bootstrapResult, setBootstrapResult] = useState<BootstrapTestResult | null>(null);
 
   useEffect(() => {
     if (data?.settings?.allowed_domains) setDomains([...data.settings.allowed_domains]);
@@ -109,8 +119,8 @@ export default function InstallPage() {
       const r = await fetch(`${apiBase}/api/call-widget/bootstrap?workspaceId=${wid}`);
       const j = await r.json();
       setBootstrapResult({ httpStatus: r.status, ...j });
-    } catch (e: any) {
-      setBootstrapResult({ error: e.message });
+    } catch (e: unknown) {
+      setBootstrapResult({ error: e instanceof Error ? e.message : String(e) });
     }
   }
 
